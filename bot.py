@@ -33,7 +33,6 @@ ai_gate = asyncio.Semaphore(2)
 CASES_FILE = "cases.json"
 TEACHERS_FILE = "teachers.json"
 STUDENTS_FILE = "students.json"
-DONE_FILE = "done.json"
 
 # --- HELPER FUNCTIONS FOR JSON ---
 def load_json(filepath, default):
@@ -61,9 +60,6 @@ def save_teachers(data): save_json(TEACHERS_FILE, data)
 def get_students(): return load_json(STUDENTS_FILE, {})
 def save_students(data): save_json(STUDENTS_FILE, data)
 
-def get_done(): return load_json(DONE_FILE, {})
-def save_done(data): save_json(DONE_FILE, data)
-
 def get_teacher_code_by_chat_id(chat_id):
     teachers = get_teachers()
     for code, t_info in teachers.items():
@@ -81,73 +77,214 @@ async def send_long(bot, chat_id, text, reply_markup=None):
             markup = reply_markup if i == len(parts) - 1 else None
             await bot.send_message(chat_id=chat_id, text=part, reply_markup=markup)
 
-# --- COMMANDS ---
+# --- START & ROLE SELECTION ---
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_chat.id)
-    students = get_students()
     teachers = get_teachers()
-    
-    # Agarda o'qituvchi bo'lsa
+    students = get_students()
+
+    # Agar allaqachon o'qituvchi bo'lsa
     if user_id in [str(t["chat_id"]) for t in teachers.values()]:
         teacher_code = get_teacher_code_by_chat_id(update.effective_chat.id)
-        kb = [["➕ Yangi keys qo'shish (/addcase)"], ["📊 O'quvchilar ro'yxati"]]
+        kb = [["➕ Yangi keys qo'shish"], ["📊 O'quvchilar ro'yxati"]]
         await update.message.reply_text(
-            f"👨‍🏫 Salom, O'qituvchi!\n"
+            f"👨‍🏫 Xush kelibsiz, O'qituvchi!\n"
             f"🔑 Sizning kodingiz: `{teacher_code}`\n"
-            f"Talabalaringizga ushbu kodni bering.",
+            f"Keys qo'shish uchun pastdagi tugmani bosing yoki /addcase yuboring.",
             parse_mode="Markdown",
             reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True)
         )
         return
 
-    # Talaba o'qituvchi kodini kiritganmi?
-    if user_id not in students or not students[user_id].get("teacher_code"):
-        context.user_data["awaiting_teacher_code"] = True
+    # Agar allaqachon o'qituvchi kodiga biriktirilgan talaba bo'lsa
+    if user_id in students and students[user_id].get("teacher_code"):
+        kb = [["📌 Case'ni boshlash"]]
         await update.message.reply_text(
-            "👋 Salom! Boshlash uchun o'qituvchingiz bergan **O'qituvchi kodi**ni kiritib yuboring (Masalan: `T_1234`):",
+            f"Xush kelibsiz, {students[user_id].get('name', 'Talaba')}!\n\n"
+            "Case yechishni boshlash uchun quyidagi tugmani bosing:",
+            reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True)
+        )
+        return
+
+    # Yangi foydalanuvchi: Rolni tanlash uchun inline tugmalar chiqaramiz
+    keyboard = [
+        [
+            InlineKeyboardButton("👨‍🏫 O'qituvchiman", callback_data="role_teacher"),
+            InlineKeyboardButton("👨‍🎓 Talabaman", callback_data="role_student")
+        ]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text(
+        "👋 Assalomu alaykum! SCM Case botiga xush kelibsiz.\n\n"
+        "Iltimos, botdan qaysi maqsadda foydalanishigizni tanlang:",
+        reply_markup=reply_markup
+    )
+
+# --- CALLBACK QUERY (Rolni bosganda ishlaydi) ---
+
+async def role_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user_id = str(query.message.chat_id)
+    chat_id = query.message.chat_id
+    teachers = get_teachers()
+
+    if query.data == "role_teacher":
+        # Avtomatik o'qituvchi sifatida ro'yxatdan o'tkazish
+        existing_code = get_teacher_code_by_chat_id(chat_id)
+        if existing_code:
+            teacher_code = existing_code
+        else:
+            teacher_code = f"T_{str(chat_id)[-4:]}"
+            teachers[teacher_code] = {
+                "chat_id": chat_id,
+                "name": query.from_user.full_name
+            }
+            save_teachers(teachers)
+
+        kb = [["➕ Yangi keys qo'shish"], ["📊 O'quvchilar ro'yxati"]]
+        await query.edit_message_text(
+            f"✅ Siz O'qituvchi sifatida muvaffaqiyatli ro'yxatdan o'tdingiz!\n\n"
+            f"🔑 **Sizning Kodingiz:** `{teacher_code}`\n\n"
+            f"Ushbu kodni talabalaringizga yuboring. Keys qo'shish uchun quyidagi menyudan foydalaning.",
+            parse_mode="Markdown"
+        )
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text="Asosiy menyu:",
+            reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True)
+        )
+
+    elif query.data == "role_student":
+        context.user_data["awaiting_teacher_code"] = True
+        await query.edit_message_text(
+            "👨‍🎓 Siz Talaba sifatida tanlandingiz.\n\n"
+            "Iltimos, o'qituvchingizdan olgan **O'qituvchi kodi**ni (masalan: `T_1234`) yuboring:"
+        )
+
+# --- MESSAGE HANDLER ---
+
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.effective_chat.id)
+    text = update.message.text.strip()
+    students = get_students()
+    teachers = get_teachers()
+
+    # 1. O'qituvchi menyudagi tugmani bosganda
+    if text == "➕ Yangi keys qo'shish":
+        await update.message.reply_text(
+            "✍️ Keys qo'shish uchun quyidagi formatda yuboring:\n\n"
+            "`/addcase Sarlavha | Keys matni | 1-savol | 2-savol`",
             parse_mode="Markdown"
         )
         return
 
-    kb = [["📌 Case'ni boshlash"]]
-    await update.message.reply_text(
-        f"Xush kelibsiz, {students[user_id].get('name', 'Talaba')}!\n\n"
-        "Tizim tayyor. Case topshirish uchun quyidagi tugmani bosing:",
-        reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True)
-    )
-
-async def register_teacher(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = update.effective_chat.id
-    teachers = get_teachers()
-    
-    existing_code = get_teacher_code_by_chat_id(chat_id)
-    if existing_code:
-        await update.message.reply_text(f"Siz allaqachon o'qituvchisiz!\n🔑 Kodingiz: `{existing_code}`", parse_mode="Markdown")
+    # 2. Talaba o'qituvchi kodini yuborganda
+    if context.user_data.get("awaiting_teacher_code"):
+        if text in teachers:
+            students[user_id] = {
+                "name": update.effective_user.full_name,
+                "teacher_code": text
+            }
+            save_students(students)
+            context.user_data["awaiting_teacher_code"] = False
+            kb = [["📌 Case'ni boshlash"]]
+            await update.message.reply_text(
+                f"✅ Tabriklayman! Siz `{teachers[text]['name']}` o'qituvchining guruhiga qo'shildingiz.\n\n"
+                "Case yechishni boshlash uchun pastdagi tugmani bosing:",
+                parse_mode="Markdown",
+                reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True)
+            )
+        else:
+            await update.message.reply_text("❌ Bunday O'qituvchi kodi topilmadi. Qaytadan to'g'ri kodni kiriting:")
         return
 
-    teacher_code = f"T_{str(chat_id)[-4:]}"
-    teachers[teacher_code] = {
-        "chat_id": chat_id,
-        "name": update.effective_user.full_name
-    }
-    save_teachers(teachers)
-    
-    kb = [["➕ Yangi keys qo'shish (/addcase)"]]
-    await update.message.reply_text(
-        f"✅ Siz muvaffaqiyatli O'qituvchi sifatida ro'yxatdan o'tdingiz!\n\n"
-        f"🔑 Sizning O'qituvchi kodingiz: `{teacher_code}`\n"
-        f"Ushbu kodni talabalaringizga bering.",
-        parse_mode="Markdown",
-        reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True)
-    )
+    # 3. Case boshlash tugmasi
+    if text == "📌 Case'ni boshlash":
+        student = students.get(user_id)
+        if not student or not student.get("teacher_code"):
+            context.user_data["awaiting_teacher_code"] = True
+            await update.message.reply_text("Iltimos, avval o'qituvchingiz bergan kodni kiriting:")
+            return
 
-async def add_case(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        teacher_code = student["teacher_code"]
+        cases_db = get_cases()
+        teacher_cases = cases_db.get(teacher_code, [])
+
+        if not teacher_cases:
+            await update.message.reply_text("O'qituvchingiz hali bu bazaga birorta ham keys yuklamagan. Biroz kuting.")
+            return
+
+        selected_case = random.choice(teacher_cases)
+        context.user_data["current_case"] = selected_case
+        context.user_data["awaiting_case_answer"] = True
+
+        q_list = "\n".join([f"{i+1}) {q}" for i, q in enumerate(selected_case["questions"])])
+        
+        msg = (
+            f"📋 **Case: {selected_case['title']}**\n\n"
+            f"{selected_case['text']}\n\n"
+            f"❓ **Savollar:**\n{q_list}\n\n"
+            "✍️ *Javoblaringizni bitta xabarda tartib bilan yozib yuboring:*"
+        )
+        await update.message.reply_text(msg, parse_mode="Markdown")
+        return
+
+    # 4. Talabaning case javobini qabul qilish va AI baholashi
+    if context.user_data.get("awaiting_case_answer"):
+        selected_case = context.user_data.get("current_case")
+        context.user_data["awaiting_case_answer"] = False
+
+        await update.message.reply_text("⏳ Javobingiz qabul qilindi. AI Professor tahlil qilmoqda, kuting...")
+
+        student = students[user_id]
+        teacher_code = student["teacher_code"]
+        teacher_info = teachers.get(teacher_code)
+
+        prompt = (
+            f"Siz ta'lim tizimidagi ultra-qattiqqo'l va adolatli professorsiz.\n"
+            f"Case: {selected_case['title']}\n"
+            f"Shart: {selected_case['text']}\n"
+            f"Savollar: {selected_case['questions']}\n"
+            f"Talabaning javobi: {text}\n\n"
+            f"Javobni tahlil qiling. Agar plagiat yoki umumiy so'zlar bo'lsa past baho bering.\n"
+            f"Format:\n1. Baho (1-100)\n2. Qisqa tahlil va kamchiliklar."
+        )
+
+        try:
+            async with ai_gate:
+                response = ai_client.models.generate_content(
+                    model=AI_MODEL_NAME,
+                    contents=prompt
+                )
+                ai_result = response.text
+        except Exception as e:
+            ai_result = f"AI baholashda xatolik yuz berdi: {e}"
+
+        await update.message.reply_text(f"📊 **AI Professor Bahosi:**\n\n{ai_result}", parse_mode="Markdown")
+
+        # Natijani FAQAT o'sha o'qituvchiga yuborish
+        if teacher_info and teacher_info.get("chat_id"):
+            t_msg = (
+                f"📥 **Yangi Case Javobi!**\n\n"
+                f"👤 **Talaba:** {student['name']}\n"
+                f"📋 **Case:** {selected_case['title']}\n\n"
+                f"💬 **Talaba Javobi:**\n{text}\n\n"
+                f"🤖 **AI Bahosi:**\n{ai_result}"
+            )
+            await send_long(context.bot, teacher_info["chat_id"], t_msg)
+
+        return
+
+# --- COMMANDS ---
+
+async def add_case_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     teacher_code = get_teacher_code_by_chat_id(chat_id)
     
     if not teacher_code:
-        await update.message.reply_text("❌ Siz o'qituvchi emassiz! Avval `/regteacher` buyrug'i orqali ro'yxatdan o'ting.", parse_mode="Markdown")
+        await update.message.reply_text("❌ Siz o'qituvchi emassiz!")
         return
 
     text = update.message.text.replace("/addcase", "").strip()
@@ -182,113 +319,7 @@ async def add_case(update: Update, context: ContextTypes.DEFAULT_TYPE):
     cases[teacher_code].append(new_case)
     save_cases(cases)
 
-    await update.message.reply_text(f"✅ Keys saqlandi!\n\n📌 ID: {new_id}\n📌 Sarlavha: {title}\nFaqat sizning talabalaringizga tushadi.")
-
-# --- MESSAGE HANDLER ---
-
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = str(update.effective_chat.id)
-    text = update.message.text.strip()
-    students = get_students()
-    teachers = get_teachers()
-
-    # 1. O'qituvchi kodini kutayotgan bo'lsa
-    if context.user_data.get("awaiting_teacher_code"):
-        if text in teachers:
-            students[user_id] = {
-                "name": update.effective_user.full_name,
-                "teacher_code": text
-            }
-            save_students(students)
-            context.user_data["awaiting_teacher_code"] = False
-            kb = [["📌 Case'ni boshlash"]]
-            await update.message.reply_text(
-                f"✅ Siz {teachers[text]['name']} o'qituvchisiga birikdingiz!\n"
-                "Endi '📌 Case'ni boshlash' tugmasini bosing:",
-                reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True)
-            )
-        else:
-            await update.message.reply_text("❌ Bunday O'qituvchi kodi topilmadi. Qaytadan kiriting:")
-        return
-
-    # 2. Case boshlash tugmasi
-    if text == "📌 Case'ni boshlash":
-        student = students.get(user_id)
-        if not student or not student.get("teacher_code"):
-            context.user_data["awaiting_teacher_code"] = True
-            await update.message.reply_text("Iltimos, avval O'qituvchi kodingizni kiriting:")
-            return
-
-        teacher_code = student["teacher_code"]
-        cases_db = get_cases()
-        teacher_cases = cases_db.get(teacher_code, [])
-
-        if not teacher_cases:
-            await update.message.reply_text("O'qituvchingiz hali birorta ham keys yuklamagan!")
-            return
-
-        selected_case = random.choice(teacher_cases)
-        context.user_data["current_case"] = selected_case
-        context.user_data["awaiting_case_answer"] = True
-
-        q_list = "\n".join([f"{i+1}) {q}" for i, q in enumerate(selected_case["questions"])])
-        
-        msg = (
-            f"📋 **Case: {selected_case['title']}**\n\n"
-            f"{selected_case['text']}\n\n"
-            f"❓ **Savollar:**\n{q_list}\n\n"
-            "✍️ *Javoblaringizni bitta xabarda tartib bilan yozib yuboring:*"
-        )
-        await update.message.reply_text(msg, parse_mode="Markdown")
-        return
-
-    # 3. Case javobini qabul qilish va AI baholash
-    if context.user_data.get("awaiting_case_answer"):
-        selected_case = context.user_data.get("current_case")
-        context.user_data["awaiting_case_answer"] = False
-
-        await update.message.reply_text("⏳ Javobingiz qabul qilindi. AI Professor baholamoqda, kuting...")
-
-        student = students[user_id]
-        teacher_code = student["teacher_code"]
-        teacher_info = teachers.get(teacher_code)
-
-        # AI prompt va baholash
-        prompt = (
-            f"Siz ta'lim tizimidagi ultra-qattiqqo'l va adolatli professorsiz.\n"
-            f"Case: {selected_case['title']}\n"
-            f"Shart: {selected_case['text']}\n"
-            f"Savollar: {selected_case['questions']}\n"
-            f"Talabaning javobi: {text}\n\n"
-            f"Javobni tahlil qiling. Agar plagiat yoki umumiy so'zlar bo'lsa past baho bering.\n"
-            f"Format:\n1. Baho (1-100)\n2. Qisqa tahlil va kamchiliklar."
-        )
-
-        try:
-            async with ai_gate:
-                response = ai_client.models.generate_content(
-                    model=AI_MODEL_NAME,
-                    contents=prompt
-                )
-                ai_result = response.text
-        except Exception as e:
-            ai_result = f"AI baholashda xatolik yuz berdi: {e}"
-
-        # Natijani talabaga ko'rsatish
-        await update.message.reply_text(f"📊 **AI Professor Bahosi:**\n\n{ai_result}", parse_mode="Markdown")
-
-        # Natijani FAQAT o'sha talabaning o'qituvchisiga yuborish
-        if teacher_info and teacher_info.get("chat_id"):
-            t_msg = (
-                f"📥 **Yangi Case Javobi!**\n\n"
-                f"👤 **Talaba:** {student['name']}\n"
-                f"📋 **Case:** {selected_case['title']}\n\n"
-                f"💬 **Talaba Javobi:**\n{text}\n\n"
-                f"🤖 **AI Bahosi:**\n{ai_result}"
-            )
-            await send_long(context.bot, teacher_info["chat_id"], t_msg)
-
-        return
+    await update.message.reply_text(f"✅ Keys bazangizga qo'shildi!\n\n📌 Sarlavha: {title}")
 
 # --- MAIN ---
 
@@ -300,8 +331,8 @@ def main():
     app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start_command))
-    app.add_handler(CommandHandler("regteacher", register_teacher))
-    app.add_handler(CommandHandler("addcase", add_case))
+    app.add_handler(CommandHandler("addcase", add_case_command))
+    app.add_handler(CallbackQueryHandler(role_callback, pattern="^role_"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     print("Bot muvaffaqiyatli ishga tushdi...")
