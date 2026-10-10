@@ -4,7 +4,7 @@ import random
 import asyncio
 import logging
 from datetime import datetime
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import (
     Application, CommandHandler, CallbackQueryHandler,
     MessageHandler, ContextTypes, filters
@@ -112,6 +112,13 @@ def level(total):
     if total >= 25: return "🥉 Qoniqarli"
     return "❌ Qoniqarsiz"
 
+def get_main_keyboard():
+    keyboard = [
+        [KeyboardButton("📝 Testni boshlash"), KeyboardButton("📌 Case'ni boshlash")],
+        [KeyboardButton("ℹ️ Yordam")]
+    ]
+    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+
 async def send_long(bot, chat_id, text, reply_markup=None):
     chunks = [text[i:i + 4000] for i in range(0, len(text), 4000)] or [""]
     for i, ch in enumerate(chunks):
@@ -128,14 +135,18 @@ def _grade_sync(items):
             f"TALABA JAVOBI:\n{ans}\n"
         )
     prompt = (
-        "Sen supply chain management fanidan qattiq, lekin adolatli o'qituvchisan. Talabaning quyidagi keys "
-        "javoblarini bahola. Har keys 10 ball: (a) tub sababni aniqlash 0-4, (b) analitik/amaliy yechim 0-4, "
-        "(c) javob strukturasi va aniqligi 0-2. Faqat har keysning o'z mezonlariga qarab bahola. "
-        "Talaba javobni erkin yozgan: uzunligiga emas, mazmuniga qarab bahola.\n\n"
+        "Sen supply chain management fanidan o'ta talabchan, qattiqqo'l va aqlli o'qituvchisan. "
+        "Talabaning quyidagi keys javoblarini bahola. \n\n"
+        "DIQQAT - MAXSUS QOIDA: Talabalar ba'zan boshqa sun'iy intellekt yoki internetdan tayyor javobni ko'chirib tashlashadi. "
+        "Agar talabaning javobi umumiy, qolip so'zlardan iborat bo'lib, o'zining mantiqiy tahlili va amaliy fikri ko'rinmasa, "
+        "uning ballarini (ayniqsa yechim va struktura qismini) shafqatsizlarcha pasaytirgin va izohda buni yozib ket. "
+        "Faqat o'zining chuqur mantiqiy fikri va aniq tahlili bor javoblargagina yuqori ball ber.\n\n"
+        "Har keys 10 ball: (a) tub sababni aniqlash 0-4, (b) analitik/amaliy yechim 0-4, "
+        "(c) javob strukturasi va aniqligi 0-2.\n\n"
         + "\n".join(parts)
         + "\nFaqat JSON qaytar, keyslar kiritilgan tartibda, aynan "
         + str(len(items))
-        + " ta element: {\"keyslar\":[{\"a\":int,\"b\":int,\"c\":int,\"izoh\":\"o'zbek tilida, 2-3 gap\"}]}"
+        + " ta element: {\"keyslar\":[{\"a\":int,\"b\":int,\"c\":int,\"izoh\":\"o'zbek tilida, nega bu ball qo'yilgani\"}]}"
     )
     resp = gemini_client.models.generate_content(
         model=GEMINI_MODEL, contents=prompt,
@@ -196,7 +207,6 @@ async def modellar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await update.message.reply_text(f"❌ Ro'yxat olinmadi: {e}")
 
-# O'qituvchi uchun yangi keys qo'shish buyrug'i: /addcase Sarlavha | Matn | 1-savol | 2-savol
 async def addcase(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not _is_teacher(update): return
     text = " ".join(context.args)
@@ -227,7 +237,7 @@ async def addcase(update: Update, context: ContextTypes.DEFAULT_TYPE):
     })
     save_cases(cases)
     global case_bag
-    case_bag = []  # yangi keys qo'shilganda bagni yangilaymiz
+    case_bag = [] 
     await update.message.reply_text(f"✅ Yangi keys qo'shildi!\nJami keyslar soni: {len(cases)}")
 
 def format_grade(name, items, results):
@@ -273,7 +283,7 @@ QUESTIONS = [
     {"q": "SCOR mantig'idagi Plan → Source → Make → Deliver → Return nimani beradi?", "opts": ["Faqat moliyaviy audit uchun framework", "Supply chain jarayonlarini yagona umumiy frameworkda ko'rish imkonini", "Faqat IT infratuzilmasini loyihalash usulini", "Faqat HR baholash tizimini"], "correct": 1},
     {"q": "Incoterms nimani belgilaydi?", "opts": ["Mahsulotning bozor narxini", "Xalqaro yetkazishda xarajat va risk kimga qachon o'tishini", "Bojxona bojining aniq stavkasini", "Valyuta ayirboshlash kursini"], "correct": 1},
     {"q": "Nega ba'zan havo transporti dengiz transportidan qimmat bo'lsa ham tanlanadi?", "opts": ["Chunki havo transporti doim arzonroq bo'ladi", "Yetkazish tezligi muhimroq bo'lgan holatlarda (tez buziluvchi yoki trend mahsulot)", "Chunki dengiz transporti bu yo'nalishda mavjud emas", "Chunki bu bojxona tomonidan talab qilinadi"], "correct": 1},
-    {"q": "Demand Forecasting nega hech qachon 100% aniq bo'lmaydi?", "opts": ["Chunki statistik usullar umuman ishlamaydi", "Kelajakdagi bozor xatti-harakati noaniqlikni o'z ichiga oladi — prognoz qaror uchun signal, kafolat emas", "Chunki talab har doim bir xil bo'ladi", "Chunki faqat tarixiy ma'lumot kerak छैन"], "correct": 1},
+    {"q": "Demand Forecasting nega hech qachon 100% aniq bo'lmaydi?", "opts": ["Chunki statistik usullar umuman ishlamaydi", "Kelajakdagi bozor xatti-harakati noaniqlikni o'z ichiga oladi — prognoz qaror uchun signal, kafolat emas", "Chunki talab har doim bir xil bo'ladi", "Chunki faqat tarixiy ma'lumot kerak emas"], "correct": 1},
     {"q": "Cold Chain logistikasi nima uchun oddiy tashishdan qimmatroq?", "opts": ["Faqat uzoqroq masofaga yuborilgani uchun", "Butun yo'l davomida belgilangan harorat rejimini uzluksiz saqlash qo'shimcha texnologiya va nazorat talab qilgani uchun", "Faqat og'irligi ko'proq bo'lgani uchun", "Faqat hujjat ishlari ko'proq bo'lgani uchun"], "correct": 1},
 ]
 
@@ -293,7 +303,8 @@ def save_json(filename, d):
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "👋 Xush kelibsiz!\nDavom etish uchun shaxsiy kodingizni yuboring (masalan: navy)"
+        "👋 Xush kelibsiz!\nDavom etish uchun shaxsiy kodingizni yuboring (masalan: navy)",
+        reply_markup=get_main_keyboard()
     )
 
 async def whoami(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -319,7 +330,8 @@ async def finish_test(context: ContextTypes.DEFAULT_TYPE, chat_id: int):
     ball90 = round(s["score"] / total * 90)
     await context.bot.send_message(
         chat_id,
-        f"🎉 Test tugadi!\n{s['score']}/{total} to'g'ri ({pct}%)\n90 ballik tizimda: {ball90} ball"
+        f"🎉 Test tugadi!\n{s['score']}/{total} to'g'ri ({pct}%)\n90 ballik tizimda: {ball90} ball",
+        reply_markup=get_main_keyboard()
     )
     done = load_json(DONE_FILE)
     done[s["code"]] = {"name": s["name"], "score": s["score"], "total": total, "pct": pct, "ball90": ball90}
@@ -335,20 +347,32 @@ async def finish_test(context: ContextTypes.DEFAULT_TYPE, chat_id: int):
 
 async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
+    text_input = (update.message.text or "").strip()
     
     if chat_id in case_sessions:
         s = case_sessions[chat_id]
-        s["answer"].append((update.message.text or "").strip())
+        s["answer"].append(text_input)
         await update.message.reply_text("Qabul qilindi. Davom eting yoki «Javobni yuborish» tugmasini bosing.")
         return
 
-    text = (update.message.text or "").strip().lower()
-    name = STUDENT_CODES.get(text)
+    # Pastdagi doimiy tugmalar uchun handler
+    if text_input == "📝 Testni boshlash":
+        await update.message.reply_text("Testni boshlash uchun shaxsiy kodingizni kiriting (masalan: navy).")
+        return
+    elif text_input == "📌 Case'ni boshlash":
+        await update.message.reply_text("Case ishlash uchun shaxsiy kodingizni kiriting (masalan: navy).")
+        return
+    elif text_input == "ℹ️ Yordam":
+        await update.message.reply_text("Bu bot supply chain management fanidan test va amaliy keyslarni topshirish uchun mo'ljallangan.")
+        return
+
+    code_text = text_input.lower()
+    name = STUDENT_CODES.get(code_text)
     if not name:
         await update.message.reply_text("Kod topilmadi. Qaytadan urinib ko'ring.")
         return
 
-    sessions[chat_id] = {"code": text, "name": name, "i": 0, "score": 0, "started": False}
+    sessions[chat_id] = {"code": code_text, "name": name, "i": 0, "score": 0, "started": False}
     kb = InlineKeyboardMarkup([
         [InlineKeyboardButton("▶️ Testni boshlash", callback_data="start_test")],
         [InlineKeyboardButton("📌 Case'ni boshlash", callback_data="start_case")]
@@ -466,7 +490,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             kb = InlineKeyboardMarkup([[InlineKeyboardButton("📤 O'quvchiga yuborish", callback_data=f"ap:{code}")]])
             await send_long(context.bot, int(TEACHER_CHAT_ID), text, reply_markup=kb)
             
-        await context.bot.send_message(chat_id, "✅ Javobingiz o'qituvchiga yuborildi. Tez orada natija chiqadi!")
+        await context.bot.send_message(chat_id, "✅ Javobingiz o'qituvchiga yuborildi. Tez orada natija chiqadi!", reply_markup=get_main_keyboard())
         return
 
     if chat_id in sessions and sessions[chat_id].get("started"):
