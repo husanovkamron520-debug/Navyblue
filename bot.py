@@ -28,11 +28,9 @@ if GEMINI_API_KEY:
     gemini_client = genai.Client(api_key=GEMINI_API_KEY)
 ai_gate = asyncio.Semaphore(2)
 
-# Kunlik AI limitini saqlash uchun
 ai_usage = {}
 AI_DAILY_LIMIT = 3
 
-# Boshlang'ich keyslar
 DEFAULT_CASES = [
     {
         "title": "Smart Ombor va RFID teglar sirlari",
@@ -135,18 +133,22 @@ def _grade_sync(items):
             f"TALABA JAVOBI:\n{ans}\n"
         )
     prompt = (
-        "Sen supply chain management fanidan o'ta talabchan, qattiqqo'l va aqlli o'qituvchisan. "
-        "Talabaning quyidagi keys javoblarini bahola. \n\n"
-        "DIQQAT - MAXSUS QOIDA: Talabalar ba'zan boshqa sun'iy intellekt yoki internetdan tayyor javobni ko'chirib tashlashadi. "
-        "Agar talabaning javobi umumiy, qolip so'zlardan iborat bo'lib, o'zining mantiqiy tahlili va amaliy fikri ko'rinmasa, "
-        "uning ballarini (ayniqsa yechim va struktura qismini) shafqatsizlarcha pasaytirgin va izohda buni yozib ket. "
-        "Faqat o'zining chuqur mantiqiy fikri va aniq tahlili bor javoblargagina yuqori ball ber.\n\n"
+        "Sen supply chain management fanidan dunyodagi eng qattiqqo'l, shubhako'r, talabchan va xato kechirmaydigan professor-o'qituvchisan. "
+        "Talabaning quyidagi keys javoblarini tekshirayotganda o'ta shubhali va murosasiz bo'l.\n\n"
+        "O'TA QATTIQ TALABLAR:\n"
+        "1. Ko'chirma va qolipni aniqlash: Agar talabaning javobida sun'iy intellektga yoki darsliklarga xos bo'lgan o'ta qolip, "
+        "rasmiy, sun'iy iboralar (masalan, 'ushbu muammoni hal etish maqsadida', 'xulosa o'rnida', 'ko'rsatkichlarni yaxshilash lozim') "
+        "ishlatilgan bo'lsa, uni darhol 'AI generated' yoki internetdan ko'chirma deb hisobla.\n"
+        "2. Shaxsiy mantiq talabi: Talaba aynan o'sha vaziyatga nisbatan o'zining shaxsiy, oddiy va real hayotiy mantiqiy "
+        "tahlilini yozmagan bo'lsa, garchi javob to'g'ri tuyulsa ham uni ko'chirma deb bahola.\n"
+        "3. Jazo: Agar shubhang bo'lsa yoki ko'chirma ekanligi sezilsa, yechim (b) va struktura (c) ballarini shafqatsizlarcha "
+        "0 yoki 1 ballga tushirib yubor! Rahm qilma.\n\n"
         "Har keys 10 ball: (a) tub sababni aniqlash 0-4, (b) analitik/amaliy yechim 0-4, "
         "(c) javob strukturasi va aniqligi 0-2.\n\n"
         + "\n".join(parts)
         + "\nFaqat JSON qaytar, keyslar kiritilgan tartibda, aynan "
         + str(len(items))
-        + " ta element: {\"keyslar\":[{\"a\":int,\"b\":int,\"c\":int,\"izoh\":\"o'zbek tilida, nega bu ball qo'yilgani\"}]}"
+        + " ta element: {\"keyslar\":[{\"a\":int,\"b\":int,\"c\":int,\"izoh\":\"o'zbek tilida, qattiqqo'llik bilan tanqidiy tahlil qilib, nima uchun past ball qo'yilgani yoki ko'chirmaligi yozilsin\"}]}"
     )
     resp = gemini_client.models.generate_content(
         model=GEMINI_MODEL, contents=prompt,
@@ -355,7 +357,6 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Qabul qilindi. Davom eting yoki «Javobni yuborish» tugmasini bosing.")
         return
 
-    # Pastdagi doimiy tugmalar uchun handler
     if text_input == "📝 Testni boshlash":
         await update.message.reply_text("Testni boshlash uchun shaxsiy kodingizni kiriting (masalan: navy).")
         return
