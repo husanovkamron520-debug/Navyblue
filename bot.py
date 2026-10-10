@@ -140,6 +140,22 @@ def run_health_server():
     HTTPServer(("0.0.0.0", port), Handler).serve_forever()
 
 
+def run_keep_alive():
+    """Render bepul rejasi 15 daqiqa tashqi so'rov bo'lmasa uxlab qoladi (polling esa to'xtaydi).
+    Render o'zi beradigan RENDER_EXTERNAL_URL orqali har 10 daqiqada o'zimizga so'rov yuboramiz.
+    (Bu Render'ning o'z o'zgaruvchisi, sizdan hech narsa qo'shish talab qilinmaydi.)"""
+    import urllib.request
+    url = os.environ.get("RENDER_EXTERNAL_URL")
+    if not url:
+        return
+    while True:
+        time.sleep(600)
+        try:
+            urllib.request.urlopen(url, timeout=30).read()
+        except Exception as e:
+            logging.warning("keep-alive xato: %s", e)
+
+
 # --- AI BAHOLASH ---
 
 def build_prompt(case, answer):
@@ -593,6 +609,7 @@ def main():
     # Render "Web Service" doim bir portni tinglashni kutadi — polling bilan ishlaganda
     # bu port avtomatik ochilmaydi, shuning uchun alohida kichik HTTP serverni fon rejimida ishga tushiramiz
     threading.Thread(target=run_health_server, daemon=True).start()
+    threading.Thread(target=run_keep_alive, daemon=True).start()
 
     print("Bot muvaffaqiyatli ishga tushdi...")
     app.run_polling()
