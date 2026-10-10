@@ -3,6 +3,8 @@ import json
 import logging
 import random
 import asyncio
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from datetime import datetime
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import (
@@ -75,11 +77,21 @@ async def send_long(bot, chat_id, text, reply_markup=None):
             markup = reply_markup if i == len(parts) - 1 else None
             await bot.send_message(chat_id=chat_id, text=part, reply_markup=markup)
 
+# --- TINY HEALTH SERVER (Render "Web Service" uchun port ochish shart) ---
+def run_health_server():
+    port = int(os.environ.get("PORT", "10000"))
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.end_headers()
+        def log_message(self, *a): pass
+    HTTPServer(("0.0.0.0", port), Handler).serve_forever()
+
 # --- START ---
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_chat.id)
-    
+
     # Har safar /start bosganda foydalanuvchi o'zi xohlagan rolni erkin tanlay olishi uchun inline tugmalar chiqaramiz
     keyboard = [
         [
@@ -261,15 +273,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             ai_result = f"AI baholashda xatolik yuz berdi: {e}"
 
-        await update.message.reply_text(f"📊 **AI Professor Bahosi:**\n\n{ai_result}", parse_mode="Markdown")
+        # Markdown emas, oddiy matn sifatida yuboramiz (AI javobidagi */_ belgilari
+        # Telegramning Markdown parserini buzib, botni yiqitib qo'yishi mumkin edi)
+        await update.message.reply_text(f"📊 AI Professor Bahosi:\n\n{ai_result}")
 
         if teacher_info and teacher_info.get("chat_id"):
             t_msg = (
-                f"📥 **Yangi Case Javobi!**\n\n"
-                f"👤 **Talaba:** {student['name']}\n"
-                f"📋 **Case:** {selected_case['title']}\n\n"
-                f"💬 **Talaba Javobi:**\n{text}\n\n"
-                f"🤖 **AI Bahosi:**\n{ai_result}"
+                f"📥 Yangi Case Javobi!\n\n"
+                f"👤 Talaba: {student['name']}\n"
+                f"📋 Case: {selected_case['title']}\n\n"
+                f"💬 Talaba Javobi:\n{text}\n\n"
+                f"🤖 AI Bahosi:\n{ai_result}"
             )
             await send_long(context.bot, teacher_info["chat_id"], t_msg)
 
@@ -285,6 +299,10 @@ def main():
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CallbackQueryHandler(role_callback, pattern="^role_"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+
+    # Render "Web Service" doim bir portni tinglashni kutadi — polling bilan ishlaganda
+    # bu port avtomatik ochilmaydi, shuning uchun alohida kichik HTTP serverni fon rejimida ishga tushiramiz
+    threading.Thread(target=run_health_server, daemon=True).start()
 
     print("Bot muvaffaqiyatli ishga tushdi...")
     app.run_polling()
