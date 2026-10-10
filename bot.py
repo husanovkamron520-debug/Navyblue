@@ -7,6 +7,10 @@ import random
 import asyncio
 import threading
 import hashlib
+import copy
+import atexit
+import urllib.request
+from datetime import datetime, timezone
 from collections import Counter
 from difflib import SequenceMatcher
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -144,6 +148,7 @@ RUBRIC = [
 BTN_NEW_CASE = "➕ Yangi keys qo'shish"
 BTN_STUDENTS = "📊 O'quvchilar ro'yxati"
 BTN_START_CASE = "📌 Case'ni boshlash"
+BTN_MY_CASES = "📚 Keyslarim"
 
 # ============================================================
 # DATA FILES — o'zgartirilmadi
@@ -155,9 +160,90 @@ RESULTS_FILE = "results.json"
 
 
 # ============================================================
-# JSON STORAGE
+# STORAGE — Supabase (bot_storage jadvali) yoki zaxira sifatida lokal JSON
+# Env nomlari: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY (ular yo'q bo'lsa, eski usul: lokal fayl)
 # ============================================================
-def load_json(filepath, default):
+SUPABASE_URL = (os.environ.get("SUPABASE_URL") or "").strip().rstrip("/")
+SUPABASE_KEY = (os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or "").strip()
+USE_DB = bool(SUPABASE_URL and SUPABASE_KEY)
+STORAGE_TABLE = "bot_storage"
+
+_cache = {}
+_cache_lock = threading.RLock()
+_pending = {}
+_pending_cv = threading.Condition()
+_writer_started = False
+
+
+def _storage_key(filepath):
+    return os.path.splitext(os.path.basename(filepath))[0]
+
+
+def _db_request(method, path, body=None, prefer=None):
+    headers = {
+        "apikey": SUPABASE_KEY,
+        "Content-Type": "application/json",
+        "User-Agent": "log324exambot/1.0",
+    }
+    if SUPABASE_KEY.startswith("eyJ"):  # eski JWT ko'rinishidagi kalit
+        headers["Authorization"] = f"Bearer {SUPABASE_KEY}"
+    if prefer:
+        headers["Prefer"] = prefer
+    data = json.dumps(body, ensure_ascii=False).encode("utf-8") if body is not None else None
+    req = urllib.request.Request(f"{SUPABASE_URL}/rest/v1/{path}", data=data, headers=headers, method=method)
+    with urllib.request.urlopen(req, timeout=20) as resp:
+        raw = resp.read()
+    return json.loads(raw) if raw else None
+
+
+def _db_load(key):
+    rows = _db_request("GET", f"{STORAGE_TABLE}?storage_key=eq.{key}&select=data")
+    return rows[0]["data"] if rows else None
+
+
+def _db_save(key, data):
+    _db_request(
+        "POST", f"{STORAGE_TABLE}?on_conflict=storage_key",
+        {"storage_key": key, "data": data, "updated_at": datetime.now(timezone.utc).isoformat()},
+        prefer="resolution=merge-duplicates,return=minimal",
+    )
+
+
+def _writer_loop():
+    while True:
+        with _pending_cv:
+            while not _pending:
+                _pending_cv.wait()
+            key, data = next(iter(_pending.items()))
+            del _pending[key]
+        for attempt in range(4):
+            try:
+                _db_save(key, data)
+                break
+            except Exception:
+                logger.warning("Supabase'ga yozib bo'lmadi (%s, urinish %s)", key, attempt + 1, exc_info=True)
+                time.sleep(2 * (attempt + 1))
+        else:
+            with _pending_cv:  # yangiroq versiya bo'lmasa, qayta navbatga qo'yamiz
+                _pending.setdefault(key, data)
+            time.sleep(10)
+
+
+def flush_storage(timeout=15):
+    """Dastur to'xtashidan oldin kutayotgan yozuvlarni yuboradi."""
+    if not USE_DB:
+        return
+    with _pending_cv:
+        items = dict(_pending)
+        _pending.clear()
+    for key, data in items.items():
+        try:
+            _db_save(key, data)
+        except Exception:
+            logger.exception("Yakuniy saqlash xatosi: %s", key)
+
+
+def _file_load(filepath, default):
     if not os.path.exists(filepath):
         return default
     try:
@@ -168,8 +254,7 @@ def load_json(filepath, default):
         return default
 
 
-def save_json(filepath, data):
-    """Avval vaqtinchalik faylga yozib, keyin almashtiradi."""
+def _file_save(filepath, data):
     temp_path = filepath + ".tmp"
     try:
         with open(temp_path, "w", encoding="utf-8") as f:
@@ -184,6 +269,66 @@ def save_json(filepath, data):
         except OSError:
             pass
         return False
+
+
+def _ensure_loaded(key, filepath):
+    """Bazadan bir marta o'qib keshga qo'yadi. Xato bo'lsa EXCEPTION ko'taradi (bo'sh ma'lumot bilan
+    bazani ustidan yozib yubormaslik uchun)."""
+    with _cache_lock:
+        if key in _cache:
+            return
+        last = None
+        for attempt in range(3):
+            try:
+                data = _db_load(key)
+                break
+            except Exception as exc:
+                last = exc
+                time.sleep(1.5 * (attempt + 1))
+        else:
+            raise RuntimeError(f"Supabase'dan '{key}' o'qib bo'lmadi: {last}")
+        if data is None:
+            # baza bo'sh: eski lokal fayl bo'lsa, shuni ko'chirib o'tamiz
+            data = _file_load(filepath, {})
+            if data:
+                _db_save(key, data)
+        _cache[key] = data
+
+
+def init_storage():
+    """Bot ishga tushganda barcha ma'lumotni bir marta yuklaydi."""
+    global _writer_started
+    if not USE_DB:
+        logger.warning("SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY topilmadi: lokal fayl ishlatiladi (qayta ishga tushganda o'chib ketadi!)")
+        return
+    for fp in (CASES_FILE, TEACHERS_FILE, STUDENTS_FILE, RESULTS_FILE):
+        _ensure_loaded(_storage_key(fp), fp)
+    if not _writer_started:
+        threading.Thread(target=_writer_loop, daemon=True).start()
+        _writer_started = True
+    atexit.register(flush_storage)
+    logger.info("Supabase ulandi, ma'lumotlar yuklandi.")
+
+
+def load_json(filepath, default):
+    if not USE_DB:
+        return _file_load(filepath, default)
+    key = _storage_key(filepath)
+    _ensure_loaded(key, filepath)
+    with _cache_lock:
+        return copy.deepcopy(_cache[key])
+
+
+def save_json(filepath, data):
+    if not USE_DB:
+        return _file_save(filepath, data)
+    key = _storage_key(filepath)
+    with _cache_lock:
+        _cache[key] = copy.deepcopy(data)
+    with _pending_cv:
+        _pending[key] = copy.deepcopy(data)
+        _pending_cv.notify()
+    return True
 
 
 def get_cases():
@@ -624,16 +769,55 @@ async def ai_grade(case, answer):
 # ============================================================
 # START / ROLE HANDLERS
 # ============================================================
-async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def teacher_menu():
+    return ReplyKeyboardMarkup(
+        [[BTN_NEW_CASE], [BTN_MY_CASES, BTN_STUDENTS]], resize_keyboard=True
+    )
+
+
+def student_menu():
+    return ReplyKeyboardMarkup([[BTN_START_CASE]], resize_keyboard=True)
+
+
+async def show_role_picker(message):
     keyboard = [[
         InlineKeyboardButton("👨‍🏫 O'qituvchi sifatida kirish", callback_data="role_teacher"),
         InlineKeyboardButton("👨‍🎓 Talaba sifatida kirish", callback_data="role_student"),
     ]]
-    await update.message.reply_text(
-        "👋 Assalomu alaykum! Botga xush kelibsiz.\n\n"
-        "Qaysi rejimda foydalanmoqchisiz?",
+    await message.reply_text(
+        "👋 Assalomu alaykum! Botga xush kelibsiz.\n\nQaysi rejimda foydalanmoqchisiz?",
         reply_markup=InlineKeyboardMarkup(keyboard),
     )
+
+
+async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    # Avval kirgan foydalanuvchini eslab qolamiz: rolni qayta so'ramaymiz.
+    t_code = get_teacher_code_by_chat_id(chat_id)
+    if t_code:
+        await update.message.reply_text(
+            f"👨‍🏫 Qaytganingiz bilan! O'qituvchi kodingiz: {t_code}\n"
+            "(Boshqa rolni tanlash uchun: /rol)",
+            reply_markup=teacher_menu(),
+        )
+        return
+
+    student = get_students().get(str(chat_id))
+    if student and student.get("teacher_code") in get_teachers():
+        teacher_name = get_teachers()[student["teacher_code"]].get("name", "")
+        await update.message.reply_text(
+            f"👨‍🎓 Qaytganingiz bilan, {student.get('name', '')}!\n"
+            f"O'qituvchi: {teacher_name} ({student['teacher_code']})\n"
+            "(Boshqa rolni tanlash uchun: /rol)",
+            reply_markup=student_menu(),
+        )
+        return
+
+    await show_role_picker(update.message)
+
+
+async def role_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await show_role_picker(update.message)
 
 
 async def role_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -656,7 +840,6 @@ async def role_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             }
             save_teachers(teachers)
 
-        kb = [[BTN_NEW_CASE], [BTN_STUDENTS]]
         await query.edit_message_text(
             f"✅ O'qituvchi rejimi faollashdi!\n\n"
             f"🔑 O'qituvchi kodingiz: {teacher_code}\n"
@@ -665,7 +848,7 @@ async def role_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.send_message(
             chat_id=chat_id,
             text="Asosiy menyu:",
-            reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True),
+            reply_markup=teacher_menu(),
         )
 
     elif query.data == "role_student":
@@ -721,6 +904,88 @@ async def show_students(update: Update, context: ContextTypes.DEFAULT_TYPE, teac
 
 
 # ============================================================
+# TEACHER: MY CASES (ko'rish va o'chirish)
+# ============================================================
+async def show_my_cases(update: Update, context: ContextTypes.DEFAULT_TYPE, teacher_code):
+    cases = get_cases().get(teacher_code, [])
+    if not cases:
+        await update.message.reply_text(
+            f"Hali keys qo'shmagansiz. «{BTN_NEW_CASE}» tugmasini bosing."
+        )
+        return
+
+    await update.message.reply_text(f"📚 Keyslaringiz: {len(cases)} ta")
+    for case in cases:
+        text = case.get("text", "")
+        preview = text[:300] + ("…" if len(text) > 300 else "")
+        keyboard = InlineKeyboardMarkup([[
+            InlineKeyboardButton("👁 To'liq ko'rish", callback_data=f"cview:{case['id']}"),
+            InlineKeyboardButton("🗑 O'chirish", callback_data=f"cdel:{case['id']}"),
+        ]])
+        await update.message.reply_text(
+            f"#{case['id']} · {case.get('title', '')}\n\n{preview}",
+            reply_markup=keyboard,
+        )
+
+
+async def case_manage_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    chat_id = query.message.chat_id
+    teacher_code = get_teacher_code_by_chat_id(chat_id)
+    if not teacher_code:
+        await query.answer("Bu amal faqat o'qituvchi uchun.", show_alert=True)
+        return
+
+    action, _, raw_id = query.data.partition(":")
+    try:
+        case_id = int(raw_id)
+    except ValueError:
+        await query.answer("Xato so'rov.", show_alert=True)
+        return
+
+    cases = get_cases()
+    mine = cases.get(teacher_code, [])
+    case = next((c for c in mine if c.get("id") == case_id), None)
+
+    if action == "cno":
+        await query.answer("Bekor qilindi.")
+        try:
+            await query.edit_message_reply_markup(InlineKeyboardMarkup([[
+                InlineKeyboardButton("👁 To'liq ko'rish", callback_data=f"cview:{case_id}"),
+                InlineKeyboardButton("🗑 O'chirish", callback_data=f"cdel:{case_id}"),
+            ]]))
+        except Exception:
+            pass
+        return
+
+    if not case:
+        await query.answer("Bu keys allaqachon o'chirilgan.", show_alert=True)
+        return
+
+    if action == "cview":
+        await query.answer()
+        await send_long(context.bot, chat_id, f"📋 #{case['id']} · {case.get('title', '')}\n\n{case.get('text', '')}")
+    elif action == "cdel":
+        await query.answer()
+        await query.edit_message_reply_markup(InlineKeyboardMarkup([[
+            InlineKeyboardButton("✅ Ha, o'chirilsin", callback_data=f"cyes:{case_id}"),
+            InlineKeyboardButton("↩️ Yo'q", callback_data=f"cno:{case_id}"),
+        ]]))
+        await context.bot.send_message(
+            chat_id, f"⚠️ «{case.get('title', '')}» keysini o'chirishni tasdiqlaysizmi? "
+                     "(Talabalarning oldingi baholari saqlanib qoladi.)"
+        )
+    elif action == "cyes":
+        cases[teacher_code] = [c for c in mine if c.get("id") != case_id]
+        save_cases(cases)
+        await query.answer("O'chirildi.")
+        try:
+            await query.edit_message_text(f"🗑 O'chirildi: #{case_id} · {case.get('title', '')}")
+        except Exception:
+            pass
+
+
+# ============================================================
 # MAIN MESSAGE HANDLER
 # ============================================================
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -739,6 +1004,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             "✍️ Keys matnini yuboring. Sarlavha birinchi qatordan olinadi."
         )
+        return
+
+    if text == BTN_MY_CASES and teacher_code:
+        context.user_data["awaiting_new_case_text"] = False
+        await show_my_cases(update, context, teacher_code)
         return
 
     if text == BTN_STUDENTS and teacher_code:
@@ -800,7 +1070,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             f"✅ Siz {teachers[code]['name']} o'qituvchining guruhiga qo'shildingiz.\n\n"
             "Keys yechishni boshlash uchun pastdagi tugmani bosing:",
-            reply_markup=ReplyKeyboardMarkup([[BTN_START_CASE]], resize_keyboard=True),
+            reply_markup=student_menu(),
         )
         return
 
@@ -1144,9 +1414,13 @@ def main():
             "GEMINI_API_KEY topilmadi. Bot ishga tushadi, lekin AI baholash ishlamaydi."
         )
 
+    init_storage()  # Supabase'dan ma'lumotni yuklaydi (ulanmasa, bot ataylab to'xtaydi)
+
     app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start_command))
+    app.add_handler(CommandHandler("rol", role_command))
+    app.add_handler(CallbackQueryHandler(case_manage_callback, pattern=r"^(cview|cdel|cyes|cno):"))
     app.add_handler(CallbackQueryHandler(role_callback, pattern=r"^role_"))
     app.add_handler(CallbackQueryHandler(submit_callback, pattern=r"^submit$"))
     app.add_handler(CallbackQueryHandler(izoh_callback, pattern=r"^izoh:"))
@@ -1156,7 +1430,10 @@ def main():
     threading.Thread(target=run_keep_alive, daemon=True).start()
 
     logger.info("Bot ishga tushmoqda...")
-    app.run_polling()
+    try:
+        app.run_polling()
+    finally:
+        flush_storage()
 
 
 if __name__ == "__main__":
