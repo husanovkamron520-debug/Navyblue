@@ -118,6 +118,9 @@ BTN_START_CASE = "📌 Case'ni boshlash"
 BTN_MY_CASES = "📚 Keyslarim"
 BTN_ROLE = "🔄 Rolni o'zgartirish"
 BTN_GEN_CASE = "🤖 AI keys yaratsin"
+BTN_NEW_TEST = "📝 Yangi test (AI)"
+BTN_MY_TESTS = "📝 Testlarim"
+BTN_START_TEST = "📝 Testni boshlash"
 
 # ============================================================
 # DATA FILES — o'zgartirilmadi
@@ -126,6 +129,8 @@ CASES_FILE = "cases.json"
 TEACHERS_FILE = "teachers.json"
 STUDENTS_FILE = "students.json"
 RESULTS_FILE = "results.json"
+TESTS_FILE = "tests.json"
+TEST_RESULTS_FILE = "test_results.json"
 
 
 # ============================================================
@@ -270,7 +275,7 @@ def init_storage():
     if not USE_DB:
         logger.warning("SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY topilmadi: lokal fayl ishlatiladi (qayta ishga tushganda o'chib ketadi!)")
         return
-    for fp in (CASES_FILE, TEACHERS_FILE, STUDENTS_FILE, RESULTS_FILE):
+    for fp in (CASES_FILE, TEACHERS_FILE, STUDENTS_FILE, RESULTS_FILE, TESTS_FILE, TEST_RESULTS_FILE):
         _ensure_loaded(_storage_key(fp), fp)
     if not _writer_started:
         threading.Thread(target=_writer_loop, daemon=True).start()
@@ -1074,12 +1079,12 @@ async def ai_grade(case, answer):
 # ============================================================
 def teacher_menu():
     return ReplyKeyboardMarkup(
-        [[BTN_NEW_CASE, BTN_GEN_CASE], [BTN_MY_CASES, BTN_STUDENTS], [BTN_ROLE]], resize_keyboard=True
+        [[BTN_NEW_CASE, BTN_GEN_CASE], [BTN_NEW_TEST, BTN_MY_TESTS], [BTN_MY_CASES, BTN_STUDENTS], [BTN_ROLE]], resize_keyboard=True
     )
 
 
 def student_menu():
-    return ReplyKeyboardMarkup([[BTN_START_CASE], [BTN_ROLE]], resize_keyboard=True)
+    return ReplyKeyboardMarkup([[BTN_START_CASE, BTN_START_TEST], [BTN_ROLE]], resize_keyboard=True)
 
 
 async def show_role_picker(message):
@@ -1524,6 +1529,662 @@ async def gen_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ============================================================
+# TEST (ko'p tanlovli): AI tuzadi, javoblarni KOD tekshiradi
+# ============================================================
+TEST_QUESTION_SECONDS = 45
+TEST_ANSWER_GRACE = 5          # tarmoq kechikishi uchun qo'shimcha soniyalar
+TEST_COUNTS = [5, 10, 15]
+BANNED_OPTION_PHRASES = [
+    "hammasi to'g'ri", "hammasi noto'g'ri", "hech biri", "barcha yuqoridagilar",
+    "yuqoridagilarning barchasi", "a va b", "b va c", "a va c", "all of the above", "none of the above",
+]
+
+_user_locks = {}
+_bg_tasks = set()
+
+
+def user_lock(uid):
+    lock = _user_locks.get(uid)
+    if lock is None:
+        lock = _user_locks[uid] = asyncio.Lock()
+    return lock
+
+
+def get_tests(): return load_json(TESTS_FILE, {})
+def save_tests(data): return save_json(TESTS_FILE, data)
+def get_test_results(): return load_json(TEST_RESULTS_FILE, {})
+def save_test_results(data): return save_json(TEST_RESULTS_FILE, data)
+
+
+def find_test(t_code, test_id):
+    for t in get_tests().get(t_code, []):
+        if t.get("id") == test_id:
+            return t
+    return None
+
+
+LETTERS = "ABCD"
+
+
+def build_test_prompt(topic, n):
+    return (
+        "Siz logistika va supply chain fanidan imtihon tuzuvchi tajribali professorsiz. "
+        f"Quyidagi mavzu bo'yicha {n} ta ko'p tanlovli (multiple choice) test savoli tuzing. "
+        "Format va qiyinlik IELTS'dagi ko'p tanlovli savollarga o'xshash bo'lsin: variantlar bir-biriga juda yaqin, "
+        "faqat mavzuni chuqur biladigan va diqqat bilan o'qigan kishi to'g'ri javobni topadi.\n\n"
+        f"MAVZU / TALABLAR: {topic}\n\n"
+        "QAT'IY TALABLAR:\n"
+        "1. Barcha savol va barcha variantlar FAQAT shu mavzuga oid bo'lsin. Mavzudan tashqari tushunchalarni "
+        "(masalan, ombor mavzusida ishchilar maoshi, kadrlar siyosati, marketing, umumiy iqtisodiyot) savolga ham, "
+        "variantlarga ham aralashtirmang. Noto'g'ri variantlar ham shu mavzu doirasidagi ishonarli, lekin xato fikr bo'lsin.\n"
+        "2. Har savolda 4 ta variant. Variantlar bir xil uzunlikda, bir xil grammatik tuzilishda va ohangda bo'lsin. "
+        "To'g'ri javob boshqalardan uzunroq, batafsilroq yoki aniqroq bo'lmasin.\n"
+        "3. Noto'g'ri variantlar to'g'riga juda yaqin bo'lsin: tez-tez uchraydigan xato tushunchalar, bir nuqtada farq "
+        "qiladigan formulalar, yaqin raqamlar, o'xshash terminlar.\n"
+        "4. \"Hammasi to'g'ri\", \"Hech biri\", \"A va B\" kabi variantlar, hamda \"har doim\", \"hech qachon\", \"faqat\" "
+        "kabi so'zlar bilan noto'g'ri javobni ajratib qo'yish taqiqlanadi.\n"
+        "5. Savollar ta'rif yodlatmasin: asosan qo'llashga oid, kichik vaziyat va raqamlar bilan, hisob-kitob "
+        "(formulani qo'llab natija topish) bo'lsin. Qiyinlik: 20% oson, 50% o'rta, 30% qiyin.\n"
+        "6. To'g'ri javob joyi (0,1,2,3) tasodifiy taqsimlansin.\n"
+        "7. Har savolga 1 gaplik izoh: nega aynan shu javob to'g'ri.\n"
+        "8. Barcha raqamlar va faktlar to'g'ri bo'lsin. Til: o'zbek.\n\n"
+        "Faqat JSON qaytaring (Markdown yozmang):\n"
+        '{"title":"qisqa sarlavha","questions":[{"q":"savol matni","options":["variant 1","variant 2","variant 3","variant 4"],'
+        '"correct":0,"explanation":"qisqa izoh"}]}'
+    )
+
+
+def build_verify_prompt(topic, questions):
+    lines = []
+    for i, q in enumerate(questions):
+        opts = "\n".join(f"  {j}) {o}" for j, o in enumerate(q["options"]))
+        lines.append(f"[{i}] {q['q']}\n{opts}")
+    body = "\n\n".join(lines)
+    return (
+        "Siz logistika fanidan mustaqil tekshiruvchisiz. Quyida test savollari berilgan (to'g'ri javoblar KO'RSATILMAGAN). "
+        "Har savol uchun: 1) o'zingiz to'g'ri deb hisoblagan variant raqamini ('javob') toping; "
+        "2) savol va BARCHA variantlar mavzuga to'liq mosligini ('mavzuga_mos': true/false; mavzudan tashqari "
+        "tushuncha, masalan maosh yoki marketing bo'lsa false) baholang; "
+        "3) agar savolni o'qimasdan faqat variantlar shakliga (uzunligi, aniqligi) qarab to'g'ri javobni taxmin qilish "
+        "mumkin bo'lsa, 'shakldan_topiladi': true.\n\n"
+        f"MAVZU: {topic}\n\n{body}\n\n"
+        'Faqat JSON: {"items":[{"i":0,"javob":0,"mavzuga_mos":true,"shakldan_topiladi":false}, ...]}'
+    )
+
+
+def _ai_json_sync(prompt, temperature):
+    if not ai_client:
+        raise RuntimeError("GEMINI_API_KEY topilmadi")
+    response = ai_client.models.generate_content(
+        model=AI_MODEL_NAME,
+        contents=prompt,
+        config=types.GenerateContentConfig(response_mime_type="application/json", temperature=temperature),
+    )
+    raw = (getattr(response, "text", None) or "").strip()
+    raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw).strip()
+    return json.loads(raw)
+
+
+async def ai_json(prompt, temperature, attempts=2):
+    last = None
+    async with ai_gate:
+        for attempt in range(attempts):
+            try:
+                return await asyncio.to_thread(_ai_json_sync, prompt, temperature), None
+            except Exception as exc:
+                last = f"{type(exc).__name__}: {exc}"
+                logger.warning("AI JSON xatosi (%s/%s): %s", attempt + 1, attempts, last)
+                if attempt < attempts - 1:
+                    await asyncio.sleep(3)
+    return None, last
+
+
+def clean_questions(data):
+    """AI qaytargan savollarni tekshirib, yaroqlilarini qaytaradi va variantlarni kodda aralashtiradi."""
+    out = []
+    for item in (data or {}).get("questions", []) or []:
+        try:
+            q = str(item["q"]).strip()
+            options = [str(o).strip() for o in item["options"]]
+            correct = int(item["correct"])
+        except Exception:
+            continue
+        if len(q) < 10 or len(options) != 4 or not (0 <= correct < 4):
+            continue
+        if any(not o or len(o) > 250 for o in options) or len(set(o.lower() for o in options)) < 4:
+            continue
+        correct_text = options[correct]
+        random.shuffle(options)  # to'g'ri javob joyini AI emas, kod belgilaydi
+        out.append({
+            "q": q[:600],
+            "options": options,
+            "correct": options.index(correct_text),
+            "explanation": str(item.get("explanation", ""))[:300],
+        })
+    return out
+
+
+def local_question_flags(q):
+    flags = []
+    low = [o.lower() for o in q["options"]]
+    if any(p in o for o in low for p in BANNED_OPTION_PHRASES):
+        flags.append("taqiqlangan variant ('hammasi/hech biri/A va B')")
+    others = [len(o) for i, o in enumerate(q["options"]) if i != q["correct"]]
+    mean_other = sum(others) / len(others)
+    if len(q["options"][q["correct"]]) > 1.3 * mean_other and len(q["options"][q["correct"]]) > 30:
+        flags.append("to'g'ri javob boshqalardan sezilarli uzun")
+    return flags
+
+
+async def verify_questions(topic, questions):
+    """Mustaqil AI tekshiruvi: kalit mosligi, mavzuga mosligi, shakldan topilishi. {index: [sabablar]}"""
+    data, err = await ai_json(build_verify_prompt(topic, questions), 0.0)
+    flags = {}
+    if not data:
+        return flags, err
+    for it in data.get("items", []) or []:
+        try:
+            i = int(it["i"])
+            q = questions[i]
+        except Exception:
+            continue
+        reasons = flags.setdefault(i, [])
+        try:
+            if int(it.get("javob", -1)) != q["correct"]:
+                reasons.append("mustaqil tekshiruvchi boshqa javob tanladi (kalit shubhali)")
+        except Exception:
+            pass
+        if it.get("mavzuga_mos") is False:
+            reasons.append("mavzudan tashqari tushuncha bor")
+        if it.get("shakldan_topiladi") is True:
+            reasons.append("javobni variantlar shaklidan topish mumkin")
+    return flags, None
+
+
+async def build_test(topic, n):
+    """(title, questions, flags{index:[...]}, error). Shubhali savollarni bir marta qayta yaratadi."""
+    data, err = await ai_json(build_test_prompt(topic, n), 0.8)
+    if not data:
+        return None, [], {}, err
+    questions = clean_questions(data)
+    if len(questions) < max(3, n // 2):
+        return None, [], {}, "AI yetarli yaroqli savol qaytarmadi"
+    title = str(data.get("title", "") or topic)[:60].strip() or "Test"
+
+    def all_flags(qs, ai_flags):
+        merged = {}
+        for i, q in enumerate(qs):
+            r = list(ai_flags.get(i, [])) + local_question_flags(q)
+            if r:
+                merged[i] = r
+        return merged
+
+    ai_flags, _ = await verify_questions(topic, questions)
+    flags = all_flags(questions, ai_flags)
+
+    bad = sorted(flags)
+    if bad and len(bad) <= len(questions):
+        extra, _ = await ai_json(build_test_prompt(topic, len(bad)), 0.8, attempts=1)
+        fresh = clean_questions(extra)
+        if fresh:
+            for slot, new_q in zip(bad, fresh):
+                questions[slot] = new_q
+            ai_flags, _ = await verify_questions(topic, questions)
+            flags = all_flags(questions, ai_flags)
+    return title, questions[:n], flags, None
+
+
+def format_test_preview(title, questions, flags):
+    lines = [f"📝 {title} — {len(questions)} ta savol\n"]
+    for i, q in enumerate(questions):
+        lines.append(f"{i + 1}. {q['q']}")
+        for j, o in enumerate(q["options"]):
+            mark = " ✅" if j == q["correct"] else ""
+            lines.append(f"   {LETTERS[j]}) {o}{mark}")
+        if q.get("explanation"):
+            lines.append(f"   💡 {q['explanation']}")
+        if i in flags:
+            lines.append("   ⚠️ " + "; ".join(flags[i]))
+        lines.append("")
+    if flags:
+        lines.append(f"⚠️ {len(flags)} ta savol shubhali deb belgilandi: tekshirib ko'ring yoki «Boshqasini yarat» bosing.")
+    else:
+        lines.append("✅ Avtomatik tekshiruvda shubhali savol topilmadi (baribir o'zingiz ko'zdan kechiring).")
+    return "\n".join(lines)
+
+
+def tgen_start_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🎲 Tasodifiy mavzu", callback_data="tg:random")],
+        [InlineKeyboardButton("✍️ Mavzuni o'zim aytaman", callback_data="tg:topic")],
+        [InlineKeyboardButton("❌ Bekor qilish", callback_data="tg:cancel")],
+    ])
+
+
+def tgen_count_keyboard():
+    rows = [[InlineKeyboardButton(f"{n} ta savol", callback_data=f"tg:n:{n}") for n in TEST_COUNTS]]
+    rows.append([InlineKeyboardButton("❌ Bekor qilish", callback_data="tg:cancel")])
+    return InlineKeyboardMarkup(rows)
+
+
+def tgen_preview_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("✅ Saqlash", callback_data="tg:save")],
+        [InlineKeyboardButton("🔄 Boshqasini yarat", callback_data="tg:redo")],
+        [InlineKeyboardButton("❌ Bekor qilish", callback_data="tg:cancel")],
+    ])
+
+
+async def _run_test_generation(context, chat_id, tg):
+    await context.bot.send_message(
+        chat_id, "⏳ Test tuzilmoqda va tekshirilmoqda (30–90 soniya kuting)..."
+    )
+    title, questions, flags, error = await build_test(tg["topic"], tg["n"])
+    if not questions:
+        await context.bot.send_message(
+            chat_id, f"⚠️ Test tuzib bo'lmadi: {str(error)[:200]}\nBiroz kutib, qaytadan urinib ko'ring."
+        )
+        return
+    tg["preview"] = {"title": title, "questions": questions, "flags": flags}
+    await send_long(context.bot, chat_id, format_test_preview(title, questions, flags), reply_markup=tgen_preview_keyboard())
+
+
+async def tgen_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    chat_id = query.message.chat_id
+    teacher_code = get_teacher_code_by_chat_id(chat_id)
+    if not teacher_code:
+        await query.answer("Bu amal faqat o'qituvchi uchun.", show_alert=True)
+        return
+
+    parts = query.data.split(":")
+    action = parts[1] if len(parts) > 1 else ""
+    tg = context.user_data.setdefault("tgen", {})
+
+    if action == "cancel":
+        context.user_data.pop("tgen", None)
+        context.user_data["tgen_await_topic"] = False
+        await query.answer("Bekor qilindi.")
+        try:
+            await query.edit_message_text("❌ Test yaratish bekor qilindi.")
+        except Exception:
+            pass
+        return
+
+    if action == "random":
+        tg["topic"] = random.choice(RANDOM_TOPICS)
+        await query.answer()
+        await query.edit_message_text(
+            f"🎲 Tasodifiy mavzu: {tg['topic']}\n\nnechta savol bo'lsin?", reply_markup=tgen_count_keyboard()
+        )
+        return
+
+    if action == "topic":
+        context.user_data["tgen_await_topic"] = True
+        await query.answer()
+        await query.edit_message_text(
+            "✍️ Test mavzusini yozing (masalan: «ombor boshqaruvi: ABC tahlil va yig'ish usullari»).\n"
+            "Xohlasangiz, qo'shimcha talab ham yozing."
+        )
+        return
+
+    if action == "n" and len(parts) > 2 and parts[2].isdigit() and int(parts[2]) in TEST_COUNTS:
+        if not tg.get("topic"):
+            await query.answer("Mavzu topilmadi. Qaytadan boshlang.", show_alert=True)
+            return
+        tg["n"] = int(parts[2])
+        await query.answer()
+        try:
+            await query.edit_message_reply_markup(None)
+        except Exception:
+            pass
+        await _run_test_generation(context, chat_id, tg)
+        return
+
+    if action == "redo":
+        if not tg.get("topic") or not tg.get("n"):
+            await query.answer("Muddati o'tgan. Qaytadan boshlang.", show_alert=True)
+            return
+        await query.answer("Yangi test tuzilmoqda...")
+        try:
+            await query.edit_message_reply_markup(None)
+        except Exception:
+            pass
+        await _run_test_generation(context, chat_id, tg)
+        return
+
+    if action == "save":
+        preview = tg.get("preview")
+        if not preview:
+            await query.answer("Muddati o'tgan. Qaytadan boshlang.", show_alert=True)
+            return
+        tests = get_tests()
+        tests.setdefault(teacher_code, [])
+        new_id = max([t.get("id", 0) for t in tests[teacher_code]] + [0]) + 1
+        tests[teacher_code].append({
+            "id": new_id,
+            "title": preview["title"],
+            "topic": tg.get("topic", ""),
+            "seconds": TEST_QUESTION_SECONDS,
+            "questions": preview["questions"],
+            "created": time.time(),
+        })
+        save_tests(tests)
+        context.user_data.pop("tgen", None)
+        await query.answer("Saqlandi.")
+        try:
+            await query.edit_message_reply_markup(None)
+        except Exception:
+            pass
+        await context.bot.send_message(
+            chat_id,
+            f"✅ Test saqlandi: {preview['title']} ({len(preview['questions'])} ta savol).\n"
+            f"Talabalar «{BTN_START_TEST}» tugmasi orqali topshiradi. Jami testlaringiz: {len(tests[teacher_code])} ta.",
+        )
+        return
+
+    await query.answer()
+
+
+# --- O'qituvchi: testlar ro'yxati ---
+def test_keyboard(test):
+    return InlineKeyboardMarkup([[
+        InlineKeyboardButton("👁 Ko'rish", callback_data=f"tview:{test['id']}"),
+        InlineKeyboardButton("📈 Natijalar", callback_data=f"tres:{test['id']}"),
+        InlineKeyboardButton("🗑 O'chirish", callback_data=f"tdel:{test['id']}"),
+    ]])
+
+
+async def show_my_tests(update: Update, context: ContextTypes.DEFAULT_TYPE, teacher_code):
+    tests = get_tests().get(teacher_code, [])
+    if not tests:
+        await update.message.reply_text(f"Hali test yo'q. «{BTN_NEW_TEST}» tugmasini bosing.")
+        return
+    await update.message.reply_text(f"📝 Testlaringiz: {len(tests)} ta")
+    for t in tests:
+        await update.message.reply_text(
+            f"#{t['id']} · {t.get('title', '')} — {len(t.get('questions', []))} ta savol, "
+            f"har biriga {t.get('seconds', TEST_QUESTION_SECONDS)} soniya",
+            reply_markup=test_keyboard(t),
+        )
+
+
+async def test_manage_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    chat_id = query.message.chat_id
+    teacher_code = get_teacher_code_by_chat_id(chat_id)
+    if not teacher_code:
+        await query.answer("Bu amal faqat o'qituvchi uchun.", show_alert=True)
+        return
+    action, _, raw = query.data.partition(":")
+    try:
+        test_id = int(raw)
+    except ValueError:
+        await query.answer("Xato so'rov.", show_alert=True)
+        return
+
+    tests = get_tests()
+    mine = tests.get(teacher_code, [])
+    test = next((t for t in mine if t.get("id") == test_id), None)
+
+    if action == "tno":
+        await query.answer("Bekor qilindi.")
+        try:
+            await query.edit_message_reply_markup(test_keyboard(test) if test else None)
+        except Exception:
+            pass
+        return
+    if not test:
+        await query.answer("Bu test topilmadi.", show_alert=True)
+        return
+
+    if action == "tview":
+        await query.answer()
+        await send_long(context.bot, chat_id, format_test_preview(test["title"], test["questions"], {}))
+    elif action == "tres":
+        await query.answer()
+        results = [r for r in get_test_results().values()
+                   if r.get("teacher_code") == teacher_code and r.get("test_id") == test_id]
+        if not results:
+            await context.bot.send_message(chat_id, "Bu testni hali hech kim topshirmagan.")
+            return
+        results.sort(key=lambda r: r.get("score", 0), reverse=True)
+        avg = sum(r.get("score", 0) for r in results) / len(results)
+        lines = [f"📈 {test['title']}: {len(results)} ta natija, o'rtacha {avg:.0f}/100\n"]
+        for i, r in enumerate(results, 1):
+            lines.append(f"{i}. {r.get('student_name', '?')}: {r.get('correct', 0)}/{r.get('total_q', 0)} → {r.get('score', 0)}/100")
+        miss = {}
+        for r in results:
+            for a in r.get("answers", []):
+                if not a.get("ok"):
+                    miss[a.get("qi")] = miss.get(a.get("qi"), 0) + 1
+        if miss:
+            lines.append("\n❗ Eng ko'p xato qilingan savollar:")
+            for qi, cnt in sorted(miss.items(), key=lambda x: -x[1])[:3]:
+                if qi is not None and qi < len(test["questions"]):
+                    lines.append(f"• {test['questions'][qi]['q'][:120]} — {cnt} ta xato")
+        await send_long(context.bot, chat_id, "\n".join(lines))
+    elif action == "tdel":
+        await query.answer()
+        await query.edit_message_reply_markup(InlineKeyboardMarkup([[
+            InlineKeyboardButton("✅ Ha, o'chirilsin", callback_data=f"tyes:{test_id}"),
+            InlineKeyboardButton("↩️ Yo'q", callback_data=f"tno:{test_id}"),
+        ]]))
+    elif action == "tyes":
+        tests[teacher_code] = [t for t in mine if t.get("id") != test_id]
+        save_tests(tests)
+        await query.answer("O'chirildi.")
+        try:
+            await query.edit_message_text(f"🗑 O'chirildi: #{test_id} · {test.get('title', '')}")
+        except Exception:
+            pass
+
+
+# --- Talaba: testni topshirish ---
+def _question_for(test, item):
+    q = test["questions"][item["qi"]]
+    return q, [q["options"][i] for i in item["perm"]]
+
+
+async def _send_question(bot, chat_id, uid, test, st):
+    pos = st["pos"]
+    q, options = _question_for(test, st["order"][pos])
+    seconds = test.get("seconds", TEST_QUESTION_SECONDS)
+    lines = [f"❓ Savol {pos + 1}/{len(st['order'])}  ⏱ {seconds} soniya", "", q["q"], ""]
+    for j, o in enumerate(options):
+        lines.append(f"{LETTERS[j]}) {o}")
+    kb = InlineKeyboardMarkup([[
+        InlineKeyboardButton(LETTERS[j], callback_data=f"ta:{pos}:{j}") for j in range(len(options))
+    ]])
+    await bot.send_message(chat_id, "\n".join(lines), reply_markup=kb, protect_content=True)
+
+    token = st["q_started"]
+    task = asyncio.create_task(_question_timer(bot, chat_id, uid, pos, token, seconds + TEST_ANSWER_GRACE))
+    _bg_tasks.add(task)
+    task.add_done_callback(_bg_tasks.discard)
+
+
+async def _question_timer(bot, chat_id, uid, pos, token, delay):
+    try:
+        await asyncio.sleep(delay)
+        async with user_lock(uid):
+            students = get_students()
+            st = (students.get(uid) or {}).get("test_current")
+            if not st or st.get("pos") != pos or st.get("q_started") != token:
+                return
+            await _record_and_advance(bot, chat_id, uid, students, None)
+    except Exception:
+        logger.exception("Savol taymeri xatosi")
+
+
+async def _record_and_advance(bot, chat_id, uid, students, display_choice):
+    """Joriy savolga javob (yoki vaqt tugashi) yozadi va keyingisini yuboradi. user_lock ichida chaqiriladi."""
+    student = students[uid]
+    st = student["test_current"]
+    test = find_test(student["teacher_code"], st["test_id"])
+    if not test:
+        student["test_current"] = None
+        save_students(students)
+        await bot.send_message(chat_id, "⚠️ Bu test o'chirilgan.")
+        return
+
+    item = st["order"][st["pos"]]
+    q = test["questions"][item["qi"]]
+    chosen = item["perm"][display_choice] if display_choice is not None else None
+    st["answers"].append({
+        "qi": item["qi"], "chosen": chosen, "ok": chosen == q["correct"],
+        "sec": round(time.time() - st["q_started"], 1),
+    })
+    st["pos"] += 1
+
+    if st["pos"] >= len(st["order"]):
+        await _finish_test(bot, chat_id, uid, students, test)
+        return
+
+    st["q_started"] = time.time()
+    save_students(students)
+    await _send_question(bot, chat_id, uid, test, st)
+
+
+async def _finish_test(bot, chat_id, uid, students, test):
+    student = students[uid]
+    st = student["test_current"]
+    answers = st["answers"]
+    total_q = len(answers)
+    correct = sum(1 for a in answers if a["ok"])
+    score = int(round(100 * correct / total_q)) if total_q else 0
+
+    student["test_current"] = None
+    student.setdefault("tests_done", []).append(test["id"])
+    save_students(students)
+
+    results = get_test_results()
+    rid = f"{uid}-{test['id']}-{int(time.time())}"
+    results[rid] = {
+        "student_id": uid, "student_name": student.get("name", "?"), "teacher_code": student["teacher_code"],
+        "test_id": test["id"], "test_title": test["title"], "correct": correct, "total_q": total_q,
+        "score": score, "answers": answers, "time": time.time(), "started": st.get("started"),
+    }
+    save_test_results(results)
+
+    lines = [f"📝 Test yakunlandi: {correct}/{total_q} to'g'ri", f"📊 Ball: {score}/100 — {level(score)}"]
+    wrong = [a for a in answers if not a["ok"]]
+    if wrong:
+        lines.append("\n❌ Xato (yoki vaqt tugagan) savollar:")
+        for a in wrong:
+            q = test["questions"][a["qi"]]
+            lines.append(f"\n• {q['q']}\n  ✅ To'g'ri javob: {q['options'][q['correct']]}")
+            if q.get("explanation"):
+                lines.append(f"  💡 {q['explanation']}")
+    await send_long(bot, chat_id, "\n".join(lines))
+
+    teacher_info = get_teachers().get(student["teacher_code"])
+    if teacher_info and teacher_info.get("chat_id"):
+        total_time = int(time.time() - (st.get("started") or time.time()))
+        try:
+            await bot.send_message(
+                teacher_info["chat_id"],
+                f"📝 Test topshirildi\n👤 {student.get('name', '?')}\n📋 {test['title']}\n"
+                f"📊 {correct}/{total_q} → {score}/100  (⏱ {total_time} soniya)",
+            )
+        except Exception:
+            logger.warning("O'qituvchiga test natijasini yuborib bo'lmadi", exc_info=True)
+
+
+async def start_test(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    uid = str(chat_id)
+    async with user_lock(uid):
+        students = get_students()
+        student = students.get(uid)
+        if not student or not student.get("teacher_code"):
+            context.user_data["awaiting_teacher_code"] = True
+            await update.message.reply_text("Avval o'qituvchingiz bergan kodni kiriting:")
+            return
+
+        t_code = student["teacher_code"]
+        st = student.get("test_current")
+        if st:  # boshlangan test: vaqti o'tgan savollarni yopib, davom ettiramiz
+            test = find_test(t_code, st["test_id"])
+            if not test:
+                student["test_current"] = None
+                save_students(students)
+                st = None
+            else:
+                seconds = test.get("seconds", TEST_QUESTION_SECONDS)
+                while (student.get("test_current")
+                       and time.time() - st["q_started"] > seconds + TEST_ANSWER_GRACE):
+                    await _record_and_advance(context.bot, chat_id, uid, students, None)
+                    students = get_students()
+                    student = students[uid]
+                    st = student.get("test_current")
+                if not st:
+                    return  # test shu yerda tugab, natija yuborilgan
+                await _send_question(context.bot, chat_id, uid, test, st)
+                return
+
+        tests = get_tests().get(t_code, [])
+        if not tests:
+            await update.message.reply_text("O'qituvchingiz hali test yuklamagan.")
+            return
+        done = set(student.get("tests_done", []))
+        available = [t for t in tests if t["id"] not in done]
+        if not available:
+            await update.message.reply_text("✅ Barcha testlarni topshirgansiz. Yangi test qo'shilishini kuting.")
+            return
+
+        test = random.choice(available)
+        order = []
+        for qi in range(len(test["questions"])):
+            perm = list(range(4))
+            random.shuffle(perm)
+            order.append({"qi": qi, "perm": perm})
+        random.shuffle(order)
+        student["test_current"] = {
+            "test_id": test["id"], "order": order, "pos": 0, "answers": [],
+            "started": time.time(), "q_started": time.time(),
+        }
+        students[uid] = student
+        save_students(students)
+        seconds = test.get("seconds", TEST_QUESTION_SECONDS)
+        await update.message.reply_text(
+            f"📝 Test: {test['title']}\n{len(order)} ta savol, har biriga {seconds} soniya. "
+            "Vaqt tugasa, savol xato hisoblanadi. Boshlandi!",
+            protect_content=True,
+        )
+        await _send_question(context.bot, chat_id, uid, test, student["test_current"])
+
+
+async def test_answer_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    chat_id = query.message.chat_id
+    uid = str(chat_id)
+    try:
+        _, raw_pos, raw_choice = query.data.split(":")
+        pos, choice = int(raw_pos), int(raw_choice)
+    except ValueError:
+        await query.answer("Xato so'rov.", show_alert=True)
+        return
+
+    async with user_lock(uid):
+        students = get_students()
+        student = students.get(uid)
+        st = (student or {}).get("test_current")
+        if not st or st.get("pos") != pos:
+            await query.answer("Bu savol allaqachon yopilgan.", show_alert=True)
+            return
+        test = find_test(student["teacher_code"], st["test_id"])
+        seconds = (test or {}).get("seconds", TEST_QUESTION_SECONDS)
+        late = time.time() - st["q_started"] > seconds + TEST_ANSWER_GRACE
+        await query.answer("⏱ Vaqt tugagan edi." if late else "Qabul qilindi.")
+        try:
+            await query.edit_message_reply_markup(None)
+        except Exception:
+            pass
+        await _record_and_advance(context.bot, chat_id, uid, students, None if late else choice)
+
+
+# ============================================================
 # MAIN MESSAGE HANDLER
 # ============================================================
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1538,9 +2199,40 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Rolni almashtirish (har ikkala menyuda)
     if text == BTN_ROLE:
+        context.user_data["tgen_await_topic"] = False
         context.user_data["awaiting_new_case_text"] = False
         context.user_data["awaiting_teacher_code"] = False
         await show_role_picker(update.message)
+        return
+
+    # Test: o'qituvchi tugmalari va talaba tugmasi
+    if text == BTN_NEW_TEST and teacher_code:
+        context.user_data["awaiting_new_case_text"] = False
+        context.user_data["gen_await_topic"] = False
+        context.user_data["tgen_await_topic"] = False
+        context.user_data["tgen"] = {}
+        await update.message.reply_text(
+            "📝 AI test tuzadi (IELTS uslubidagi ko'p tanlovli, javoblarni kod tekshiradi). Qanday davom etamiz?",
+            reply_markup=tgen_start_keyboard(),
+        )
+        return
+
+    if text == BTN_MY_TESTS and teacher_code:
+        context.user_data["awaiting_new_case_text"] = False
+        await show_my_tests(update, context, teacher_code)
+        return
+
+    if context.user_data.get("tgen_await_topic") and teacher_code:
+        if text in (BTN_NEW_CASE, BTN_GEN_CASE, BTN_MY_CASES, BTN_STUDENTS, BTN_ROLE, BTN_MY_TESTS):
+            context.user_data["tgen_await_topic"] = False
+        else:
+            context.user_data["tgen_await_topic"] = False
+            context.user_data.setdefault("tgen", {})["topic"] = text[:500]
+            await update.message.reply_text("Nechta savol bo'lsin?", reply_markup=tgen_count_keyboard())
+            return
+
+    if text == BTN_START_TEST:
+        await start_test(update, context)
         return
 
     # AI keys yaratish: tugma
@@ -1865,215 +2557,4 @@ async def submit_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.send_message(
             chat_id,
             "⚠️ Javobingiz saqlandi, lekin hozir AI baholashda texnik muammo yuz berdi. "
-            "O'qituvchingizga xabar berildi; javob yo'qolmadi."
-        )
-
-    # O'qituvchiga batafsil hisobot.
-    teacher_info = get_teachers().get(t_code)
-    if teacher_info and teacher_info.get("chat_id"):
-        lines = [
-            "📥 Yangi case javobi",
-            f"👤 Talaba: {student.get('name', '?')}",
-            f"📋 Case: {case.get('title', '?')}",
-            f"⏱️ Keys boshlanganidan topshirishgacha: {int(elapsed)} soniya",
-            "",
-            "🔎 AVTOMATIK TEKSHIRUV — BU AYB ISBOTI EMAS:",
-            *flags,
-        ]
-
-        highest = indicators.get("highest_similarity")
-        if highest is not None:
-            lines.append(f"📊 Eng yuqori o'xshashlik indikatori: {highest:.0%}")
-
-        if evidence:
-            lines.append("\n🔍 Umumiy uzun iboralar (tekshirish uchun):")
-            for item in evidence[:3]:
-                lines.append(f"• Boshqa javob: {item.get('other_student', '?')}")
-                for phrase in item.get("phrases", [])[:2]:
-                    lines.append(f' “{phrase}”')
-
-        if ai_result:
-            lines.extend([
-                "",
-                f"📊 Akademik ball: {ai_result['total']}/{MAX_SCORE}"
-                + (f" (jarimagacha: {ai_result['raw_total']})" if ai_result.get("penalty_applied") else ""),
-                f"🛡 Shubha ko'rsatkichi: {ai_result['suspicion']}/100"
-                + (" — " + "; ".join(ai_result["suspicion_reasons"]) if ai_result["suspicion_reasons"] else ""),
-                f"📚 Baholash rejimi: {mode_short(ai_result.get('mode'))} (jarimagacha):",
-            ])
-            for rubric_item in rubric_items(ai_result):
-                detail = ai_result["scores"][rubric_item["key"]]
-                lines.append(
-                    f"• {detail['name']}: {detail['score']}/{detail['max']}"
-                )
-                if detail["evidence"]:
-                    lines.append(f" Dalil: {detail['evidence'][:250]}")
-                if detail["comment"]:
-                    lines.append(f" Izoh: {detail['comment'][:300]}")
-
-            lines.extend([
-                "",
-                (f"🎯 AI kutgan javob (asosiy fikrlar): {ai_result['ideal']}" if ai_result.get("ideal") else ""),
-                f"🧾 Umumiy izoh: {ai_result['summary']}",
-                f"🎯 Yaxshilash tavsiyasi: {ai_result['improvement']}",
-                f"🤖 AI yozganlik taxmini: {ai_result['ai_ehtimoli']} — "
-                f"{ai_result['ai_sabab']}",
-                "Eslatma: AI muallifligini matn uslubidan ishonchli aniqlab bo'lmaydi.",
-            ])
-            if ai_result.get("follow_up_question"):
-                lines.append(
-                    f"❓ Ixtiyoriy og'zaki tekshiruv savoli: "
-                    f"{ai_result['follow_up_question']}"
-                )
-            if ai_result["manipulyatsiya"]:
-                lines.append(
-                    "⚠️ Javob ichida baholovchi ko'rsatmalariga ta'sir qilishga urinishga "
-                    "o'xshash matn topilgan. Bu alohida ko'rib chiqilishi kerak; "
-                    "avtomatik nol ball berilmadi."
-                )
-        else:
-            lines.extend([
-                "",
-                "⚠️ AI baholay olmadi; natija tekshiruv uchun pending_review holatida.",
-                f"Texnik xato: {str(error)[:300]}",
-            ])
-
-        lines.extend(["", "💬 Talaba javobi:", answer])
-        pen_markup = None
-        if ai_result and ai_result.get("penalty_applied"):
-            pen_markup = InlineKeyboardMarkup([[
-                InlineKeyboardButton(
-                    f"↩️ Jarimani bekor qilish ({ai_result['raw_total']} ball)",
-                    callback_data=f"penoff:{rid}",
-                )
-            ]])
-        await send_long(context.bot, teacher_info["chat_id"], "\n".join(lines), reply_markup=pen_markup)
-
-
-# ============================================================
-# TEACHER: JARIMANI BEKOR QILISH
-# ============================================================
-async def penalty_off_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    rid = query.data.split(":", 1)[1]
-    results = get_results()
-    record = results.get(rid)
-    teacher_code = get_teacher_code_by_chat_id(query.message.chat_id)
-    if not record or not teacher_code or record.get("teacher_code") != teacher_code or not record.get("ai"):
-        await query.answer("Topilmadi.", show_alert=True)
-        return
-    ai_result = record["ai"]
-    if not ai_result.get("penalty_applied"):
-        await query.answer("Jarima allaqachon bekor qilingan.", show_alert=True)
-        return
-
-    ai_result["total"] = ai_result["raw_total"]
-    ai_result["penalty_applied"] = False
-    ai_result["penalty_cancelled_by_teacher"] = True
-    record["total"] = ai_result["total"]
-    save_results(results)
-    await query.answer("Jarima bekor qilindi.")
-    try:
-        await query.edit_message_reply_markup(None)
-    except Exception:
-        pass
-    await context.bot.send_message(
-        query.message.chat_id, f"✅ {record.get('student_name', '?')} uchun jarima bekor qilindi: {ai_result['total']}/{MAX_SCORE}."
-    )
-    try:
-        await context.bot.send_message(
-            int(record["student_id"]),
-            f"✅ O'qituvchingiz jarimani bekor qildi. Yakuniy bahoingiz: {ai_result['total']}/{MAX_SCORE} — "
-            f"{level(ai_result['total'])}",
-        )
-    except Exception:
-        logger.warning("Talabaga xabar yuborib bo'lmadi", exc_info=True)
-
-
-# ============================================================
-# STUDENT FEEDBACK CALLBACK
-# ============================================================
-async def izoh_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-
-    rid = query.data.split(":", 1)[1]
-    result = get_results().get(rid)
-
-    if (
-        not result
-        or str(result.get("student_id")) != str(query.from_user.id)
-        or not result.get("ai")
-    ):
-        await query.answer("Izoh topilmadi.", show_alert=True)
-        return
-
-    try:
-        await query.edit_message_reply_markup(None)
-    except Exception:
-        pass
-
-    ai_result = result["ai"]
-    lines = [
-        f"💬 Baholash izohi: {ai_result['total']}/{MAX_SCORE}",
-        "",
-    ]
-    for rubric_item in rubric_items(ai_result):
-        detail = ai_result["scores"].get(rubric_item["key"], {})
-        lines.append(
-            f"{detail.get('name', rubric_item['name'])}: "
-            f"{detail.get('score', 0)}/{detail.get('max', rubric_item['max'])}"
-        )
-        if detail.get("comment"):
-            lines.append(detail["comment"])
-        if detail.get("evidence"):
-            lines.append(f"Dalil: {detail['evidence']}")
-        lines.append("")
-
-    lines.extend([
-        f"Umumiy izoh: {ai_result.get('summary', '')}",
-        f"Yaxshilash tavsiyasi: {ai_result.get('improvement', '')}",
-    ])
-    await send_long(context.bot, query.message.chat_id, "\n".join(lines))
-
-
-# ============================================================
-# MAIN
-# ============================================================
-def main():
-    if not TELEGRAM_BOT_TOKEN:
-        logger.error("TELEGRAM_BOT_TOKEN topilmadi!")
-        return
-
-    if not GEMINI_API_KEY:
-        logger.warning(
-            "GEMINI_API_KEY topilmadi. Bot ishga tushadi, lekin AI baholash ishlamaydi."
-        )
-
-    init_storage()  # Supabase'dan ma'lumotni yuklaydi (ulanmasa, bot ataylab to'xtaydi)
-
-    app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
-
-    app.add_handler(CommandHandler("start", start_command))
-    app.add_handler(CommandHandler("rol", role_command))
-    app.add_handler(CommandHandler("role", role_command))
-    app.add_handler(CallbackQueryHandler(gen_callback, pattern=r"^gen:"))
-    app.add_handler(CallbackQueryHandler(case_manage_callback, pattern=r"^(cview|cdel|cyes|cno|cmode):"))
-    app.add_handler(CallbackQueryHandler(role_callback, pattern=r"^role_"))
-    app.add_handler(CallbackQueryHandler(submit_callback, pattern=r"^submit$"))
-    app.add_handler(CallbackQueryHandler(izoh_callback, pattern=r"^izoh:"))
-    app.add_handler(CallbackQueryHandler(penalty_off_callback, pattern=r"^penoff:"))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-
-    threading.Thread(target=run_health_server, daemon=True).start()
-    threading.Thread(target=run_keep_alive, daemon=True).start()
-
-    logger.info("Bot ishga tushmoqda...")
-    try:
-        app.run_polling()
-    finally:
-        flush_storage()
-
-
-if __name__ == "__main__":
-    main()
+            "O'qituvchingizga xabar berildi; javob yo'qo
