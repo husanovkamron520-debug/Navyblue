@@ -67,7 +67,7 @@ MIN_ANSWER_CHARS = 30
 MAX_PARTS = 30
 # Mavzuga aloqador, halol urinish bo'lgan javobda har bir asosiy mezon kamida shu ulushni oladi.
 # Bitta mezon yetishmasligi butun bahoni keskin tushirib yubormasligi uchun.
-FLOOR_RATIO = 0.15
+FLOOR_RATIO = 0.25
 
 # Shubhali belgilar: faqat tekshiruv signali, aybning isboti emas.
 FAST_CHARS_PER_SEC = 12
@@ -117,6 +117,7 @@ BTN_STUDENTS = "📊 O'quvchilar ro'yxati"
 BTN_START_CASE = "📌 Case'ni boshlash"
 BTN_MY_CASES = "📚 Keyslarim"
 BTN_ROLE = "🔄 Rolni o'zgartirish"
+BTN_GEN_CASE = "🤖 AI keys yaratsin"
 
 # ============================================================
 # DATA FILES — o'zgartirilmadi
@@ -1073,7 +1074,7 @@ async def ai_grade(case, answer):
 # ============================================================
 def teacher_menu():
     return ReplyKeyboardMarkup(
-        [[BTN_NEW_CASE], [BTN_MY_CASES, BTN_STUDENTS], [BTN_ROLE]], resize_keyboard=True
+        [[BTN_NEW_CASE, BTN_GEN_CASE], [BTN_MY_CASES, BTN_STUDENTS], [BTN_ROLE]], resize_keyboard=True
     )
 
 
@@ -1309,6 +1310,220 @@ async def case_manage_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 
 
 # ============================================================
+# TEACHER: AI KEYS YARATISH (mavzu bo'yicha yoki tasodifiy)
+# ============================================================
+RANDOM_TOPICS = [
+    "ombor boshqaruvi va yig'ish (picking) jarayoni",
+    "transport marshrutlarini optimallashtirish",
+    "zaxiralarni boshqarish (inventory) va talabni prognoz qilish",
+    "yetkazib beruvchini tanlash va baholash",
+    "oxirgi mil (last-mile) yetkazib berish muammolari",
+    "import tovarlari va bojxona kechikishlari",
+    "sovuq zanjir (oziq-ovqat, dori-darmon) logistikasi",
+    "qaytarilgan tovarlar (reverse logistics)",
+    "elektron tijorat va mavsumiy talab (chegirmalar davri)",
+    "ta'minot zanjiridagi uzilishlar va xatarlarni boshqarish",
+    "xarajatlarni kamaytirish: transport vs ombor xarajatlari",
+    "ishlab chiqarish korxonasida xom ashyo ta'minoti",
+    "ko'p filialli do'kon tarmog'ida tovar taqsimoti",
+    "kontaynerli tashish va multimodal logistika",
+    "restoran va umumiy ovqatlanish ta'minoti",
+]
+
+GEN_LEVELS = {
+    "simple": ("🙂 Oddiy", "oddiy va tushunarli, 2-3 ta raqam, murakkab hisob-kitob talab qilinmaydi"),
+    "analytic": ("📊 Analitik", "analitik: ko'p aniq raqamli ma'lumotlar (hajm, narx, vaqt, foiz), talaba hisob-kitob qilib, ma'lumotlardan xulosa chiqarishi kerak"),
+    "hard": ("🔥 Murakkab", "murakkab: bir nechta ziddiyatli omillar, byudjet va vaqt cheklovlari, noaniqlik; to'g'ri javob bitta emas, talaba tanlovni asoslashi kerak"),
+}
+
+
+def build_gen_prompt(topic, level_desc):
+    return f"""Siz logistika va supply chain fani professorisiz. Talabalar uchun yozma tahlil uchun KEYS (case) yarating.
+
+MAVZU / TALABLAR: {topic}
+KEYS TURI: {level_desc}
+
+TALABLAR:
+- Birinchi qatorda qisqa sarlavha (60 belgidan oshmasin), keyin bo'sh qator, keyin keys matni.
+- Xayoliy, lekin real ko'rinishdagi kompaniya (O'zbekiston konteksti: shahar, bozor), aniq vaziyat va muammo.
+- Raqamlar real va o'zaro mantiqli bo'lsin (absurd emas).
+- Keys oxirida talabaga 2-3 ta aniq savol bering.
+- Keys ichida yechim yoki to'g'ri javobni BERMANG.
+- 150-300 so'z, o'zbek tilida, oddiy matn (Markdown belgilari ** yoki # ishlatmang).
+
+Faqat keys matnini qaytaring, boshqa izoh yozmang."""
+
+
+def _gen_case_sync(topic, level_desc):
+    if not ai_client:
+        raise RuntimeError("GEMINI_API_KEY topilmadi")
+    response = ai_client.models.generate_content(
+        model=AI_MODEL_NAME,
+        contents=build_gen_prompt(topic, level_desc),
+        config=types.GenerateContentConfig(temperature=0.9),
+    )
+    text = (getattr(response, "text", None) or "").strip()
+    text = text.replace("**", "").replace("##", "").replace("# ", "")
+    if len(text) < 200:
+        raise RuntimeError("AI juda qisqa keys qaytardi")
+    return text
+
+
+async def generate_case(topic, level_key):
+    level_desc = GEN_LEVELS[level_key][1]
+    last_error = None
+    async with ai_gate:
+        for attempt in range(2):
+            try:
+                return await asyncio.to_thread(_gen_case_sync, topic, level_desc), None
+            except Exception as exc:
+                last_error = f"{type(exc).__name__}: {exc}"
+                logger.warning("Keys yaratish xatosi (%s/2): %s", attempt + 1, last_error)
+                if attempt < 1:
+                    await asyncio.sleep(3)
+    return None, last_error
+
+
+def gen_start_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🎲 Tasodifiy mavzu", callback_data="gen:random")],
+        [InlineKeyboardButton("✍️ Mavzuni o'zim aytaman", callback_data="gen:topic")],
+        [InlineKeyboardButton("❌ Bekor qilish", callback_data="gen:cancel")],
+    ])
+
+
+def gen_level_keyboard():
+    rows = [[InlineKeyboardButton(label, callback_data=f"gen:lvl:{key}")]
+            for key, (label, _) in GEN_LEVELS.items()]
+    rows.append([InlineKeyboardButton("❌ Bekor qilish", callback_data="gen:cancel")])
+    return InlineKeyboardMarkup(rows)
+
+
+async def gen_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    chat_id = query.message.chat_id
+    teacher_code = get_teacher_code_by_chat_id(chat_id)
+    if not teacher_code:
+        await query.answer("Bu amal faqat o'qituvchi uchun.", show_alert=True)
+        return
+
+    parts = query.data.split(":")
+    action = parts[1] if len(parts) > 1 else ""
+    gen = context.user_data.setdefault("gen", {})
+
+    if action == "cancel":
+        context.user_data.pop("gen", None)
+        context.user_data["gen_await_topic"] = False
+        await query.answer("Bekor qilindi.")
+        try:
+            await query.edit_message_text("❌ Keys yaratish bekor qilindi.")
+        except Exception:
+            pass
+        return
+
+    if action == "random":
+        gen["topic"] = random.choice(RANDOM_TOPICS)
+        await query.answer()
+        await query.edit_message_text(
+            f"🎲 Tasodifiy mavzu tanlandi: {gen['topic']}\n\nKeys qanday bo'lsin?",
+            reply_markup=gen_level_keyboard(),
+        )
+        return
+
+    if action == "topic":
+        context.user_data["gen_await_topic"] = True
+        await query.answer()
+        await query.edit_message_text(
+            "✍️ Mavzuni yozing (masalan: «ombor boshqaruvi»).\n"
+            "Xohlasangiz, qanday keys kerakligini ham tasvirlang "
+            "(masalan: «yetkazib berish kechikishi, analitik, raqamlar ko'p bo'lsin»)."
+        )
+        return
+
+    if action == "lvl" and len(parts) > 2 and parts[2] in GEN_LEVELS:
+        topic = gen.get("topic")
+        if not topic:
+            await query.answer("Mavzu topilmadi. Qaytadan boshlang.", show_alert=True)
+            return
+        gen["level"] = parts[2]
+        await query.answer()
+        await query.edit_message_text("⏳ Keys yaratilmoqda (10–30 soniya)...")
+        text, error = await generate_case(topic, parts[2])
+        if not text:
+            await context.bot.send_message(
+                chat_id,
+                f"⚠️ Keys yaratib bo'lmadi: {str(error)[:200]}\nBiroz kutib, qaytadan urinib ko'ring.",
+            )
+            return
+        gen["preview"] = text
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("✅ Saqlash", callback_data="gen:save")],
+            [InlineKeyboardButton("🔄 Boshqasini yarat", callback_data="gen:redo")],
+            [InlineKeyboardButton("❌ Bekor qilish", callback_data="gen:cancel")],
+        ])
+        await send_long(context.bot, chat_id, "🤖 Tayyor keys:\n\n" + text, reply_markup=kb)
+        return
+
+    if action == "redo":
+        topic, level = gen.get("topic"), gen.get("level")
+        if not topic or level not in GEN_LEVELS:
+            await query.answer("Muddati o'tgan. Qaytadan boshlang.", show_alert=True)
+            return
+        await query.answer("Yangi keys yaratilmoqda...")
+        try:
+            await query.edit_message_reply_markup(None)
+        except Exception:
+            pass
+        text, error = await generate_case(topic, level)
+        if not text:
+            await context.bot.send_message(chat_id, f"⚠️ Keys yaratib bo'lmadi: {str(error)[:200]}")
+            return
+        gen["preview"] = text
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("✅ Saqlash", callback_data="gen:save")],
+            [InlineKeyboardButton("🔄 Boshqasini yarat", callback_data="gen:redo")],
+            [InlineKeyboardButton("❌ Bekor qilish", callback_data="gen:cancel")],
+        ])
+        await send_long(context.bot, chat_id, "🤖 Tayyor keys:\n\n" + text, reply_markup=kb)
+        return
+
+    if action == "save":
+        text = gen.get("preview")
+        if not text:
+            await query.answer("Muddati o'tgan. Qaytadan boshlang.", show_alert=True)
+            return
+        cases = get_cases()
+        cases.setdefault(teacher_code, [])
+        new_id = max([c.get("id", 0) for c in cases[teacher_code]] + [0]) + 1
+        title = (text.split("\n")[0][:60].strip() or "Logistika Case")
+        new_case = {
+            "id": new_id,
+            "title": title,
+            "text": text,
+            "mode": MODE_STRICT,
+            "source": "ai",
+            "questions": ["Ushbu case bo'yicha tahlil va yechimingizni yozing."],
+        }
+        cases[teacher_code].append(new_case)
+        save_cases(cases)
+        context.user_data.pop("gen", None)
+        await query.answer("Saqlandi.")
+        try:
+            await query.edit_message_reply_markup(None)
+        except Exception:
+            pass
+        await context.bot.send_message(
+            chat_id,
+            f"✅ Keys saqlandi: {title}\nJami keyslaringiz: {len(cases[teacher_code])} ta.\n\n"
+            "⚙️ Baholash rejimi hozir «Qat'iy». Xohlasangiz, o'zgartiring:",
+            reply_markup=case_keyboard(new_case),
+        )
+        return
+
+    await query.answer()
+
+
+# ============================================================
 # MAIN MESSAGE HANDLER
 # ============================================================
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1327,6 +1542,29 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["awaiting_teacher_code"] = False
         await show_role_picker(update.message)
         return
+
+    # AI keys yaratish: tugma
+    if text == BTN_GEN_CASE and teacher_code:
+        context.user_data["awaiting_new_case_text"] = False
+        context.user_data["gen_await_topic"] = False
+        context.user_data["gen"] = {}
+        await update.message.reply_text(
+            "🤖 AI keysni sizning o'rningizga yozadi. Qanday davom etamiz?",
+            reply_markup=gen_start_keyboard(),
+        )
+        return
+
+    # AI keys uchun mavzu matni
+    if context.user_data.get("gen_await_topic") and teacher_code:
+        if text in (BTN_NEW_CASE, BTN_MY_CASES, BTN_STUDENTS, BTN_ROLE):
+            context.user_data["gen_await_topic"] = False
+        else:
+            context.user_data["gen_await_topic"] = False
+            context.user_data.setdefault("gen", {})["topic"] = text[:500]
+            await update.message.reply_text(
+                "Keys qanday bo'lsin?", reply_markup=gen_level_keyboard()
+            )
+            return
 
     # O'qituvchi yangi keys yaratishni boshlaydi.
     if text == BTN_NEW_CASE and teacher_code:
@@ -1819,6 +2057,7 @@ def main():
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("rol", role_command))
     app.add_handler(CommandHandler("role", role_command))
+    app.add_handler(CallbackQueryHandler(gen_callback, pattern=r"^gen:"))
     app.add_handler(CallbackQueryHandler(case_manage_callback, pattern=r"^(cview|cdel|cyes|cno|cmode):"))
     app.add_handler(CallbackQueryHandler(role_callback, pattern=r"^role_"))
     app.add_handler(CallbackQueryHandler(submit_callback, pattern=r"^submit$"))
