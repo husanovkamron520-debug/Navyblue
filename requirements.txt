@@ -3,3 +3,4 @@ python-telegram-bot [webhooks]==21.4
 google-genai
 python-pptx
 Pillow
+python-docx
