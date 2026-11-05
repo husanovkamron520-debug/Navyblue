@@ -80,7 +80,7 @@ except ValueError:
 AI_MODEL_NAME = (os.environ.get("AI_MODEL_NAME") or "gemini-3.5-flash-lite").strip()
 
 ai_client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
-ai_gate = asyncio.Semaphore(2)
+ai_gate = asyncio.Semaphore(10)
 
 # Asosiy model ishlamasa (404/503/limit) — zaxira modellarga o'tadi. Env: AI_FALLBACK_MODELS="model1,model2"
 AI_FALLBACK_MODELS = list(dict.fromkeys(
