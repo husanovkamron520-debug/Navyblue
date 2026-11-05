@@ -11147,7 +11147,7 @@ def main():
 
     logger.info("Bot ishga tushmoqda...")
     try:
-        app.run_polling()
+        app.run_polling(bootstrap_retries=10)
     finally:
         flush_storage()
 
