@@ -1177,11 +1177,11 @@ function buildWorld(data){
  if(world){disposeObj(world);scene.remove(world);}
  world=new THREE.Group();scene.add(world);
  colliders=[];clickables=[];lazy=[];roomPos={};doors.length=0;G.V=[];G.adj={};G.roomNode={};
- const G=[],LG=[];
+ const geoList=[],LG=[];
  const THEMES=data.themes||{};
  const byN={};(data.rooms||[]).forEach(r=>byN[r.n]=r);
  const hx=h=>typeof h==='string'?parseInt(h,16):h;
- function pushGeo(g,hex,list){g=g.index?g.toNonIndexed():g;const c=new THREE.Color(hx(hex));const n=g.attributes.position.count;const a=new Float32Array(n*3);for(let i=0;i<n;i++){a[i*3]=c.r;a[i*3+1]=c.g;a[i*3+2]=c.b;}g.setAttribute('color',new THREE.BufferAttribute(a,3));(list||G).push(g);}
+ function pushGeo(g,hex,list){g=g.index?g.toNonIndexed():g;const c=new THREE.Color(hx(hex));const n=g.attributes.position.count;const a=new Float32Array(n*3);for(let i=0;i<n;i++){a[i*3]=c.r;a[i*3+1]=c.g;a[i*3+2]=c.b;}g.setAttribute('color',new THREE.BufferAttribute(a,3));(list||geoList).push(g);}
  function box(x0,y0,z0,x1,y1,z1,hex,list){const w=x1-x0,h=y1-y0,d=z1-z0;if(w<=0||h<=0||d<=0)return;const g=new THREE.BoxGeometry(w,h,d);g.translate(x0+w/2,y0+h/2,z0+d/2);pushGeo(g,hex,list);}
  function cyl(x,y0,z,rt,rb,h,hex,seg){const g=new THREE.CylinderGeometry(rt,rb,h,seg||16);g.translate(x,y0+h/2,z);pushGeo(g,hex);}
  const S=0xe9dfc8;
@@ -1517,7 +1517,7 @@ function buildWorld(data){
  let seed=7;const rnd=()=>{seed=(seed*16807)%2147483647;return seed/2147483647;};
  for(let i=0;i<28;i++){const sx=rnd()<0.5?-1:1;const x=sx*(13+rnd()*34),z=27+rnd()*50;cyl(x,-1.2,z,0.22,0.28,1.6,0x6b4a2b,8);cyl(x,0.2,z,0,1.5,3.4,0x2f7d3a,9);col(x-0.5,z-0.5,x+0.5,z+0.5);}
 
- const sm=new THREE.Mesh(mergeGeometries(G),new THREE.MeshLambertMaterial({vertexColors:true}));world.add(sm);
+ const sm=new THREE.Mesh(mergeGeometries(geoList),new THREE.MeshLambertMaterial({vertexColors:true}));world.add(sm);
  if(LG.length)world.add(new THREE.Mesh(mergeGeometries(LG),new THREE.MeshBasicMaterial({vertexColors:true})));
  updateLazy(true);
 }
