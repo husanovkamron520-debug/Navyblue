@@ -1699,7 +1699,7 @@ function twirl(){const me=(DATA&&DATA.me)||{};if(me.g==='f')P.spin=Math.PI*4;}
 
 // ---------- kod bilan kirish ----------
 function openLogin(){$('lge').textContent='';$('lgi').value='';$('lg').classList.remove('hide');setTimeout(()=>{try{$('lgi').focus();}catch(_){}},60);}
-$('bLogin').onclick=openLogin;
+/* $('bLogin').onclick=openLogin; Xato bermasligi uchun o'chirildi (chunki bLogin tugmasi HTMLda yo'q) */
 async function doLogin(){
  const c=$('lgi').value.trim();if(!c)return;
  $('lgok').disabled=true;$('lge').textContent='';
@@ -1930,4 +1930,3 @@ async function refresh(){
  }
 })();
 </script></body></html>
-'''
