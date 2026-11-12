@@ -24,8 +24,16 @@ def _connector(self, slide, x1, y1, x2, y2, color="soft", width=1.5, arrow=False
     try:
         line.line.color.rgb = self.col(color)
         line.line.width = self.Pt(width)
-        if arrow and hasattr(self, "_v8_arrow"):
-            self._v8_arrow(line, color, width)
+        if arrow:
+            from pptx.oxml.ns import qn
+            from lxml import etree
+            ln = line.line._get_or_add_ln()
+            for old_end in ln.findall(qn("a:headEnd")):
+                ln.remove(old_end)
+            head = etree.SubElement(ln, qn("a:headEnd"))
+            head.set("type", "triangle")
+            head.set("w", "med")
+            head.set("len", "med")
     except Exception:
         pass
     return line
