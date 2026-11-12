@@ -4942,7 +4942,7 @@ class _PptBuilder:
     @staticmethod
     def fit(txt, w, h, hi, lo, factor=0.5, lh=1.28, extra_after=0):
         import math
-        for pt in range(hi, lo - 1, -1):
+        for pt in range(int(round(hi)), int(round(lo)) - 1, -1):
             cpl = max(1, int((w - 0.15) * 72 / (pt * factor)))
             paras = txt if isinstance(txt, list) else str(txt).split("\n")
             lines = sum(max(1, math.ceil(len(p) / cpl)) for p in paras)
@@ -7406,7 +7406,7 @@ class _PptBuilderClassic:
     @staticmethod
     def fit(txt, w, h, hi, lo, factor=0.5, lh=1.28, extra_after=0):
         import math
-        for pt in range(hi, lo - 1, -1):
+        for pt in range(int(round(hi)), int(round(lo)) - 1, -1):
             cpl = max(1, int((w - 0.15) * 72 / (pt * factor)))
             paras = txt if isinstance(txt, list) else str(txt).split("\n")
             lines = sum(max(1, math.ceil(len(p) / cpl)) for p in paras)
