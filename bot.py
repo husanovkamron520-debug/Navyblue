@@ -3209,15 +3209,22 @@ def _sanitize_outline(data, topic: str, n: int, with_images: bool) -> dict:
                                  "density": "low", "motion_reason": "Clear agenda reveal"}}
     if slides[-1].get("layout") != "closing":
         source = [x for x in slides if x.get("layout") not in ("agenda", "closing")]
-        last = source[-1] if source else slides[-1]
-        takeaways = []
-        for item in source[-3:]:
-            head = _ppt_s(item.get("title"), 45) or "Asosiy fikr"
-            body = _ppt_s(item.get("text"), 110) or "Ushbu bo'limdagi asosiy mazmun."
-            takeaways.append({"head": head, "text": body})
+        # Xulosa butun taqdimotdan: bosh, o'rta va yakuniy bo'limlardan.
+        summaries = [(item.get("title") or "Asosiy fikr", _ppt_slide_text(item)) for item in source]
+        summaries = [(h, body) for h, body in summaries if body]
+        if summaries:
+            picks = [summaries[0]]
+            if len(summaries) > 2:
+                picks.append(summaries[len(summaries) // 2])
+            if len(summaries) > 1:
+                picks.append(summaries[-1])
+            takeaways = [{"head": _ppt_s(h, 45), "text": _ppt_clip(body, 150)} for h, body in picks[:3]]
+            closing_text = _ppt_clip(" ".join(body for _, body in summaries), 280)
+        else:
+            takeaways = [{"head": _ppt_s(x.get("title"), 45), "text": _ppt_s(x.get("title"), 110)} for x in source[:3]]
+            closing_text = _ppt_s(topic, 240)
         while len(takeaways) < 2:
-            takeaways.append({"head": "Muhim xulosa", "text": _ppt_s(last.get("text"), 110) or topic[:110]})
-        closing_text = _ppt_s(last.get("text"), 280) or "Taqdimotdagi asosiy fikrlarni amaliyotda qo'llash muhim."
+            takeaways.append({"head": "Yakuniy fikr", "text": closing_text or _ppt_s(topic, 110)})
         slides[-1] = {"layout": "closing", "title": "Asosiy xulosa", "text": closing_text,
                       "takeaways": takeaways[-3:], "final": "Savollar va muhokama.", "notes": "Yakuniy xulosa",
                       "motion": "fade", "story_role": "conclusion", "design": {"visual_focus": "Asosiy xulosalar", "visual_type": "typography",
