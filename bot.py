@@ -8914,7 +8914,7 @@ def _gemini_outline_common_sync(topic: str, n_slides: int) -> dict:
         "maketlarini mazmunga qarab ishlat. Rasmlar shart emas.\n"
         'FAQAT JSON: {"title":"...","subtitle":"...","style":"light","slides":[{"layout":"text","title":"...","text":"...","notes":"..."}]} '
     )
-    for model in (AI_FALLBACK_MODELS * 3)[:3]:
+    for model in PPT_AI_MODELS[:3]:
         try:
             raw = _ai_generate_text_sync(prompt, 0.35, 5500, True, [model])
             outline = _sanitize_outline(_json_loads_loose(raw), topic, n_slides, False)
@@ -8952,6 +8952,21 @@ async def _ppt_generate_and_send(msg, context, topic, n, with_images, author, mo
         outline["author"] = cover.get("name", "")     # Telegram ismi endi avtomatik qo'yilmaydi
         outline["cover"] = cover
         _t1 = time.monotonic()
+        # Fon tayyorlash rasm qidiruvidan mustaqil: ikkalasini parallel boshlaymiz.
+        theme_choice = context.user_data.get("_ppt_theme", "auto")
+        theme = _ppt_pick_theme(theme_choice, outline.get("style"),
+                                context.user_data.get("_ppt_last_theme"))
+        _mood_key = None
+        if mode != "common" and theme_choice in (None, "auto"):
+            _mood_key = _ppt_detect_mood(f"{topic} {outline.get('title', '')}", context.user_data.get("_ppt_last_theme"))
+            if _mood_key:
+                theme = _ppt_pick_theme(_mood_key)
+        if theme_choice in (None, "auto", "random") and not _mood_key:
+            theme = _ppt_apply_art_direction(theme, outline.get("art_direction", {}))
+        theme = _ppt_fix_contrast(theme)
+        context.user_data["_ppt_last_theme"] = theme.get("key", theme.get("name", "adaptive"))
+        bg_task = asyncio.create_task(asyncio.to_thread(
+            _ppt_make_backgrounds_sync, theme, outline.get("cover_query", "")))
         if with_images and any(s.get("photo_query") or s.get("collage_queries") for s in outline["slides"]):
             try:
                 await status.edit_text("🖼 Rasmlar tanlanmoqda (bir necha soniya)...")
@@ -8970,23 +8985,8 @@ async def _ppt_generate_and_send(msg, context, topic, n, with_images, author, mo
             _ppt_add_references(outline)   # xulosadan keyin: Foydalanilgan adabiyotlar slaydi
         except Exception:
             logger.exception("Adabiyotlar slaydini qo'shishda xato")
-        theme_choice = context.user_data.get("_ppt_theme", "auto")
-        theme = _ppt_pick_theme(theme_choice, outline.get("style"),
-                                context.user_data.get("_ppt_last_theme"))
-        # Premium V7: avtomatik rejimda AI Art Director tanlagan rang palitrasi,
-        # mood va motif dizaynga tatbiq qilinadi. Qo'lda tanlangan theme saqlanadi.
-        _mood_key = None
-        if mode != "common" and theme_choice in (None, "auto"):
-            _mood_key = _ppt_detect_mood(f"{topic} {outline.get('title', '')}", context.user_data.get("_ppt_last_theme"))   # Mood Engine
-            if _mood_key:
-                theme = _ppt_pick_theme(_mood_key)
-        if theme_choice in (None, "auto", "random") and not _mood_key:
-            theme = _ppt_apply_art_direction(theme, outline.get("art_direction", {}))
-        theme = _ppt_fix_contrast(theme)   # matn fon bilan qo'shilib ketmasin
-        context.user_data["_ppt_last_theme"] = theme.get("key", theme.get("name", "adaptive"))
         try:
-            bg_main, bg_title, bg_credit = await asyncio.to_thread(
-                _ppt_make_backgrounds_sync, theme, outline.get("cover_query", ""))
+            bg_main, bg_title, bg_credit = await bg_task
         except Exception:
             logger.exception("Fon yaratishda xato — oddiy fon ishlatiladi")
             bg_main, bg_title, bg_credit = await asyncio.to_thread(_bg_procedural, theme), None, ""
