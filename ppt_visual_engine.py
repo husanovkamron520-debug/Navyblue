@@ -271,8 +271,11 @@ def render_quote(self, sl):
         self.text(s, 2.12, 5.25, 9.7, 0.5, sl["attribution"],
                   self.fit(sl["attribution"], 9.6, 0.5, 17, 11), "brown", True, "l", "m", self.tf)
     if sl.get("context"):
-        self.text(s, 2.12, 5.82, 9.7, 0.85, sl["context"],
-                  self.fit(sl["context"], 9.6, 0.85, 15, 9), "text", False, "l", "t")
+        self.text(s, 2.12, 5.82, 9.7, 0.58, sl["context"],
+                  self.fit(sl["context"], 9.6, 0.58, 13, 8), "text", False, "l", "t")
+    if sl.get("source"):
+        self.text(s, 2.12, 6.42, 9.7, 0.25, "Manba: " + sl["source"],
+                  self.fit("Manba: " + sl["source"], 9.6, 0.25, 9, 7), "brown", False, "l", "m")
     self.notes(s, sl.get("notes"))
 
 
