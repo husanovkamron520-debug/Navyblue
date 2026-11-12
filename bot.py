@@ -4372,7 +4372,7 @@ def _ppt_clip(text, limit):
 
 def _ppt_stepper_labels(data):
     raw = data.get("stepper") if isinstance(data, dict) else None
-    labels = [_ppt_s(x, 14) for x in (raw or []) if _ppt_s(x, 14)] if isinstance(raw, list) else []
+    labels = [_ppt_s(x, 18) for x in (raw or []) if _ppt_s(x, 18)] if isinstance(raw, list) else []
     return labels[:5] if len(labels) >= 3 else list(PPT_STEPPER_DEFAULT)
 
 
@@ -5599,7 +5599,7 @@ class _PptBuilder:
         compact = len(body) <= 185
         return {"layout": "statement" if compact else "editorial",
                 "title": sl.get("title", ""), "text": body,
-                "pull_quote": sl.get("title", ""), "side_note": "Asosiy mazmun saqlandi; joylashuv avtomatik qayta tiklandi.",
+                "pull_quote": sl.get("title", ""),
                 "notes": sl.get("notes", ""),
                 "design": {"composition": "typographic" if compact else "editorial_split",
                            "visual_type": "typography", "visual_focus": sl.get("title", "")}}
@@ -6393,7 +6393,9 @@ def _v8_stepper(self, slide, active, labels):
     hl.fill.solid(); hl.fill.fore_color.rgb = self.col("brown"); hl.line.fill.background(); hl.shadow.inherit = False
     hl.name = "!!step_active" if PPT_MORPH else "deco-stepactive"
     for i, lb in enumerate(labels):
-        tb = self.text(slide, x0 + i * (pw + gap), y0, pw, ph, f"{i + 1}. {lb}", 9,
+        label_text = f"{i + 1}. {lb}"
+        label_size = self.fit(label_text, pw - 0.08, ph - 0.02, 9, 6.5, 0.55, 1.0)
+        tb = self.text(slide, x0 + i * (pw + gap), y0, pw, ph, label_text, label_size,
                        self._readable_on_accent() if i == active else "text", i == active, "c", "m", self.tf)
         tb.name = f"!!step_lbl_{i}" if PPT_MORPH else f"deco-steplbl{i}"
 
