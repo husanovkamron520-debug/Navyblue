@@ -224,7 +224,15 @@ def render_network(self, sl):
         i, j = edge["from"], edge["to"]
         x1, y1 = positions[i]
         x2, y2 = positions[j]
-        _connector(self, s, x1, y1, x2, y2, "soft", 1.8, True)
+        dx, dy = x2 - x1, y2 - y1
+        sx = min(1.0, 1.175 / abs(dx)) if dx else 1.0
+        sy = min(1.0, 0.525 / abs(dy)) if dy else 1.0
+        source_t = min(sx, sy)
+        ex = min(1.0, 1.175 / abs(dx)) if dx else 1.0
+        ey = min(1.0, 0.525 / abs(dy)) if dy else 1.0
+        target_t = min(ex, ey)
+        _connector(self, s, x1 + dx * source_t, y1 + dy * source_t,
+                   x2 - dx * target_t, y2 - dy * target_t, "soft", 1.8, True)
         if edge.get("label"):
             mx, my = (x1 + x2) / 2, (y1 + y2) / 2
             self.box(s, mx - 0.52, my - 0.17, 1.04, 0.34, fill="bg", line=None, rounded=True, radius=0.08)
