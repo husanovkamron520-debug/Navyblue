@@ -4176,45 +4176,93 @@ async def _ppt_attach_images(outline: dict, owner_ai: bool = False):
     outline["_credits"] = credits
 
 
+def _ppt_fallback_visual(sl: dict, outline: dict, variant: int = 0) -> bytes:
+    """Tashqi rasm topilmasa ham slayd uchun mavzuga nomlangan, sifatli vektor vizual yaratadi."""
+    from PIL import Image, ImageDraw, ImageFont
+    W, H = 1600, 900
+    ad = outline.get("art_direction") if isinstance(outline.get("art_direction"), dict) else {}
+    pal = ad.get("palette") if isinstance(ad.get("palette"), dict) else {}
+    def hx(value, default):
+        value = str(value or default).strip().lstrip("#")
+        return value.upper() if re.fullmatch(r"[0-9A-Fa-f]{6}", value) else default
+    bg = hx(pal.get("bg"), "10243B")
+    accent = hx(pal.get("brown") or pal.get("b2"), "D5B36A")
+    blue = hx(pal.get("b1"), "3977A8")
+    soft = hx(pal.get("soft"), "456080")
+    def rgb(h):
+        return tuple(int(h[i:i + 2], 16) for i in (0, 2, 4))
+    c0, c1 = rgb(bg), rgb(soft)
+    im = Image.new("RGB", (W, H))
+    px = im.load()
+    for y in range(H):
+        t = y / max(1, H - 1)
+        c = tuple(int(c0[i] * (1 - t) + c1[i] * t * 0.32) for i in range(3))
+        for x in range(W):
+            px[x, y] = c
+    d = ImageDraw.Draw(im, "RGBA")
+    # Katta yumshoq shakllar va bog'langan nuqtalar — oq bo'sh blok o'rniga to'liq vizual.
+    d.ellipse((1050 + variant * 17, -210, 1700, 440), fill=(*rgb(blue), 105))
+    d.ellipse((-260, 520 - variant * 13, 470, 1250), fill=(*rgb(accent), 48))
+    d.rounded_rectangle((95, 95, 1505, 805), radius=46, outline=(*rgb(accent), 125), width=4)
+    points = [(300, 330), (650, 230), (980, 390), (1280, 245), (1180, 650), (760, 650), (420, 610)]
+    shift = (variant % 3) * 18
+    points = [(x, y + shift) for x, y in points]
+    for a, b in zip(points, points[1:] + points[:1]):
+        d.line((a, b), fill=(*rgb(accent), 155), width=8)
+    for i, (x, y) in enumerate(points):
+        r = 54 if i in (0, 3, 5) else 35
+        col = accent if i % 2 == 0 else blue
+        d.ellipse((x-r, y-r, x+r, y+r), fill=(*rgb(col), 235), outline=(255, 255, 255, 220), width=6)
+        d.ellipse((x-r//2, y-r//2, x+r//2, y+r//2), fill=(255, 255, 255, 220))
+    try:
+        font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+        bold_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+        f_small = ImageFont.truetype(font_path, 25)
+        f_title = ImageFont.truetype(bold_path, 43)
+    except Exception:
+        f_small = f_title = ImageFont.load_default()
+    title = re.sub(r"\s+", " ", str(sl.get("title") or outline.get("title") or "Mavzu")).strip()[:90]
+    d.rounded_rectangle((145, 690, 1455, 770), radius=20, fill=(5, 15, 28, 205))
+    d.text((185, 710), title, font=f_title, fill=(255, 255, 255, 255))
+    d.text((150, 125), "VISUAL CONCEPT  /  " + str(variant + 1).zfill(2), font=f_small,
+           fill=(*rgb(accent), 245))
+    out = io.BytesIO()
+    im.save(out, format="PNG", optimize=True)
+    return out.getvalue()
+
+
+def _ppt_valid_image(raw) -> bool:
+    try:
+        from PIL import Image
+        if not isinstance(raw, (bytes, bytearray)) or len(raw) < 128:
+            return False
+        with Image.open(io.BytesIO(raw)) as im:
+            im.verify()
+        return True
+    except Exception:
+        return False
+
+
 def _ppt_fix_missing_images(outline: dict) -> int:
-    """Rasm topilmagan (yoki rasm o'chirilgan) rasmli maketlarni bo'sh qutisiz, matnli maketga o'tkazadi."""
+    """Yo'q yoki buzilgan rasmlarni tekshiradi va mahalliy vizual bilan to'ldiradi; bo'sh rasm bloklari qolmaydi."""
     fixed = 0
     for sl in outline.get("slides", []):
         lay = sl.get("layout")
         if lay not in _PPT_IMG_LAYOUTS:
             continue
         if lay == "collage":
-            if len([x for x in (sl.get("_imgs") or []) if x]) >= 3:
-                continue
-        elif sl.get("_img"):
+            imgs = [x for x in (sl.get("_imgs") or []) if _ppt_valid_image(x)]
+            while len(imgs) < 3:
+                imgs.append(_ppt_fallback_visual(sl, outline, len(imgs)))
+                fixed += 1
+            sl["_imgs"] = imgs[:3]
             continue
-        text = str(sl.get("text") or "").strip()
-        if lay == "banner_cards" and sl.get("cards"):
-            new, comp, vis = "cards", "modular", "cards"
-        elif lay == "hero":
-            new, comp, vis = ("statement" if len(text) >= 8 else "text"), "typographic", "typography"
-        elif lay == "collage":
-            if sl.get("cards"):
-                new, comp, vis = "cards", "modular", "cards"
-            else:
-                text = text or " ".join(str(c) for c in (sl.get("captions") or []) if c) or str(sl.get("title") or "")
-                new, comp, vis = "text", "typographic", "typography"
-        elif lay in ("split", "image_story") and text:
-            new, comp, vis = "editorial", "editorial_split", "typography"
-        else:
-            new, comp, vis = "text", "editorial_split", "typography"
-        if new in ("text", "editorial", "statement") and not text:
-            text = str(sl.get("title") or "")
-        sl["text"] = text
-        sl["layout"] = new
-        for k in ("image_prompt", "photo_query", "collage_queries", "_img", "_imgs", "captions"):
-            sl.pop(k, None)
-        d = sl.get("design") if isinstance(sl.get("design"), dict) else {}
-        d.update(composition=comp, visual_type=vis)
-        sl["design"] = d
+        if _ppt_valid_image(sl.get("_img")):
+            continue
+        sl["_img"] = _ppt_fallback_visual(sl, outline, fixed)
         fixed += 1
     if fixed:
-        outline["_img_fixed"] = fixed
+        outline["_img_fallback_count"] = fixed
     return fixed
 
 
@@ -4790,14 +4838,21 @@ class _PptBuilder:
         return pic
 
     def image_or_placeholder(self, slide, sl, x, y, w, h):
-        if sl.get("_img"):
+        raw = sl.get("_img")
+        if not _ppt_valid_image(raw):
+            raw = _ppt_fallback_visual(sl, {"art_direction": {"palette": self.pal}})
+        try:
+            return self.picture_cover(slide, raw, x, y, w, h)
+        except Exception:
+            logger.exception("Asosiy rasm joylanmadi; zaxira vizual ishlatiladi")
             try:
-                return self.picture_cover(slide, sl["_img"], x, y, w, h)
+                fallback = _ppt_fallback_visual(sl, {"art_direction": {"palette": self.pal}}, 1)
+                return self.picture_cover(slide, fallback, x, y, w, h)
             except Exception:
-                logger.exception("Rasmni joylashda xato")
-        # rasm bo'lmasa — bezakli blok
-        self.box(slide, x, y, w, h, fill="card", line="line", rounded=False)
-        self.box(slide, x + w * 0.44, y + h * 0.48, w * 0.12, 0.045, fill="brown", line=None, rounded=False)
+                logger.exception("Zaxira vizual ham joylanmadi")
+                self.box(slide, x, y, w, h, fill="card", line="line", rounded=False)
+                self.text(slide, x + 0.2, y + h * 0.42, w - 0.4, 0.5,
+                          str(sl.get("title") or "Vizual"), 16, "dark", True, "c", "m")
 
     def icon(self, slide, name, x, y, d, color="white"):
         I = self.Inches
