@@ -4941,8 +4941,17 @@ class _PptBuilder:
         self._accent_grad(bar, "brown", 0)
 
     def notes(self, slide, txt):
-        """Izoh (speaker notes) slaydga yozilmaydi: pastda sariq quti bo'lib chiqmasligi uchun."""
-        return
+        """Taqdimotchi izohini slayd yuzasiga emas, PowerPoint'ning yashirin Notes sahifasiga yozadi."""
+        note = str(txt or "").strip()
+        if not note:
+            return
+        try:
+            # python-pptx 1.0.x: notes_text_frame — PowerPoint speaker notes body.
+            # Bu slaydning o'zida ko'rinmaydi; Presenter View va Notes Pages'da ochiladi.
+            slide.notes_slide.notes_text_frame.text = note[:4000]
+        except Exception as exc:
+            # Notes qo'llab-quvvatlanmasa ham asosiy PPTX yaratish jarayoni to'xtamasin.
+            logger.warning("Speaker notes yozilmadi: %s", exc)
 
     def picture_cover(self, slide, raw, x, y, w, h):
         """Rasmni berilgan to'rtburchakka kesib (crop) joylaydi."""
