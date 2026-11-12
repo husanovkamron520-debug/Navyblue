@@ -4,3 +4,4 @@ google-genai
 python-pptx
 Pillow
 python-docx
+reportlab>=4.0,<5
