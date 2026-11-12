@@ -2782,7 +2782,8 @@ def _ppt_outline_prompt(topic: str, n: int, with_images: bool) -> str:
         "PROFESSIONAL COMPOSITION CATALOG: kengaytirilgan profil katalogidan mavzuga mosini tanla: editorial_split, asym_grid, full_bleed, modular, timeline, radial, data_focus, comparison, typographic, layered, swiss_column, swiss_modular, editorial_masthead, editorial_pullquote, magazine_spread, split_caption, asymmetric_caption, image_dominant, photo_triptych, photo_diptych, cinematic_panorama, cinematic_frame, brutalist_type, oversized_numeral, metric_wall, data_dashboard, data_waterfall, data_lollipop, data_slopegraph, process_lane, swimlane, isometric_stack, isometric_exploded, radial_network, map_route, typographic_poster, network_graph, waterfall, quote_stage, editorial_rows, asym_cards. Bir slaydda bitta asosiy fokus; ketma-ket profilni takrorlama.\n"
         "YANGI VIZUAL TURLAR: waterfall {steps:[4-7 ta {label,value,kind:delta|total}]} — qiymatlar bosqichma-bosqich o'zgarishi va yakuniy jami; swimlane {lanes:[2-4 ta {label,steps:[2-4 ta {label,detail}]}]} — bo'limlar kesimida jarayon; network {nodes:[4-7 ta {label,detail}],links:[{from:index,to:index,label}]} — faqat asoslangan aloqalarni chiz; quote {quote,attribution,context} — faqat tekshiriladigan, manbasi ko'rsatilgan iqtibos. Uydirma iqtibos yoki bog'lanish yasama. Chart chart_type: donut|bar|line|area|bar_horizontal.\n"
         "MAP va ISOMETRIC: geografik ma'lumot aniq bo'lmasa haqiqiy xarita da'vo qilma; 'map' faqat konseptual marshrut sxemasi, 4-6 ta node va ketma-ket bog'lanishlar uchun. 'isometric' 3-5 bosqichli tizim/ta'minot/ishlab chiqarish oqimi uchun.\n"
-        "SLIDE DESIGN BLUEPRINT (har bir slaydga alohida): layout bilan birga 'visual_focus' (2-8 so'z), 'visual_type' (photo|diagram|chart|timeline|map|table|typography|cards|matrix|none), 'composition' (36-profile catalog above), 'hierarchy' ({'primary':'asosiy sarlavha/vizual','secondary':'ikkinchi darajali izoh','support':'yordamchi ma'lumot'}), 'density' (low|medium|high), 'motion_reason' (qisqa sabab) maydonlarini qaytar. Bu maydonlar mazmunga mos bo'lsin; xarita yoki aniq geografik ma'lumot bo'lmasa map tanlama; haqiqiy statistika bo'lmasa chartni fakt sifatida ko'rsatma. Har slaydda bitta asosiy vizual fokus bo'lsin.\n"
+        "MULTI-SERIES CHART: faqat bir nechta guruhni qiyoslash kerak bo'lsa series[{name,values}] ishlat; har bir values massivida data label sonicha raqam bo'lsin. data_note da aniq manba yoki 'namunaviy ma'lumot' deb yoz. Diagrammani manbasiz haqiqiy statistika sifatida ko'rsatma.\n"
+         "SLIDE DESIGN BLUEPRINT (har bir slaydga alohida): layout bilan birga 'visual_focus' (2-8 so'z), 'visual_type' (photo|diagram|chart|timeline|map|table|typography|cards|matrix|none), 'composition' (36-profile catalog above), 'hierarchy' ({'primary':'asosiy sarlavha/vizual','secondary':'ikkinchi darajali izoh','support':'yordamchi ma'lumot'}), 'density' (low|medium|high), 'motion_reason' (qisqa sabab) maydonlarini qaytar. Bu maydonlar mazmunga mos bo'lsin; xarita yoki aniq geografik ma'lumot bo'lmasa map tanlama; haqiqiy statistika bo'lmasa chartni fakt sifatida ko'rsatma. Har slaydda bitta asosiy vizual fokus bo'lsin.\n"
         f"Mavzu: {topic[:500]}\n"
         f"Slaydlar soni (sarlavha slaydidan tashqari): {n}\n\n"
         "MAKETLAR (har slaydga bittasini tanla, ketma-ket bir xil maket takrorlanmasin):\n"
@@ -2792,7 +2793,7 @@ def _ppt_outline_prompt(topic: str, n: int, with_images: bool) -> str:
         '4) "cards": {"title","cards":[3 yoki 4 ta {"head":"2-4 so\'z","text":"20-35 so\'z","icon"}]}; '
         f"icon: {', '.join(PPT_ICONS)} dan biri.\n"
         '5) "banner_cards": {"title","photo_query","cards":[3 yoki 4 ta {"head","text":"15-25 so\'z"}]}.\n'
-        '6) "chart": {"title","text":"20-40 so\'zlik izoh","chart_type":"donut|bar|line",'
+        '6) "chart": {"title","text":"20-40 so\'zlik izoh","chart_type":"donut|bar|line|area|bar_horizontal|radar|stacked_bar",'
         '"data":[4-6 ta {"label":"qisqa","value":son}]} — qiymatlar namunaviy ko\'rsatkich (0-100), '
         "haqiqiy statistika deb ko'rsatma.\n"
         '7) "table": {"title","text":"1 gaplik izoh","columns":[3-4 sarlavha],"rows":[3-5 qator, har biri columns uzunligida; '
@@ -3143,16 +3144,37 @@ def _sanitize_outline(data, topic: str, n: int, with_images: bool) -> dict:
                        context=_ppt_s(s.get("context"), 180), kicker=_ppt_s(s.get("kicker"), 30))
         elif lay == "chart":
             pts = []
-            for d in (s.get("data") or [])[:4]:
+            for d in (s.get("data") or [])[:6]:
                 try:
-                    pts.append({"label": _ppt_s(d.get("label"), 28), "value": float(d.get("value"))})
+                    pts.append({"label": _ppt_s(d.get("label"), 28), "value": float(d.get("value", 0))})
                 except Exception:
                     pass
             if len(pts) < 3:
                 continue
             ct = _ppt_s(s.get("chart_type"), 16).lower()
+            series = []
+            for item in (s.get("series") or [])[:4]:
+                if not isinstance(item, dict) or not _ppt_s(item.get("name"), 40):
+                    continue
+                values = []
+                for value in (item.get("values") or [])[:len(pts)]:
+                    try:
+                        number = float(value)
+                        if not math.isfinite(number):
+                            raise ValueError("non-finite")
+                        values.append(number)
+                    except (TypeError, ValueError):
+                        values = []
+                        break
+                if len(values) == len(pts):
+                    series.append({"name": _ppt_s(item.get("name"), 40), "values": values})
+            if series and ct == "donut":
+                ct = "bar"
             out.update(text=_ppt_s(s.get("text"), 400), data=pts,
-                       chart_type=ct if ct in ("donut", "bar", "line", "area", "bar_horizontal") else "donut")
+                       chart_type=ct if ct in ("donut", "bar", "line", "area", "bar_horizontal", "radar", "stacked_bar") else "donut",
+                       data_note=_ppt_s(s.get("data_note"), 140))
+            if series:
+                out["series"] = series
         elif lay == "table":
             cols = [_ppt_s(c, 40) for c in (s.get("columns") or [])][:4]
             rows = []
@@ -3353,7 +3375,7 @@ def _ppt_outline_prompt_compact(topic: str, n: int, with_images: bool) -> str:
         f"Mavzu: {topic[:400]}\nSlaydlar soni (sarlavhasiz): {n}\n"
         "Maketlar: agenda{title,items[4]} (ixtiyoriy), image_text{title,text(40-60 so'z),photo_query}, "
         "text_image{...xuddi shu}, cards{title,cards[3x{head,text(20-30 so'z),icon}]}, "
-        "chart{title,text,chart_type(donut|bar|line|area|bar_horizontal),data[4x{label,value}]}, waterfall{title,steps[4-7x{label,value,kind}]}, swimlane{title,lanes[2-4x{label,steps[2-4x{label,detail}]}]}, network{title,nodes[4-7x{label,detail}],links[{from,to,label}]}, quote{title,quote,attribution,context}, table{title,text,columns[3],rows[3x3]}, "
+        "chart{title,text,chart_type(donut|bar|line|area|bar_horizontal|radar|stacked_bar),data[3-6x{label,value}],series[2-4x{name,values}]}, waterfall{title,steps[4-7x{label,value,kind}]}, swimlane{title,lanes[2-4x{label,steps[2-4x{label,detail}]}]}, network{title,nodes[4-7x{label,detail}],links[{from,to,label}]}, quote{title,quote,attribution,context}, table{title,text,columns[3],rows[3x3]}, "
         "compare{title,text,left{head,items[3]},right{head,items[3]}}, timeline{title,steps[4x{label,text}]}, "
         "map{title,nodes[4-6x{label,detail}],text}, isometric{title,stages[3-5x{label,text}],text}, "
         "statement{title,text}, bignumber{title,value,label,text}, closing{title,text,takeaways[3x{head,text}],final} (ixtiyoriy yakun).\n"
