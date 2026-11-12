@@ -2976,7 +2976,7 @@ def _sanitize_outline(data, topic: str, n: int, with_images: bool) -> dict:
         elif lay in ("image_text", "text_image", "text", "hero", "split", "image_story"):
             out["text"] = _ppt_s(s.get("text"), {"hero": 220, "split": 360, "image_story": 360}.get(lay, 900))
             # Raqamlangan ro'yxatni alohida satrlarga ajratamiz.
-            out["text"] = re.sub(r"(?<!\\S)(\\d{1,2}[.)])\\s+", r"\\n\\1 ", out["text"]).strip()
+            out["text"] = re.sub(r"(?<!\S)(\d{1,2}[.)])\s+", r"\n\1 ", out["text"]).strip()
             if lay in ("split", "image_story"):
                 out["kicker"] = _ppt_s(s.get("kicker"), 30)
                 if not out.get("image_prompt"):
