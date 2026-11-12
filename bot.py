@@ -2740,8 +2740,6 @@ PPT_THEMES = [
 PPT_TITLE_FONT = "Arial"
 # Bepul kalit: pixabay.com/api/docs/  ->  Render Environment'ga PIXABAY_API_KEY sifatida qo'shing.
 PIXABAY_API_KEY = (os.environ.get("PIXABAY_API_KEY") or "").strip()
-# Pexels (Pixabay'dan aniqroq qidiradi): pexels.com/api/  ->  Render Environment'ga PEXELS_API_KEY
-PEXELS_API_KEY = (os.environ.get("PEXELS_API_KEY") or "").strip()
 PPT_BODY_FONT = "Arial"
 
 
@@ -3493,7 +3491,7 @@ def _bg_procedural(theme: dict, size=(1920, 1080)) -> bytes:
 def _bg_make_sync(theme: dict, strength=None, used=None):
     """(fon_baytlari, kredit) qaytaradi. Pixabay -> zaxira: protsedural."""
     strength = theme.get("wash", 0.8) if strength is None else strength
-    if (PIXABAY_API_KEY or PEXELS_API_KEY) and theme.get("queries"):
+    if (PIXABAY_API_KEY) and theme.get("queries"):
         try:
             got = _pixabay_photo_sync(random.choice(theme["queries"]), used if used is not None else set(), min_width=1920)
             if got:
@@ -3512,7 +3510,7 @@ def _ppt_make_backgrounds_sync(theme: dict, cover_query: str = ""):
     used = set()
     main, credit = _bg_make_sync(theme, None, used)
     title, _ = _bg_make_sync(theme, max(0.5, theme.get("wash", 0.8) - 0.18), used)
-    if (PIXABAY_API_KEY or PEXELS_API_KEY) and (cover_query or "").strip():
+    if (PIXABAY_API_KEY) and (cover_query or "").strip():
         try:
             got = _pixabay_photo_sync(cover_query, used, min_width=1920)
             if got:
@@ -3609,7 +3607,7 @@ def _rel_filter(hits, q: str, strict: bool = True):
     scored = []
     for i, h in enumerate(hits):
         t = (h.get("tags") or "").lower().strip()
-        if not t:                      # tegi yo'q (masalan Pexels video) — manba o'z reytingiga ishonamiz
+        if not t:                      # tegi yo'q (masalan Pixabay video) — manba o'z reytingiga ishonamiz
             scored.append((0, i, h))
             continue
         sc = sum(1 for k in ks if k in t)
@@ -3621,49 +3619,6 @@ def _rel_filter(hits, q: str, strict: bool = True):
 
 def _slug_words(url: str) -> str:
     return re.sub(r"[^a-z]+", " ", (url or "").lower())
-
-
-def _pexels_get(path: str, params: dict):
-    import urllib.parse
-    if not PEXELS_API_KEY:
-        raise RuntimeError("PEXELS_API_KEY sozlanmagan")
-    url = "https://api.pexels.com/" + path + "?" + urllib.parse.urlencode({k: v for k, v in params.items() if v not in (None, "")})
-    now = time.time()
-    with _PXB_LOCK:
-        hit = _PXB_CACHE.get(url)
-        if hit and now - hit[0] < _PXB_CACHE_TTL:
-            return hit[1]
-    req = urllib.request.Request(url, headers={"Authorization": PEXELS_API_KEY, "User-Agent": "Mozilla/5.0 (TelegramBot)"})
-    with urllib.request.urlopen(req, timeout=15) as r:
-        data = json.loads(r.read().decode("utf-8"))
-    with _PXB_LOCK:
-        if len(_PXB_CACHE) > 300:
-            _PXB_CACHE.clear()
-        _PXB_CACHE[url] = (now, data)
-    return data
-
-
-def _pexels_photo_hits(q, page=1, per_page=20, orientation=""):
-    data = _pexels_get("v1/search", {"query": q, "page": page, "per_page": min(per_page, 40),
-                                     "orientation": orientation or None, "locale": "en-US"})
-    out = []
-    for p in data.get("photos") or []:
-        src_ = p.get("src") or {}
-        out.append({"id": "px%s" % p.get("id"), "user": p.get("photographer") or "", "pageURL": p.get("url") or "",
-                    "tags": (p.get("alt") or "") + " " + _slug_words(p.get("url")),
-                    "img": src_.get("large2x") or src_.get("large") or src_.get("original"), "provider": "Pexels"})
-    return [h for h in out if h["img"]]
-
-
-def _pexels_video_hits(q, page=1, per_page=15):
-    data = _pexels_get("videos/search", {"query": q, "page": page, "per_page": min(per_page, 40), "locale": "en-US"})
-    out = []
-    for v in data.get("videos") or []:
-        files = [f for f in (v.get("video_files") or []) if f.get("link") and (f.get("file_type") or "video/mp4") == "video/mp4"]
-        files.sort(key=lambda f: abs((f.get("width") or 0) - 960))   # ~540-720p: Telegram uchun yengil
-        out.append({"id": "pv%s" % v.get("id"), "user": (v.get("user") or {}).get("name") or "", "pageURL": v.get("url") or "",
-                    "tags": _slug_words(v.get("url")), "videos": [f["link"] for f in files[:4]], "provider": "Pexels"})
-    return [h for h in out if h["videos"]]
 
 
 def _pixabay_photo_hits(q, kind="photo", page=1, per_page=20, orientation="all", min_width=0):
@@ -3687,45 +3642,26 @@ def _pixabay_video_hits(q, page=1, per_page=15):
 
 def _stock_hits_sync(q: str, kind: str = "photo", page: int = 1, per_page: int = 20, orientation: str = "",
                      min_width: int = 0, relevant: bool = True):
-    """Pexels va Pixabay natijalarini birlashtiradi: bir manbada natija bo'lmasa ikkinchisi ham tekshiriladi."""
+    """Faqat Pixabay API orqali qidiradi; mos natijalarni qaytaradi."""
+    if not PIXABAY_API_KEY:
+        raise RuntimeError("PIXABAY_API_KEY sozlanmagan")
     words = (q or "").split()
     variants = [" ".join(words)] if len(words) <= 2 else [" ".join(words[:i]) for i in range(len(words), 1, -1)]
-    providers = []
-    if PEXELS_API_KEY and kind in ("photo", "video"):
-        providers.append("pexels")
-    if PIXABAY_API_KEY:
-        providers.append("pixabay")
-    if not providers:
-        raise RuntimeError("PIXABAY_API_KEY yoki PEXELS_API_KEY sozlanmagan")
-
-    combined, seen_ids = [], set()
-    ok_any, last_exc = False, None
-    for prov in providers:
-        provider_hits = []
-        for v in variants:
-            try:
-                if prov == "pexels":
-                    ori = {"horizontal": "landscape", "vertical": "portrait"}.get(orientation, orientation)
-                    hits = _pexels_video_hits(v, page, per_page) if kind == "video" else _pexels_photo_hits(v, page, per_page, ori)
-                else:
-                    hits = _pixabay_video_hits(v, page, per_page) if kind == "video" else \
-                        _pixabay_photo_hits(v, kind, page, per_page, orientation or "all", min_width)
-                ok_any = True
-            except Exception as exc:
-                last_exc = exc
-                logger.warning("Stock qidiruv xatosi (%s, %s): %s", prov, v, exc)
-                break
-            for hit in _rel_filter(hits, v, relevant):
-                hid = hit.get("id")
-                if hid not in seen_ids:
-                    seen_ids.add(hid)
-                    provider_hits.append(hit)
-            if len(provider_hits) >= per_page:
-                break
-        combined.extend(provider_hits)
-    if not ok_any and last_exc:
+    last_exc = None
+    for v in variants:
+        try:
+            hits = _pixabay_video_hits(v, page, per_page) if kind == "video" else \
+                _pixabay_photo_hits(v, kind, page, per_page, orientation or "all", min_width)
+        except Exception as exc:
+            last_exc = exc
+            logger.warning("Pixabay qidiruv xatosi (%s): %s", v, exc)
+            continue
+        filtered = _rel_filter(hits, v, relevant)
+        if filtered:
+            return filtered
+    if last_exc:
         raise last_exc
-    return combined
+    return []
 
 def _pxb_download_checked(url: str, limit: int = 48 * 1024 * 1024) -> bytes:
     with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (TelegramBot)"}), timeout=60) as r:
@@ -3737,7 +3673,7 @@ def _pxb_download_checked(url: str, limit: int = 48 * 1024 * 1024) -> bytes:
 
 def _pixabay_photo_sync(query: str, used: set, min_width: int = 1280, kind: str = "photo"):
     """Taqdimot uchun: mavzuga mos foto -> (bytes, muallif, manba) yoki None (mos topilmasa AI rasm ishlatiladi)."""
-    if not (PIXABAY_API_KEY or PEXELS_API_KEY) or not (query or "").strip():
+    if not (PIXABAY_API_KEY) or not (query or "").strip():
         return None
     hits = [h for h in _stock_hits_sync(query, kind, 1, 20, "horizontal", min_width) if h["id"] not in used]
     if not hits:
@@ -3781,8 +3717,8 @@ async def _pxb_send(msg, context, query_uz: str, kind: str = "photo", page: int 
     if not is_bot_owner(msg.chat_id):
         await msg.reply_text("⛔ Foto va video qidiruv faqat bot egasi uchun.")
         return
-    if not (PIXABAY_API_KEY or PEXELS_API_KEY):
-        await msg.reply_text("⚠️ Foto/video kaliti yo'q. Render → Environment'ga PEXELS_API_KEY (pexels.com/api) yoki PIXABAY_API_KEY qo'shing.")
+    if not (PIXABAY_API_KEY):
+        await msg.reply_text("⚠️ Foto/video kaliti yo'q. Render → Environment'ga PIXABAY_API_KEY qo'shing.")
         return
     _ok, _why = quota_check(context, "foto")
     if not _ok:
@@ -3871,7 +3807,7 @@ async def _pxb_send(msg, context, query_uz: str, kind: str = "photo", page: int 
         elif "429" in err or "limit" in err.lower():
             ans = "Qidiruv limiti to'ldi. Biroz kutib qayta urinib ko'ring."
         elif "400" in err or "401" in err or "403" in err:
-            ans = "Foto/video kalitingiz noto'g'ri bo'lishi mumkin (PEXELS_API_KEY / PIXABAY_API_KEY)."
+            ans = "Foto/video kalitingiz noto'g'ri bo'lishi mumkin (PIXABAY_API_KEY)."
         else:
             ans = "Foto/videoni olib bo'lmadi. Birozdan keyin qayta urinib ko'ring."
         try:
@@ -4022,7 +3958,7 @@ _PPT_BAD_TAGS = {
 def _ppt_find_photo_sync(query: str, anchor: str, used: set):
     """Pixabay/Pexels'dan slayd uchun foto topadi. 3 bosqich: (1) qattiq moslik, (2) yumshoq moslik,
     (3) faqat mavzu so'zi bo'yicha eng mashhur foto. Natija bo'lsa HAR DOIM rasm qaytadi (slayd rasmsiz qolmasin)."""
-    if not (PIXABAY_API_KEY or PEXELS_API_KEY) or not (query or anchor or "").strip():
+    if not (PIXABAY_API_KEY) or not (query or anchor or "").strip():
         return None
     an = _kw_stems(anchor)
     qtext = ((query or "") + " " + (anchor or "")).lower()
@@ -4115,7 +4051,7 @@ async def _ppt_attach_images(outline: dict, owner_ai: bool = False):
     _img_gate = asyncio.Semaphore(2)
 
     async def stock(q):
-        if not (PIXABAY_API_KEY or PEXELS_API_KEY):
+        if not (PIXABAY_API_KEY):
             return None
         try:
             return await asyncio.to_thread(_ppt_find_photo_sync, q, anchor, used)
@@ -8769,7 +8705,7 @@ async def _ppt_generate_and_send(msg, context, topic, n, with_images, author, mo
     if mode == "common":
         qa = {k: qa[k] for k in ("fixes", "rebuilt") if k in qa}
     caption = (f"📊 {outline['title']} — {len(outline['slides']) + 1} slayd"
-               + ("\n📷 Rasmlar: Pexels / Pixabay" if outline.get("_credits") else "")
+               + ("\n📷 Rasmlar: Pixabay" if outline.get("_credits") else "")
                + (f"\n📚 Adabiyotlar: {len(outline.get('refs') or [])} ta — topshirishdan oldin tekshiring"
                   if outline.get("refs") else "")
                + ("\n🤖 AI rasm: yoqilgan (ega rejimi)" if owner_ai else "")
@@ -13352,7 +13288,7 @@ def _dg_fetch_images(queries) -> list:
     out, used = [], set()
     for q in queries[:3]:
         got = None
-        if PIXABAY_API_KEY or PEXELS_API_KEY:
+        if PIXABAY_API_KEY:
             try:
                 r = _pixabay_photo_sync(q, used, min_width=1280)
                 if r:
