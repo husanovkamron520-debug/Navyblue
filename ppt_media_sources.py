@@ -19,6 +19,7 @@ def _metadata_value(metadata, key):
     item = metadata.get(key) or {}
     value = item.get("value", "") if isinstance(item, dict) else str(item or "")
     value = re.sub(r"<[^>]+>", " ", str(value))
+    value = html.unescape(value)
     return re.sub(r"\s+", " ", value).strip()
 
 
