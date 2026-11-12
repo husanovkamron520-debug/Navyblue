@@ -2995,6 +2995,7 @@ def _sanitize_outline(data, topic: str, n: int, with_images: bool) -> dict:
         out["story_role"] = story_role if story_role in story_roles else ""
         out["story_beat"] = _ppt_s(s.get("story_beat"), 180)
         pquery = _ppt_s(s.get("photo_query"), 80)
+        map_query = _ppt_s(s.get("map_query"), 80)
         if lay == "collage":
             qs = [_ppt_s(x, 80) for x in (s.get("collage_queries") or []) if _ppt_s(x, 80)][:3]
             if with_images and len(qs) == 3 and img_count + 3 <= img_cap:
@@ -3008,6 +3009,9 @@ def _sanitize_outline(data, topic: str, n: int, with_images: bool) -> dict:
             if with_images and pquery and img_count < img_cap:
                 out["photo_query"] = pquery
                 img_count += 1
+        elif lay == "map" and with_images and map_query and img_count < img_cap:
+            out["map_query"] = map_query
+            img_count += 1
         if lay == "agenda":
             items = [_ppt_s(x, 90) for x in (s.get("items") or []) if _ppt_s(x, 90)][:4]
             if len(items) < 2:
@@ -4170,7 +4174,7 @@ def _ppt_stage_of(spec: dict, idx: int, total: int, n_stages: int = 4) -> int:
 
 
 # ---------------------------- Rasm tanlash: mavzuga aniq mos ----------------------------
-_PPT_IMG_LAYOUTS = {"image_text", "text_image", "split", "image_story", "hero", "banner_cards", "collage"}
+_PPT_IMG_LAYOUTS = {"image_text", "text_image", "split", "image_story", "hero", "banner_cards", "collage", "map"}
 
 
 
@@ -4427,7 +4431,7 @@ async def _ppt_attach_images(outline: dict, owner_ai: bool = False):
             return None
 
     async def one(sl):
-        got = await stock(sl.get("photo_query") or sl.get("title"))
+        got = await stock(sl.get("map_query") or sl.get("photo_query") or sl.get("title"))
         if got:
             sl["_img"] = got[0]
             credits.append(f"Rasm: {got[1] or got[2]} / {got[2]}")
@@ -4448,7 +4452,7 @@ async def _ppt_attach_images(outline: dict, owner_ai: bool = False):
 
     await asyncio.gather(
         *(one(sl) for sl in outline.get("slides", [])
-          if sl.get("photo_query") or sl.get("layout") in ("hero", "image_text", "text_image", "banner_cards", "split", "image_story")),
+          if sl.get("photo_query") or sl.get("map_query") or sl.get("layout") in ("hero", "image_text", "text_image", "banner_cards", "split", "image_story", "map")),
         *(many(sl) for sl in outline.get("slides", []) if sl.get("collage_queries"))
     )
     outline["_credits"] = credits
