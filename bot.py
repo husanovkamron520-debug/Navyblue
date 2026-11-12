@@ -26,7 +26,7 @@ from difflib import SequenceMatcher
 from http.server import BaseHTTPRequestHandler, HTTPServer, ThreadingHTTPServer
 import museum
 import supply_chain
-from ppt_story_engine import STORY_ROLES, build_story_guidance, infer_story_role, story_quality_report
+from ppt_story_engine import STORY_ROLES, build_story_guidance, infer_story_role, story_quality_report, enforce_story_quality
 
 from telegram import (
     Update,
@@ -3182,6 +3182,9 @@ def _sanitize_outline(data, topic: str, n: int, with_images: bool) -> dict:
     if not slides:
         raise RuntimeError("Reja bo'sh chiqdi")
     slides = _ppt_dedupe_slides(slides)
+    slides, _story_dedupe = enforce_story_quality(slides)
+    if _story_dedupe.get("near_duplicates_removed"):
+        logger.warning("Story QA: %s ta mazmunan deyarli bir xil slayd olib tashlandi", _story_dedupe["near_duplicates_removed"])
     if not slides:
         raise RuntimeError("Takroriy slaydlarni filtrlashdan so'ng reja bo'sh qoldi")
     # Hikoya oqimi: 1-slayd agenda, oxirgisi closing. Yetishmasa, mavjud mazmundan
@@ -3251,8 +3254,12 @@ def _sanitize_outline(data, topic: str, n: int, with_images: bool) -> dict:
     # QA metrikasi uchun qiymat aniq 0 qilib beriladi.
     expanded = 0
     quality = story_quality_report(slides)
-    if quality.get("repeated_titles") or quality.get("max_same_layout_run", 0) >= 3 or quality.get("role_count", 0) < min(5, max(2, len(slides) // 3)):
+    if (quality.get("repeated_titles") or quality.get("near_title_pairs") or
+            quality.get("max_same_layout_run", 0) >= 3 or quality.get("max_same_composition_run", 0) >= 3 or
+            quality.get("role_count", 0) < min(5, max(2, len(slides) // 3))):
         logger.warning("Story QA: %s", quality)
+    else:
+        logger.info("Story QA passed: %s", quality)
     return {"title": _ppt_s(data.get("title") or topic, 100), "subtitle": _ppt_s(data.get("subtitle"), 140),
             "cover_query": _ppt_s(data.get("cover_query"), 80),
             "style": _ppt_s(data.get("style"), 20).lower(),
