@@ -5585,8 +5585,8 @@ class _PptBuilder:
         nodes = sl["nodes"]
         if sl.get("_img"):
             self.title(s, sl["title"])
-            self.image_or_placeholder(s, sl, 0.95, 1.85, 7.25, 4.85)
-            self._img_caption(s, sl, 0.98, 6.74, 7.1)
+            self.image_or_placeholder(s, sl, 0.95, 1.85, 7.25, 4.55)
+            self._img_caption(s, sl, 0.98, 6.43, 7.1)
             self.box(s, 8.48, 1.85, 3.9, 4.85, fill="card", line="line", rounded=True, radius=0.06)
             self._kicker(s, "MARSHRUT NUQTALARI", 8.78, 2.05)
             row_h = 4.15 / max(1, len(nodes))
@@ -5613,8 +5613,8 @@ class _PptBuilder:
                     self.text(s, 9.38, y + 0.39, 2.65, max(0.22, row_h - 0.42), node["detail"],
                               self.fit(node["detail"], 2.55, max(0.22, row_h - 0.44), 11, 8), "text", False, "l", "t")
             if sl.get("text"):
-                self.text(s, 1.0, 6.82, 11.3, 0.22, sl["text"],
-                          self.fit(sl["text"], 11.2, 0.22, 10, 7), "text", False, "c", "m")
+                self.text(s, 1.0, 6.78, 11.3, 0.25, sl["text"],
+                          self.fit(sl["text"], 11.2, 0.25, 10, 7), "text", False, "c", "m")
         else:
             self.title(s, sl["title"])
             # Koordinata yoki tekshirilgan xarita bo'lmasa, faqat konseptual yo'nalish sxemasi.
