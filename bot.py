@@ -2844,7 +2844,7 @@ def _ppt_outline_prompt(topic: str, n: int, with_images: bool) -> str:
         '21) "closing": {"title":"asosiy xulosa (qisqa)","text":"2-3 gap","takeaways":[3 ta {"head":"2-5 so\'z","text":"8-16 so\'z"}],"final":"yakuniy fikr yoki savol (1 gap)"} — oxirgi slayd.\n\n'
         '22) "editorial": {"title","kicker","text":"40-70 so\'z","side_note","pull_quote"} — jurnal uslubidagi asimmetrik tipografik kompozitsiya.\n'
         '23) "image_story": {"title","text":"25-45 so\'z","kicker","photo_query":"INGLIZCHA 1 gap","photo_query":"INGLIZCHA 2-4 so\'z"} — katta foto va qatlamli editorial panel.\n\n'
-        '24) "map": {"title","map_query":"ENGLISH place or region map search","nodes":[4-6 ta {"label":"marshrut nuqtasi","detail":"qisqa izoh"}],"text":"izoh"} — joy nomlari aniq bo'lganda xarita rasmini qidir; koordinata yoki xarita tekshirilmagan holatda yo'nalishni geografik jihatdan aniq deb ko'rsatma.\n'
+        '24) "map": {"title","map_query":"ENGLISH place or region map search","nodes":[4-6 ta {"label":"marshrut nuqtasi","detail":"qisqa izoh"}],"text":"izoh"} — Joy nomlari berilganida xarita rasmini qidir; koordinata yoki xarita tekshirilmagan holatda marshrutni geografik jihatdan aniq deb talqin qilma.\n'
         '25) "isometric": {"title","stages":[3-5 ta {"label":"jarayon bosqichi","text":"qisqa izoh"}],"text":"izoh"} — izometrik tizim yoki ta\'minot zanjiri diagrammasi.\n\n'
         'PREMIUM V8 YANGI MAKETLAR (mazmunga mos kelsagina ishlat):\n'
         '26) "bento": {"title","hero":{"value":"ixtiyoriy katta raqam","head":"2-5 so\'z","text":"15-30 so\'z"},"cards":[3-4 ta {"head":"2-4 so\'z","text":"10-22 so\'z","icon"}]} — Bento Grid: bitta katta Hero blok + kichik kartochkalar.\n'
