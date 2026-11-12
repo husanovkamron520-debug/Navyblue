@@ -170,7 +170,8 @@ def render_swimlane(self, sl):
     _title(self, s, sl["title"])
     lanes = sl["lanes"]
     left, label_w, right = 1.0, 1.75, 12.3
-    top, lane_h, lane_gap = 2.0, min(1.1, 4.7 / len(lanes)), 0.12
+    top, lane_gap = 2.0, 0.12
+    lane_h = min(1.45, (4.7 - lane_gap * (len(lanes) - 1)) / len(lanes))
     max_steps = max(len(x["steps"]) for x in lanes)
     usable = right - left - label_w - 0.45
     step_gap = 0.16
@@ -243,18 +244,19 @@ def render_network(self, sl):
 def render_quote(self, sl):
     """Editorial quotation slide with an explicit attribution field."""
     s = self.new_slide()
-    self._kicker(s, sl.get("kicker") or "IQTIBOS", 1.05, 1.0)
-    self.text(s, 0.9, 1.35, 1.45, 1.6, "“", 112, "brown", True, "c", "m", self.tf)
+    _title(self, s, sl["title"])
+    self._kicker(s, sl.get("kicker") or "IQTIBOS", 1.05, 1.72)
+    self.text(s, 0.9, 2.0, 1.45, 1.6, "“", 112, "brown", True, "c", "m", self.tf)
     quote = sl["quote"]
-    self.text(s, 2.1, 1.78, 9.9, 3.0, quote,
-              self.fit(quote, 9.7, 2.95, 38, 21, 0.56, 1.12), "dark", True, "l", "m", self.tf)
-    self.box(s, 2.12, 5.12, 1.05, 0.055, fill="brown", line=None)
+    self.text(s, 2.1, 2.12, 9.9, 2.65, quote,
+              self.fit(quote, 9.7, 2.6, 36, 19, 0.56, 1.12), "dark", True, "l", "m", self.tf)
+    self.box(s, 2.12, 5.0, 1.05, 0.055, fill="brown", line=None)
     if sl.get("attribution"):
-        self.text(s, 2.12, 5.38, 9.7, 0.5, sl["attribution"],
+        self.text(s, 2.12, 5.25, 9.7, 0.5, sl["attribution"],
                   self.fit(sl["attribution"], 9.6, 0.5, 17, 11), "brown", True, "l", "m", self.tf)
     if sl.get("context"):
-        self.text(s, 2.12, 5.95, 9.7, 0.75, sl["context"],
-                  self.fit(sl["context"], 9.6, 0.75, 15, 9), "text", False, "l", "t")
+        self.text(s, 2.12, 5.82, 9.7, 0.85, sl["context"],
+                  self.fit(sl["context"], 9.6, 0.85, 15, 9), "text", False, "l", "t")
     self.notes(s, sl.get("notes"))
 
 
