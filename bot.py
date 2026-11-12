@@ -2759,7 +2759,7 @@ def _parse_ppt_request(raw: str):
 # ---------------------------- AI: reja ----------------------------
 def _ppt_outline_prompt(topic: str, n: int, with_images: bool) -> str:
     img_rule = (
-        f"- Rasmli slaydlar uchun FAQAT 'photo_query' yoz: ingliz tilida 2-4 ta aniq kalit so'z. Jami {_ppt_img_budget(n)} tadan oshmasin. HECH QACHON photo_query yoki rasm yaratish tavsifini yozma. Rasmlar faqat Pixabay, Unsplash yoki Openverse'dan qidiriladi.\n"
+        f"- Rasmli slaydlar uchun FAQAT 'photo_query' yoz: ingliz tilida 2-4 ta aniq kalit so'z. Jami {_ppt_img_budget(n)} tadan oshmasin. HECH QACHON rasm yaratish uchun prompt yoki uzun sahna tavsifi yozma; faqat qidiruv kalit so'zlari. Rasmlar faqat Pixabay, Unsplash yoki Openverse'dan qidiriladi.\n"
         if with_images else
         "- Rasmli maketlardan foydalanma; photo_query yozma.\n"
     )
