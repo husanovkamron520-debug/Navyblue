@@ -106,8 +106,10 @@ ai_gate = asyncio.Semaphore(10)
 # Asosiy model ishlamasa (404/503/limit) — zaxira modellarga o'tadi. Env: AI_FALLBACK_MODELS="model1,model2"
 # Standart: hamma joyda faqat gemini-3.5-flash-lite. Zaxira — boshqa Google akkauntlarning kalitlari (GEMINI_API_KEY_2, _3 ...).
 # Kerak bo'lsa, Environment'da AI_FALLBACK_MODELS="model1,model2" berib zaxira modellarni ham qo'shish mumkin.
+# Lite endpoint 503 bersa, oldingi loglarda muvaffaqiyatli ishlagan Flash modellariga o'tamiz.
 AI_FALLBACK_MODELS = list(dict.fromkeys(
-    [AI_MODEL_NAME] + [x.strip() for x in (os.environ.get("AI_FALLBACK_MODELS") or "").split(",") if x.strip()]))
+    [AI_MODEL_NAME, "gemini-3.5-flash", "gemini-3.1-flash-lite"] +
+    [x.strip() for x in (os.environ.get("AI_FALLBACK_MODELS") or "").split(",") if x.strip()]))
 # Qayta urinishlar ro'yxati: bitta model bo'lsa ham 4 marta (har safar keyingi mavjud kalit orqali).
 AI_RETRY_MODELS = (AI_FALLBACK_MODELS[:2] * 4)[:4]
 
@@ -262,15 +264,14 @@ def _ai_generate_text_sync(prompt, temperature=0.5, max_tokens=4000, json_mode=T
                 cfg["response_mime_type"] = "application/json"
             # Ketma-ket urinishlar: "thinking" o'chirilgan -> oddiy -> eng sodda sozlama.
             # (Ba'zi modellar thinking_budget=0 yoki katta max_output_tokens'ni 400 INVALID_ARGUMENT bilan rad etadi.)
+            # thinking_budget=0 ayrim Lite endpointlarida 400 INVALID_ARGUMENT beradi.
+            # Avval oddiy config, keyin yengil config, so'ng config'siz so'rov.
             attempts = [
-                lambda: types.GenerateContentConfig(thinking_config=types.ThinkingConfig(thinking_budget=0), **cfg),
                 lambda: types.GenerateContentConfig(**cfg),
                 lambda: types.GenerateContentConfig(temperature=temperature,
                                                     **({"response_mime_type": "application/json"} if json_mode else {})),
-                lambda: None,   # eng oxirgi chora: sozlamasiz (JSON baribir promptda so'ralgan)
+                lambda: None,
             ]
-            if model in _NO_THINK_MODELS:
-                attempts = attempts[1:]
             resp, aerr = None, None
             for ai_idx, mk in enumerate(attempts):
                 try:
@@ -3381,7 +3382,7 @@ def _ppt_expand_missing_slides(outline, topic, requested, with_images, sanitizer
                 expanded_outline = sanitizer(raw, topic, remaining, with_images)
                 candidates = [
                     item for item in (expanded_outline.get("slides") or [])
-                    if item.get("layout") != "executive"
+                    if item.get("layout") not in ("executive", "agenda", "closing")
                 ]
                 seen = {re.sub(r"[^a-z0-9]+", "", str(x.get("title", "")).casefold()) for x in existing + added}
                 for item in candidates:
