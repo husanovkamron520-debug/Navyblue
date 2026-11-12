@@ -10969,6 +10969,7 @@ from collections import deque as _deque
 _PERF = _deque(maxlen=60)
 _cpu_gate = asyncio.Semaphore(2)
 _LAG = {"last": 0.0, "max": 0.0, "max_ts": 0.0, "cpu": 0.0, "started": time.time()}
+_LAG_TASK = None
 
 
 def _perf_note(kind, secs, detail=""):
@@ -11080,7 +11081,20 @@ async def holat_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def _post_init(app):
-    asyncio.create_task(_lag_monitor())
+    global _LAG_TASK
+    _LAG_TASK = asyncio.create_task(_lag_monitor(), name="lag-monitor")
+
+
+async def _post_shutdown(app):
+    global _LAG_TASK
+    task = _LAG_TASK
+    _LAG_TASK = None
+    if task and not task.done():
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
 
 
 async def _on_error(update, context):
@@ -11830,6 +11844,7 @@ def main():
         Application.builder()
         .bot(retry_bot)
         .post_init(_post_init)
+        .post_shutdown(_post_shutdown)
         .concurrent_updates(16)
         .build()
     )
