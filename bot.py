@@ -2780,7 +2780,7 @@ def _ppt_outline_prompt(topic: str, n: int, with_images: bool) -> str:
         f"{build_story_guidance(topic, n)}\n"
         "STORYTELLING: qat'iy bitta ketma-ketlikka yopishma; har slaydga mavzuga mos story_role va story_beat yoz. Sarlavhalar konkret bo'lsin, umumiy qolipni takrorlama.\n"
         "PROFESSIONAL COMPOSITION CATALOG: kengaytirilgan profil katalogidan mavzuga mosini tanla: editorial_split, asym_grid, full_bleed, modular, timeline, radial, data_focus, comparison, typographic, layered, swiss_column, swiss_modular, editorial_masthead, editorial_pullquote, magazine_spread, split_caption, asymmetric_caption, image_dominant, photo_triptych, photo_diptych, cinematic_panorama, cinematic_frame, brutalist_type, oversized_numeral, metric_wall, data_dashboard, data_waterfall, data_lollipop, data_slopegraph, process_lane, swimlane, isometric_stack, isometric_exploded, radial_network, map_route, typographic_poster, network_graph, waterfall, quote_stage, editorial_rows, asym_cards. Bir slaydda bitta asosiy fokus; ketma-ket profilni takrorlama.\n"
-        "YANGI VIZUAL TURLAR: waterfall {steps:[4-7 ta {label,value,kind:delta|total}]} — qiymatlar bosqichma-bosqich o'zgarishi va yakuniy jami; swimlane {lanes:[2-4 ta {label,steps:[2-4 ta {label,detail}]}]} — bo'limlar kesimida jarayon; network {nodes:[4-7 ta {label,detail}],links:[{from:index,to:index,label}]} — faqat asoslangan aloqalarni chiz; quote {quote,attribution,context} — faqat tekshiriladigan, manbasi ko'rsatilgan iqtibos. Uydirma iqtibos yoki bog'lanish yasama. Chart chart_type: donut|bar|line|area|bar_horizontal|radar|stacked_bar. Multi-series uchun series:[{name,values}] va data_note maydonlarini qo'sh; values uzunligi data kategoriyalari bilan bir xil bo'lsin.\n"
+        "YANGI VIZUAL TURLAR: waterfall {steps:[4-7 ta {label,value,kind:delta|total}]} — qiymatlar bosqichma-bosqich o'zgarishi va yakuniy jami; swimlane {lanes:[2-4 ta {label,steps:[2-4 ta {label,detail}]}]} — bo'limlar kesimida jarayon; network {nodes:[4-7 ta {label,detail}],links:[{from:index,to:index,label}]} — faqat asoslangan aloqalarni chiz; quote {quote,attribution,source,context} — faqat tekshiriladigan, manbasi ko'rsatilgan iqtibos. Uydirma iqtibos yoki bog'lanish yasama. Chart chart_type: donut|bar|line|area|bar_horizontal|radar|stacked_bar. Multi-series uchun series:[{name,values}] va data_note maydonlarini qo'sh; values uzunligi data kategoriyalari bilan bir xil bo'lsin.\n"
         "MAP va ISOMETRIC: geografik ma'lumot aniq bo'lmasa haqiqiy xarita da'vo qilma; 'map' faqat konseptual marshrut sxemasi, 4-6 ta node va ketma-ket bog'lanishlar uchun. 'isometric' 3-5 bosqichli tizim/ta'minot/ishlab chiqarish oqimi uchun.\n"
         "MULTI-SERIES CHART: faqat bir nechta guruhni qiyoslash kerak bo'lsa series[{name,values}] ishlat; har bir values massivida data label sonicha raqam bo'lsin. data_note da aniq manba yoki 'namunaviy ma'lumot' deb yoz. Diagrammani manbasiz haqiqiy statistika sifatida ko'rsatma.\n"
          "MULTI-SERIES CHART: faqat bir nechta guruhni qiyoslash kerak bo'lsa series[{name,values}] ishlat; har bir values massivida data label sonicha raqam bo'lsin. data_note da aniq manba yoki 'namunaviy ma'lumot' deb yoz. Diagrammani manbasiz haqiqiy statistika sifatida ko'rsatma.\n"
@@ -3139,9 +3139,10 @@ def _sanitize_outline(data, topic: str, n: int, with_images: bool) -> dict:
         elif lay == "quote":
             quote = _ppt_s(s.get("quote"), 520)
             attribution = _ppt_s(s.get("attribution"), 120)
-            if not quote or not attribution:
+            source = _ppt_s(s.get("source"), 160)
+            if not quote or not attribution or not source:
                 continue
-            out.update(quote=quote, attribution=attribution,
+            out.update(quote=quote, attribution=attribution, source=source,
                        context=_ppt_s(s.get("context"), 180), kicker=_ppt_s(s.get("kicker"), 30))
         elif lay == "chart":
             pts = []
