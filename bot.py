@@ -111,6 +111,9 @@ ai_gate = asyncio.Semaphore(10)
 AI_FALLBACK_MODELS = list(dict.fromkeys(
     [AI_MODEL_NAME, "gemini-3.5-flash", "gemini-3.1-flash-lite"] +
     [x.strip() for x in (os.environ.get("AI_FALLBACK_MODELS") or "").split(",") if x.strip()]))
+# PPTX uchun kuzatilgan javob tezligiga ko'ra yengil modelni oldinga olamiz;
+# qolgan modellar zaxira sifatida saqlanadi.
+PPT_AI_MODELS = list(dict.fromkeys(["gemini-3.1-flash-lite"] + AI_FALLBACK_MODELS))
 # Qayta urinishlar ro'yxati: bitta model bo'lsa ham 4 marta (har safar keyingi mavjud kalit orqali).
 AI_RETRY_MODELS = (AI_FALLBACK_MODELS[:2] * 4)[:4]
 
@@ -3470,8 +3473,9 @@ def _ppt_expand_missing_slides(outline, topic, requested, with_images, sanitizer
                 + '\nJSON format: {"slides":[{"layout":"text|image_text|text_image|cards|timeline|compare|chart|table|matrix|hub|funnel|bento|kpi|pyramid|venn|orbit|chain|iceberg|before_after|statement|editorial|waterfall|swimlane|network|quote","title":"aniq sarlavha","text":"mazmunli izoh","photo_query":"2-4 English keywords","story_role":"analysis","story_beat":"keyingi fikrga ko\'prik","notes":""}]}'
             )
             try:
+                model = PPT_AI_MODELS[min(attempt, len(PPT_AI_MODELS) - 1)]
                 raw = _json_loads_loose(_ai_generate_text_sync(
-                    prompt, 0.45, min(8500, 1800 + remaining * 650), True, [AI_FALLBACK_MODELS[0]]
+                    prompt, 0.45, min(8500, 1800 + remaining * 650), True, [model]
                 ))
                 expanded_outline = sanitizer(raw, topic, remaining, with_images)
                 candidates = [
@@ -3485,8 +3489,8 @@ def _ppt_expand_missing_slides(outline, topic, requested, with_images, sanitizer
                         added.append(item)
                         seen.add(key)
             except Exception as exc:
-                logger.warning("Yetishmagan slaydlarni davom ettirish xatosi: %s", exc)
-                break
+                logger.warning("Yetishmagan slaydlarni davom ettirish xatosi (%s): %s", model, exc)
+                continue
         if added:
             closing_index = next((i for i, item in enumerate(slides) if item.get("layout") == "closing"), len(slides))
             slides[closing_index:closing_index] = added
@@ -3503,18 +3507,22 @@ def _ppt_expand_missing_slides(outline, topic, requested, with_images, sanitizer
 
 
 def _gemini_outline_sync(topic: str, n_slides: int, with_images: bool = True) -> dict:
-    """To'liq prompt -> zaxira prompt; kam slayd kelsa, mazmunli davom ettiradi."""
+    """Birinchi navbatda yengil model; zarur bo'lsa zaxira model/prompt. Imlo AI tekshiruvi ixtiyoriy."""
     if not ai_client:
         raise RuntimeError("GEMINI_API_KEY sozlanmagan")
     last_exc = None
     plans = [(_ppt_outline_prompt, 0.6, 9000), (_ppt_outline_prompt_compact, 0.4, 7000)]
     for build, temp, mx in plans:
-        for model in (AI_FALLBACK_MODELS * 3)[:3]:
+        for model in PPT_AI_MODELS[:3]:
             try:
                 text = _ai_generate_text_sync(build(topic, n_slides, with_images), temp, mx, True, [model])
                 outline = _sanitize_outline(_json_loads_loose(text), topic, n_slides, with_images)
                 outline = _ppt_expand_missing_slides(outline, topic, n_slides, with_images, _sanitize_outline)
-                return _ppt_proofread_outline(outline)
+                # Ikkinchi to'liq Gemini proofreading chaqiruvi odatda vaqtni oshiradi.
+                # Asosiy generator allaqachon imlo va grammatika talablariga ega; kerak bo'lsa env orqali yoqiladi.
+                if os.environ.get("PPT_AI_PROOFREAD", "").strip().lower() in ("1", "true", "yes"):
+                    outline = _ppt_proofread_outline(outline)
+                return outline
             except Exception as exc:
                 last_exc = exc
                 logger.warning("Taqdimot rejasi xatosi (%s, %s): %s", build.__name__, model, exc)
@@ -8950,12 +8958,10 @@ async def _ppt_generate_and_send(msg, context, topic, n, with_images, author, mo
             except Exception:
                 pass
             try:
-                await asyncio.wait_for(_ppt_attach_images(outline, owner_ai), timeout=90)
-            except asyncio.TimeoutError:
-                logger.warning("Slayd rasmlari 90 soniyada tayyor bo'lmadi — borini ishlatib, qolganini rasmsiz davom etamiz")
-                outline.setdefault("_credits", [])
+                # Qattiq vaqt limiti qo'ymaymiz: barcha parallel foto qidiruvlari tugashini kutamiz.
+                await _ppt_attach_images(outline, owner_ai)
             except Exception:
-                logger.exception("Slayd rasmlari olinmadi — rasmsiz davom etamiz")
+                logger.exception("Slayd rasmlari olinmadi — topilgan rasmlar va mahalliy vizuallar bilan davom etamiz")
         try:
             _ppt_finalize_images(outline)   # bo'sh/begona rasm joylari qolmasin, chap-o'ng almashsin
         except Exception:
