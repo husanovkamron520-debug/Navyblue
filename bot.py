@@ -2759,11 +2759,9 @@ def _parse_ppt_request(raw: str):
 # ---------------------------- AI: reja ----------------------------
 def _ppt_outline_prompt(topic: str, n: int, with_images: bool) -> str:
     img_rule = (
-        f"- Rasmli slaydlar (image_text, text_image, banner_cards) uchun ikkita maydon yoz: "
-        f"'photo_query' (INGLIZ tilida 2-4 ta kalit so'z, stok foto qidiruvi uchun, masalan \"warehouse workers forklift\") va "
-        f"'image_prompt' (INGLIZ tilida 1 gaplik sahna tavsifi, matnsiz, logotipsiz). Jami {_ppt_img_budget(n)} tadan oshmasin. MUHIM: 'photo_query' ning BIRINCHI so'zi taqdimotning asosiy obyekti yoki joyi bo'lsin (masalan ombor avtomatlashtirish haqida bo'lsa 'warehouse robot conveyor', 'warehouse shelves scanner'); 'automation', 'process', 'system', 'machine' kabi ko'p ma'noli so'zni yolg'iz yozma. Rasm slayd mazmunini AYNAN ko'rsatsin.\n"
+        f"- Rasmli slaydlar uchun FAQAT 'photo_query' yoz: ingliz tilida 2-4 ta aniq kalit so'z. Jami {_ppt_img_budget(n)} tadan oshmasin. HECH QACHON image_prompt yoki rasm yaratish tavsifini yozma. Rasmlar faqat Pixabay, Unsplash yoki Openverse'dan qidiriladi.\n"
         if with_images else
-        "- 'image_prompt' maydonini yozma; rasmli maketlardan (image_text, text_image, banner_cards) foydalanma.\n"
+        "- Rasmli maketlardan foydalanma; photo_query yozma.\n"
     )
     return (
         "Sen premium darajadagi akademik taqdimot dizayneri va muallifisan. Mavzu bo'yicha mazmunli, tekshirilgan va vizual jihatdan juda toza slaydlar rejasini JSON qilib tuz.\n"
@@ -2782,11 +2780,11 @@ def _ppt_outline_prompt(topic: str, n: int, with_images: bool) -> str:
         f"Slaydlar soni (sarlavha slaydidan tashqari): {n}\n\n"
         "MAKETLAR (har slaydga bittasini tanla, ketma-ket bir xil maket takrorlanmasin):\n"
         '1) "agenda": {"title","items":[4-7 ta qisqa band]}  — faqat 1-slayd sifatida (reja).\n'
-        '2) "image_text": {"title","text":"40-70 so\'zlik abzas","image_prompt"} — rasm chapda.\n'
+        '2) "image_text": {"title","text":"40-70 so\'zlik abzas","photo_query"} — rasm chapda.\n'
         '3) "text_image": xuddi image_text, rasm o\'ngda.\n'
         '4) "cards": {"title","cards":[3 yoki 4 ta {"head":"2-4 so\'z","text":"20-35 so\'z","icon"}]}; '
         f"icon: {', '.join(PPT_ICONS)} dan biri.\n"
-        '5) "banner_cards": {"title","image_prompt","cards":[3 yoki 4 ta {"head","text":"15-25 so\'z"}]}.\n'
+        '5) "banner_cards": {"title","photo_query","cards":[3 yoki 4 ta {"head","text":"15-25 so\'z"}]}.\n'
         '6) "chart": {"title","text":"20-40 so\'zlik izoh","chart_type":"donut|bar|line",'
         '"data":[4-6 ta {"label":"qisqa","value":son}]} — qiymatlar namunaviy ko\'rsatkich (0-100), '
         "haqiqiy statistika deb ko'rsatma.\n"
@@ -2956,7 +2954,6 @@ def _sanitize_outline(data, topic: str, n: int, with_images: bool) -> dict:
         story_role = _ppt_s(s.get("story_role"), 20).lower()
         out["story_role"] = story_role if story_role in story_roles else ""
         out["story_beat"] = _ppt_s(s.get("story_beat"), 180)
-        prompt = _ppt_s(s.get("image_prompt"), 400)
         pquery = _ppt_s(s.get("photo_query"), 80)
         if lay == "collage":
             qs = [_ppt_s(x, 80) for x in (s.get("collage_queries") or []) if _ppt_s(x, 80)][:3]
@@ -2968,9 +2965,8 @@ def _sanitize_outline(data, topic: str, n: int, with_images: bool) -> dict:
                 if lay == "text":
                     out["text"] = _ppt_s(" ".join(_ppt_s(c, 60) for c in (s.get("captions") or [])), 400) or title
         if lay in ("image_text", "text_image", "banner_cards", "hero", "split", "image_story"):
-            if with_images and (prompt or pquery) and img_count < img_cap:
-                out["image_prompt"] = prompt or pquery
-                out["photo_query"] = pquery or prompt[:80]
+            if with_images and pquery and img_count < img_cap:
+                out["photo_query"] = pquery
                 img_count += 1
         if lay == "agenda":
             items = [_ppt_s(x, 90) for x in (s.get("items") or []) if _ppt_s(x, 90)][:4]
@@ -4132,7 +4128,7 @@ def _openverse_photo_sync(query: str, used: set):
 def _ppt_find_photo_sync(query: str, anchor: str, used: set):
     """Pixabay'dan slayd uchun foto topadi. 3 bosqich: (1) qattiq moslik, (2) yumshoq moslik,
     (3) faqat mavzu so'zi bo'yicha eng mashhur foto. Natija bo'lsa HAR DOIM rasm qaytadi (slayd rasmsiz qolmasin)."""
-    if not (PIXABAY_API_KEY or UNSPLASH_ACCESS_KEY) or not (query or anchor or "").strip():
+    if not (query or anchor or "").strip():
         return None
     an = _kw_stems(anchor)
     qtext = ((query or "") + " " + (anchor or "")).lower()
@@ -4221,11 +4217,8 @@ def _ppt_find_photo_sync(query: str, anchor: str, used: set):
 
 
 async def _ppt_attach_images(outline: dict, owner_ai: bool = False):
-    """Rasm so'ralgan slaydlar uchun mavzuga MOS stok foto topadi. Topilmasa — rasm qo'yilmaydi (maket matnliga
-    almashadi). AI (Gemini) rasm YARATILMAYDI — faqat owner_ai=True (egasi tugmani yoqqan) bo'lsa, ko'pi bilan
-    PPT_AI_IMG_OWNER_MAX ta slaydga yaratiladi; qolganlari stok."""
-    style = ("Professional high-quality photograph, realistic, soft natural lighting, wide composition, "
-             "no text, no letters, no logos, no watermark. Scene: ")
+    """Faqat Pixabay -> Unsplash -> Openverse manbalaridan foto qidiradi.
+    Gemini image generation ishlatilmaydi; topilmasa mahalliy vektor vizual qo'llanadi."""
     used, credits = set(), []
     anchor = " ".join(re.findall(r"[A-Za-z]+", str(outline.get("topic_en") or ""))[:4])
     if not anchor:
@@ -4235,62 +4228,25 @@ async def _ppt_attach_images(outline: dict, owner_ai: bool = False):
         except Exception:
             anchor = ""
     outline["topic_en"] = anchor
-    gem_style = style + (f"(topic: {anchor}) " if anchor else "")
-    ai_left = [PPT_AI_IMG_OWNER_MAX if owner_ai else 0]
-    fb_left = [PPT_AI_FALLBACK_MAX]
-    _img_gate = asyncio.Semaphore(2)
 
     async def stock(q):
-        if not (q or anchor):
+        search_query = (q or outline.get("title") or "").strip()
+        if not search_query:
             return None
         try:
-            return await asyncio.to_thread(_ppt_find_photo_sync, q, anchor, used)
+            return await asyncio.to_thread(_ppt_find_photo_sync, search_query, anchor, used)
         except Exception as exc:
-            logger.warning("Stok rasm xatosi: %s", exc)
-            return None
-
-    async def gen(prompt):
-        if not _img_ai_available():
-            return None          # limit tugagan — vaqt yo'qotmay, rasmsiz davom etamiz
-        try:
-            loop = asyncio.get_running_loop()
-            async with _img_gate:
-                if not _img_ai_available():
-                    return None
-                raw, _ext = await asyncio.wait_for(
-                    loop.run_in_executor(_IMG_POOL, _gemini_generate_image_sync, gem_style + prompt), timeout=50)
-            return raw
-        except asyncio.TimeoutError:
-            _IMG_BLOCKED_UNTIL[0] = time.monotonic() + 120
-            logger.warning("Slayd rasmi: 50 soniyada javob kelmadi — AI rasm 2 daqiqaga o'chirildi")
-            return None
-        except Exception as exc:
-            logger.warning("Slayd rasmi yaratilmadi: %s", exc)
+            logger.warning("Stok rasm qidiruv xatosi: %s", exc)
             return None
 
     async def one(sl):
-        if ai_left[0] > 0:          # faqat egasi: AI o'zi yaratadi (cheklangan son)
-            ai_left[0] -= 1
-            raw = await gen(sl["image_prompt"])
-            if raw:
-                sl["_img"] = raw
-                credits.append("Rasm: AI (Gemini)")
-                return
-        got = await stock(sl.get("photo_query") or sl["image_prompt"])
+        got = await stock(sl.get("photo_query") or sl.get("title"))
         if got:
             sl["_img"] = got[0]
             credits.append(f"Rasm: {got[1] or got[2]} / {got[2]}")
-            return
-        if fb_left[0] > 0:          # mos stok topilmadi: slayd rasmsiz qolmasin — AI aniq mazmunga mos rasm yaratadi
-            fb_left[0] -= 1
-            precise = (f"{sl['image_prompt']} The image must clearly and literally illustrate the slide "
-                       f"'{sl.get('title', '')}' about {anchor or outline.get('title', '')}. "
-                       "STRICT: show ONLY what the slide title and topic literally describe (specific real objects, places, equipment, "
-                       "documents); nothing unrelated, no people's close-up faces, no fantasy, no abstract art, no text or logos.")
-            raw = await gen(precise)
-            if raw:
-                sl["_img"] = raw
-                credits.append("Rasm: AI (Gemini)")
+            logger.info("Slayd rasmi topildi: title=%r provider=%s", sl.get("title"), got[2])
+        else:
+            logger.info("Slayd rasmi topilmadi; mahalliy vizual ishlatiladi: title=%r", sl.get("title"))
 
     async def many(sl):
         imgs = []
@@ -4303,9 +4259,13 @@ async def _ppt_attach_images(outline: dict, owner_ai: bool = False):
                 imgs.append(None)
         sl["_imgs"] = imgs
 
-    await asyncio.gather(*(one(s) for s in outline["slides"] if s.get("image_prompt")),
-                         *(many(s) for s in outline["slides"] if s.get("collage_queries")))
+    await asyncio.gather(
+        *(one(sl) for sl in outline.get("slides", [])
+          if sl.get("photo_query") or sl.get("layout") in ("hero", "image_text", "text_image", "banner_cards", "split", "image_story")),
+        *(many(sl) for sl in outline.get("slides", []) if sl.get("collage_queries"))
+    )
     outline["_credits"] = credits
+    outline["_img_generation_disabled"] = True
 
 
 def _ppt_fallback_visual(sl: dict, outline: dict, variant: int = 0) -> bytes:
