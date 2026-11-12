@@ -26,6 +26,7 @@ from difflib import SequenceMatcher
 from http.server import BaseHTTPRequestHandler, HTTPServer, ThreadingHTTPServer
 import museum
 import supply_chain
+from ppt_story_engine import STORY_ROLES, build_story_guidance, infer_story_role, story_quality_report
 
 from telegram import (
     Update,
@@ -2772,7 +2773,8 @@ def _ppt_outline_prompt(topic: str, n: int, with_images: bool) -> str:
         "AI ART DIRECTION maydoni qaytar: {mood, palette:{bg,card,line,soft,dark,text,brown,tan,b1,b2,b3,hdr1,hdr2,row1,row2,white}, motif, transition}. Barcha ranglar # belgisisiz 6 xonali HEX. Palette kontrastini tekshir. Kulrang/neytral (B0B0B0 kabi) karta va och kulrang gradientlardan QOCH; ranglar psixologiyasidan foydalan (ishonch-ko'k, energiya-marjon, o'sish-yashil, ijod-binafsha, optimizm-amber), karta rangi fon bilan bir oilada bo'lsin. motif: none|circles|arcs|grid|editorial|organic|geometric. transition: fade|wipe|push. Bu tavsiyalar, lekin mavzuga mos bo'lmasa bezakni majburlama.\n"
         "Sans-serif yoki mavzuga mos serif tipografiya, sarlavha aniq. Bir slaydda 3-4 tadan ortiq asosiy element bo'lmasin. Vizual va matn muvozanatini saqla.\n"
         "PROFESSIONAL KOMPOZITSIYA: har slaydni alohida artboard sifatida loyihala: kuchli vizual fokus, aniq grid, chekka bo'shliqlar, qatlamlar va kontrastli tipografik ierarxiya. Bir xil kartochka maketini ketma-ket takrorlama. Katta sarlavha, kichik izoh, asosiy vizual va yordamchi ma'lumot o'rtasida aniq farq bo'lsin. Jadvalni faqat haqiqatan taqqoslash kerak bo'lsa ishlat; matnni uzun ro'yxatga aylantirma.\n"
-        "STORYTELLING: taqdimotni hook -> context -> problem -> analysis -> mechanism -> evidence -> implication -> solution -> conclusion oqimida qur. Har slaydga 'story_role' (hook|context|problem|analysis|mechanism|evidence|implication|solution|conclusion) va 'story_beat' (keyingi slaydga mantiqiy ko'prik bo'ladigan bitta qisqa gap) yoz. Sarlavhalar bir-birini davom ettirsin; bir xil mazmunni qayta aytma.\n"
+        f"{build_story_guidance(topic, n)}\n"
+        "STORYTELLING: qat'iy bitta ketma-ketlikka yopishma; har slaydga mavzuga mos story_role va story_beat yoz. Sarlavhalar konkret bo'lsin, umumiy qolipni takrorlama.\n"
         "PROFESSIONAL COMPOSITION CATALOG: 36 profil oilasidan mavzuga mosini tanla: editorial_split, asym_grid, full_bleed, modular, timeline, radial, data_focus, comparison, typographic, layered, swiss_column, swiss_modular, editorial_masthead, editorial_pullquote, magazine_spread, split_caption, asymmetric_caption, image_dominant, photo_triptych, photo_diptych, cinematic_panorama, cinematic_frame, brutalist_type, oversized_numeral, metric_wall, data_dashboard, data_waterfall, data_lollipop, data_slopegraph, process_lane, swimlane, isometric_stack, isometric_exploded, radial_network, map_route, typographic_poster. Bir slaydda bitta asosiy fokus; ketma-ket profilni takrorlama.\n"
         "MAP va ISOMETRIC: geografik ma'lumot aniq bo'lmasa haqiqiy xarita da'vo qilma; 'map' faqat konseptual marshrut sxemasi, 4-6 ta node va ketma-ket bog'lanishlar uchun. 'isometric' 3-5 bosqichli tizim/ta'minot/ishlab chiqarish oqimi uchun.\n"
         "SLIDE DESIGN BLUEPRINT (har bir slaydga alohida): layout bilan birga 'visual_focus' (2-8 so'z), 'visual_type' (photo|diagram|chart|timeline|map|table|typography|cards|matrix|none), 'composition' (36-profile catalog above), 'hierarchy' ({'primary':'asosiy sarlavha/vizual','secondary':'ikkinchi darajali izoh','support':'yordamchi ma'lumot'}), 'density' (low|medium|high), 'motion_reason' (qisqa sabab) maydonlarini qaytar. Bu maydonlar mazmunga mos bo'lsin; xarita yoki aniq geografik ma'lumot bo'lmasa map tanlama; haqiqiy statistika bo'lmasa chartni fakt sifatida ko'rsatma. Har slaydda bitta asosiy vizual fokus bo'lsin.\n"
@@ -2826,7 +2828,7 @@ def _ppt_outline_prompt(topic: str, n: int, with_images: bool) -> str:
         "- XULOSA: butun taqdimotdan 3 muhim xulosani yig'; sarlavhalarni shunchaki qaytarma, dalilsiz raqam yoki statistik da'vo qo'shma.\n"
         "- IMLO: o'zbekcha lotin yozuvida izchil imlo va apostroflardan foydalan.\n"
         "QOIDALAR:\n"
-        "- 1-slayd \"agenda\", oxirgisi \"closing\". Oraliqda kamida 5 xil maket ishlat; har bir slayd mazmuniga mos maketni tanla (jarayon -> timeline, tushuncha xaritasi -> hub, raqam -> bignumber/stats, solishtirish -> compare/matrix, ustuvorlik -> matrix/funnel). Hamma slayd bir xil ko'rinmasin.\n"
+        "- Agenda va closing majburiy emas: faqat mazmun talab qilsa ishlat. Birinchi kontent slaydini kuchli savol, obyekt, tarixiy kadr yoki asosiy tushuncha bilan ochish mumkin. Oxirgi slaydni mavzuga mos topilma, qaror, prognoz yoki ochiq savol bilan yakunla. Kamida 5 xil maket va turli mazmuniy vazifalarni qo'lla.\n"
         f"{img_rule}"
         "- Til: mavzu qaysi tilda bo'lsa shu tilda (o'zbekcha bo'lsa lotin yozuvida).\n"
         "- Faktlarni o'ylab topma, ishonchsiz aniq raqam/manba yozma. Mantiq: kirish -> asosiy qismlar -> xulosa.\n"
@@ -2950,7 +2952,7 @@ def _sanitize_outline(data, topic: str, n: int, with_images: bool) -> dict:
             "density": (_ppt_s(s.get("density"), 10).lower() if _ppt_s(s.get("density"), 10).lower() in ("low", "medium", "high") else density_default),
             "motion_reason": _ppt_s(s.get("motion_reason"), 120) or ("Main visual" if visual_type in ("photo", "chart", "diagram", "timeline", "matrix") else "Readable text entrance"),
         }
-        story_roles = {"hook", "context", "problem", "analysis", "mechanism", "evidence", "implication", "solution", "conclusion"}
+        story_roles = STORY_ROLES
         story_role = _ppt_s(s.get("story_role"), 20).lower()
         out["story_role"] = story_role if story_role in story_roles else ""
         out["story_beat"] = _ppt_s(s.get("story_beat"), 180)
@@ -3186,70 +3188,15 @@ def _sanitize_outline(data, topic: str, n: int, with_images: bool) -> dict:
     # reja/xulosa tuziladi; yangi fakt yoki raqam qo'shilmaydi.
     target_count = max(2, min(PPT_MAX_SLIDES, n))
     slides = slides[:target_count]
-    role_sequence = ["context", "problem", "analysis", "mechanism", "evidence", "implication", "solution"]
-    content_i = 0
+    # Storyline is selected by the model; do not inject a fixed agenda, executive
+    # summary, or generic problem/solution ending into every presentation.
     for spec in slides:
         if spec.get("layout") == "agenda":
-            spec["story_role"] = "hook"
+            spec["story_role"] = spec.get("story_role") or "context"
         elif spec.get("layout") == "closing":
-            spec["story_role"] = "conclusion"
-        else:
-            if not spec.get("story_role"):
-                spec["story_role"] = role_sequence[min(content_i, len(role_sequence)-1)]
-            content_i += 1
-    content_titles = [x.get("title", "") for x in slides if x.get("layout") not in ("agenda", "closing")]
-    if slides[0].get("layout") != "agenda":
-        agenda_items = [x for x in content_titles[:6] if x][:6]
-        if len(agenda_items) < 2:
-            agenda_items = [slides[0].get("title", topic[:70]), "Asosiy tahlil", "Yakuniy xulosa"]
-        agenda_slide = {"layout": "agenda", "title": "Taqdimot rejasi", "items": agenda_items[:6],
-                         "notes": "Taqdimotning asosiy bo'limlari", "motion": "fade", "story_role": "hook",
-                         "design": {"visual_focus": "Taqdimot yo'nalishi", "visual_type": "none",
-                                    "composition": "modular", "hierarchy": {"primary": "title", "secondary": "agenda items", "support": "sequence"},
-                                    "density": "low", "motion_reason": "Clear agenda reveal"}}
-        if len(slides) >= 3:
-            slides[0] = agenda_slide
-        else:
-            slides.insert(0, agenda_slide)
-    if True:  # mavjud AI xulosasi ham butun taqdimot mazmunidan qayta yig'iladi
-        source = [x for x in slides if x.get("layout") not in ("agenda", "closing")]
-        # Xulosa butun taqdimotdan: bosh, o'rta va yakuniy bo'limlardan.
-        summaries = [(item.get("title") or "Asosiy fikr", _ppt_slide_text(item)) for item in source]
-        summaries = [(h, body) for h, body in summaries if body]
-        if summaries:
-            picks = [summaries[0]]
-            if len(summaries) > 2:
-                picks.append(summaries[len(summaries) // 2])
-            if len(summaries) > 1:
-                picks.append(summaries[-1])
-            takeaways = [{"head": _ppt_s(h, 45), "text": _ppt_clip(body, 150)} for h, body in picks[:3]]
-            closing_text = _ppt_clip(" ".join(body for _, body in summaries), 280)
-        else:
-            takeaways = [{"head": _ppt_s(x.get("title"), 45), "text": _ppt_s(x.get("title"), 110)} for x in source[:3]]
-            closing_text = _ppt_s(topic, 240)
-        while len(takeaways) < 2:
-            takeaways.append({"head": "Yakuniy fikr", "text": closing_text or _ppt_s(topic, 110)})
-        closing_slide = {"layout": "closing", "title": "Asosiy xulosa", "text": closing_text,
-                         "takeaways": takeaways[-3:], "final": "Savollar va muhokama.", "notes": "Yakuniy xulosa",
-                         "motion": "fade", "story_role": "conclusion", "design": {"visual_focus": "Asosiy xulosalar", "visual_type": "typography",
-                         "composition": "typographic", "hierarchy": {"primary": "conclusion", "secondary": "takeaways", "support": "closing line"},
-                         "density": "medium", "motion_reason": "Emphasize final takeaways"}}
-        if len(slides) >= 3:
-            slides[-1] = closing_slide
-        else:
-            slides.append(closing_slide)
-    # Kartochka va bandlarni alohida slaydga ko'chirib, sun'iy takror yaratmaymiz.
-    role_sequence = ["context", "problem", "analysis", "mechanism", "evidence", "implication", "solution"]
-    content_role_i = 0
-    for spec in slides:
-        if spec.get("layout") == "agenda":
-            spec["story_role"] = "hook"
-        elif spec.get("layout") == "closing":
-            spec["story_role"] = "conclusion"
-        else:
-            if not spec.get("story_role"):
-                spec["story_role"] = role_sequence[min(content_role_i, len(role_sequence)-1)]
-            content_role_i += 1
+            spec["story_role"] = spec.get("story_role") or "conclusion"
+        elif not spec.get("story_role"):
+            spec["story_role"] = infer_story_role(spec)
     # Uzoq ketma-ketlikda bir xil kompozitsiya 3 marta kelib qolsa, mazmun turiga
     # mos alternativaga o'tkazamiz. Bu faqat dizayn variantini almashtiradi, matnni emas.
     composition_options = {
@@ -3303,13 +3250,17 @@ def _sanitize_outline(data, topic: str, n: int, with_images: bool) -> dict:
     # Reja yetishmagan slaydlar endi mazmundan avtomatik kengaytirilmaydi.
     # QA metrikasi uchun qiymat aniq 0 qilib beriladi.
     expanded = 0
+    quality = story_quality_report(slides)
+    if quality.get("repeated_titles") or quality.get("max_same_layout_run", 0) >= 3 or quality.get("role_count", 0) < min(5, max(2, len(slides) // 3)):
+        logger.warning("Story QA: %s", quality)
     return {"title": _ppt_s(data.get("title") or topic, 100), "subtitle": _ppt_s(data.get("subtitle"), 140),
             "cover_query": _ppt_s(data.get("cover_query"), 80),
             "style": _ppt_s(data.get("style"), 20).lower(),
             "art_direction": {"mood": _ppt_s(ad.get("mood"), 100), "palette": palette,
                               "motif": motif if motif in ("none", "circles", "arcs", "grid", "editorial", "organic", "geometric") else "none",
                               "transition": transition if transition in ("fade", "wipe", "push") else "fade"},
-            "topic_en": _ppt_s(data.get("topic_en"), 60), "stepper": _ppt_stepper_labels(data),
+            "topic_en": _ppt_s(data.get("topic_en"), 60), "story_architecture": _ppt_s(data.get("story_architecture"), 60),
+            "story_rationale": _ppt_s(data.get("story_rationale"), 220), "stepper": _ppt_stepper_labels(data),
             "_expanded": expanded, "_composition_repairs": composition_repairs,
             "story_arc": [x.get("story_role", "") for x in slides[:target_count]],
             "slides": _ppt_with_executive(slides[:target_count], data, _ppt_s(data.get("title") or topic, 100), topic)}
@@ -3406,8 +3357,7 @@ def _ppt_expand_missing_slides(outline, topic, requested, with_images, sanitizer
                 "Slaydlar mazmunan to'liq, vizual jihatdan xilma-xil va professional bo'lsin. "
                 "Rasm yaratish prompti yozma; faqat kerak bo'lsa 2-4 inglizcha kalit so'zdan iborat photo_query ber. "
                 f"Til: mavzu tilida. Mavzu: {str(topic)[:500]}\n"
-                f"Kerakli yangi slaydlar soni: {remaining}. JSON slides massivida aynan {remaining + 2} obyekt qaytar: "
-                "birinchi obyekt agenda, oxirgisi closing, ularning orasida aynan kerakli yangi mazmunli slaydlar bo'lsin. "
+                f"Kerakli yangi kontent slaydlari soni: {remaining}. JSON slides massivida aynan {remaining} ta yangi slayd qaytar. "
                 "Mavjud slaydlar mazmuni (takrorlamaslik uchun): "
                 + json.dumps(context, ensure_ascii=False)[:6500]
                 + '\nJSON format: {"slides":[{"layout":"text|image_text|text_image|cards|timeline|compare|chart|table|matrix|hub|funnel|bento|kpi|pyramid|venn|orbit|chain|iceberg|before_after|statement|editorial","title":"aniq sarlavha","text":"mazmunli izoh","photo_query":"2-4 English keywords","story_role":"analysis","story_beat":"keyingi fikrga ko\'prik","notes":""}]}'
@@ -3416,10 +3366,10 @@ def _ppt_expand_missing_slides(outline, topic, requested, with_images, sanitizer
                 raw = _json_loads_loose(_ai_generate_text_sync(
                     prompt, 0.45, min(8500, 1800 + remaining * 650), True, [AI_FALLBACK_MODELS[0]]
                 ))
-                expanded_outline = sanitizer(raw, topic, remaining + 2, with_images)
+                expanded_outline = sanitizer(raw, topic, remaining, with_images)
                 candidates = [
                     item for item in (expanded_outline.get("slides") or [])
-                    if item.get("layout") not in ("executive", "agenda", "closing")
+                    if item.get("layout") != "executive"
                 ]
                 seen = {re.sub(r"[^a-z0-9]+", "", str(x.get("title", "")).casefold()) for x in existing + added}
                 for item in candidates:
@@ -4464,7 +4414,7 @@ def _ppt_clip(text, limit):
 def _ppt_stepper_labels(data):
     raw = data.get("stepper") if isinstance(data, dict) else None
     labels = [_ppt_s(x, 18) for x in (raw or []) if _ppt_s(x, 18)] if isinstance(raw, list) else []
-    return labels[:5] if len(labels) >= 3 else list(PPT_STEPPER_DEFAULT)
+    return labels[:5] if len(labels) >= 3 else []
 
 
 def _ppt_with_executive(slides, data, title, topic):
@@ -4472,6 +4422,8 @@ def _ppt_with_executive(slides, data, title, topic):
     Raqamlar faqat AI bergan yoki slaydlarda bor bo'lsa ishlatiladi; bo'lmasa — asosiy yo'nalishlar kartochkalari."""
     try:
         raw = data.get("executive") if isinstance(data.get("executive"), dict) else {}
+        if raw.get("enabled") is not True:
+            return slides
         kpis = []
         for k in (raw.get("kpis") or [])[:4]:
             if isinstance(k, dict) and _ppt_s(k.get("value"), 12):
@@ -6508,14 +6460,14 @@ def _v8_readable_on_accent(self):
 
 def _v8_post(self, outline):
     """Barcha slaydlar yig'ilgach: Stepper qo'shadi va Morph uchun '!!' nomlarini beradi."""
-    labels = outline.get("stepper") or PPT_STEPPER_DEFAULT
+    labels = outline.get("stepper") or []
     specs = outline.get("slides", [])
     total = len(specs)
     running = 0
     for idx, slide in enumerate(self.prs.slides):
         spec = specs[idx - 1] if 0 < idx <= total else {}
         try:
-            if idx > 0:
+            if idx > 0 and labels:
                 st = _ppt_stage_of(spec, idx - 1, total, len(labels))
                 running = max(running, st)
                 self._v8_stepper(slide, running, labels)
@@ -7078,7 +7030,7 @@ def _ppt_outline_prompt_classic(topic: str, n: int, with_images: bool) -> str:
         '22) "editorial": {"title","kicker","text":"40-70 so\'z","side_note","pull_quote"} — jurnal uslubidagi asimmetrik tipografik kompozitsiya.\n'
         '23) "image_story": {"title","text":"25-45 so\'z","kicker","photo_query":"INGLIZCHA 1 gap","photo_query":"INGLIZCHA 2-4 so\'z"} — katta foto va qatlamli editorial panel.\n\n'
         "QOIDALAR:\n"
-        "- 1-slayd \"agenda\", oxirgisi \"closing\". Oraliqda kamida 5 xil maket ishlat; har bir slayd mazmuniga mos maketni tanla (jarayon -> timeline, tushuncha xaritasi -> hub, raqam -> bignumber/stats, solishtirish -> compare/matrix, ustuvorlik -> matrix/funnel). Hamma slayd bir xil ko'rinmasin.\n"
+        "- Agenda va closing majburiy emas: faqat mazmun talab qilsa ishlat. Birinchi kontent slaydini kuchli savol, obyekt, tarixiy kadr yoki asosiy tushuncha bilan ochish mumkin. Oxirgi slaydni mavzuga mos topilma, qaror, prognoz yoki ochiq savol bilan yakunla. Kamida 5 xil maket va turli mazmuniy vazifalarni qo'lla.\n"
         f"{img_rule}"
         "- Til: mavzu qaysi tilda bo'lsa shu tilda (o'zbekcha bo'lsa lotin yozuvida).\n"
         "- Faktlarni o'ylab topma, ishonchsiz aniq raqam/manba yozma. Mantiq: kirish -> asosiy qismlar -> xulosa.\n"
