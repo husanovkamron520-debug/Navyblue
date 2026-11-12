@@ -2843,6 +2843,10 @@ def _ppt_outline_prompt(topic: str, n: int, with_images: bool) -> str:
 def _ppt_s(v, limit):
     """Matnni belgi emas, so'z chegarasida qisqartiradi."""
     value = re.sub(r"[ \t]+", " ", str(v if v is not None else "")).strip()
+    banned = ("asosiy mazmun saqlandi", "joylashuv avtomatik qayta tiklandi",
+              "ushbu bo'limdagi asosiy mazmun")
+    if any(phrase in value.casefold() for phrase in banned):
+        return ""
     if len(value) <= limit:
         return value
     cut = value[:max(1, limit - 1)].rsplit(" ", 1)[0].rstrip(",;:-—")
