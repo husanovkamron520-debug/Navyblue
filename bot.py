@@ -2759,7 +2759,7 @@ def _parse_ppt_request(raw: str):
 # ---------------------------- AI: reja ----------------------------
 def _ppt_outline_prompt(topic: str, n: int, with_images: bool) -> str:
     img_rule = (
-        f"- Rasmli slaydlar uchun FAQAT 'photo_query' yoz: ingliz tilida 2-4 ta aniq kalit so'z. Jami {_ppt_img_budget(n)} tadan oshmasin. HECH QACHON image_prompt yoki rasm yaratish tavsifini yozma. Rasmlar faqat Pixabay, Unsplash yoki Openverse'dan qidiriladi.\n"
+        f"- Rasmli slaydlar uchun FAQAT 'photo_query' yoz: ingliz tilida 2-4 ta aniq kalit so'z. Jami {_ppt_img_budget(n)} tadan oshmasin. HECH QACHON photo_query yoki rasm yaratish tavsifini yozma. Rasmlar faqat Pixabay, Unsplash yoki Openverse'dan qidiriladi.\n"
         if with_images else
         "- Rasmli maketlardan foydalanma; photo_query yozma.\n"
     )
@@ -2792,20 +2792,20 @@ def _ppt_outline_prompt(topic: str, n: int, with_images: bool) -> str:
         "katak 3-12 so'z]}.\n"
         '8) "compare": {"title","text":"1 gaplik izoh","left":{"head","items":[4-5 band]},"right":{"head","items":[4-5 band]}}.\n'
         '9) "text": {"title","text":"50-80 so\'zlik abzas"} — oxirgi slayd (xulosa) uchun.\n'
-        '10) "hero": {"title","text":"15-30 so\'zlik qisqa gap","image_prompt","photo_query"} — butun slaydga katta foto, ustida yozuv (1-3 marta ishlat, faqat rasm yoqilgan bo\'lsa).\n'
+        '10) "hero": {"title","text":"15-30 so\'zlik qisqa gap","photo_query","photo_query"} — butun slaydga katta foto, ustida yozuv (1-3 marta ishlat, faqat rasm yoqilgan bo\'lsa).\n'
         '11) "section": {"title":"bo\'lim nomi","text":"1 gaplik izoh"} — bo\'lim ajratuvchi (katta raqam bilan), uzun taqdimotda 1-2 marta.\n'
         '12) "statement": {"title":"2-3 so\'zlik kichik sarlavha","text":"BITTA kuchli gap, 8-18 so\'z"} — minimal matn, ulkan tipografiya. 1-2 marta.\n'
         '13) "bignumber": {"title":"kichik sarlavha","value":"72% yoki 3.5x","label":"2-5 so\'z","text":"1 gaplik izoh"} — bitta ulkan raqam (faqat ishonchli yoki aniq namunaviy deb belgilangan).\n'
         '14) "stats": {"title","stats":[3 ta {"value":"qisqa raqam","label":"3-8 so\'z"}],"text":"1 gap"} — data-editorial 3 ko\'rsatkich.\n'
         '15) "timeline": {"title","steps":[3-5 ta {"label":"1-3 so\'z","text":"8-18 so\'z"}]} — bosqichlar/xronologiya.\n'
-        '16) "split": {"title","kicker":"1-2 so\'z","text":"25-50 so\'z","image_prompt","photo_query"} — yarim slayd katta foto, yonida editorial matn.\n'
+        '16) "split": {"title","kicker":"1-2 so\'z","text":"25-50 so\'z","photo_query","photo_query"} — yarim slayd katta foto, yonida editorial matn.\n'
         '17) "collage": {"title","captions":[3 ta 2-5 so\'zlik izoh],"collage_queries":[3 ta INGLIZCHA 2-4 so\'zli foto qidiruv]} — 3 fotoli assimetrik kollaj.\n'
         '18) "matrix": {"title","x_label","y_label","quadrants":[4 ta {"head":"2-4 so\'z","text":"10-20 so\'z"}]} — 2x2 matritsa (SWOT, ustuvorlik). 2-chi katak ajralib turadi (eng muhimi).\n'
         '19) "funnel": {"title","levels":[3-5 ta {"head":"1-3 so\'z","text":"8-16 so\'z"}]} — voronka/piramida (yuqoridan pastga torayadi).\n'
         '20) "hub": {"title","center":"1-3 so\'z","items":[4-6 ta {"head":"1-3 so\'z","text":"6-12 so\'z"}]} — markazda asosiy tushuncha, atrofida bog\'liq elementlar (chiziqlar bilan).\n'
         '21) "closing": {"title":"asosiy xulosa (qisqa)","text":"2-3 gap","takeaways":[3 ta {"head":"2-5 so\'z","text":"8-16 so\'z"}],"final":"yakuniy fikr yoki savol (1 gap)"} — oxirgi slayd.\n\n'
         '22) "editorial": {"title","kicker","text":"40-70 so\'z","side_note","pull_quote"} — jurnal uslubidagi asimmetrik tipografik kompozitsiya.\n'
-        '23) "image_story": {"title","text":"25-45 so\'z","kicker","image_prompt":"INGLIZCHA 1 gap","photo_query":"INGLIZCHA 2-4 so\'z"} — katta foto va qatlamli editorial panel.\n\n'
+        '23) "image_story": {"title","text":"25-45 so\'z","kicker","photo_query":"INGLIZCHA 1 gap","photo_query":"INGLIZCHA 2-4 so\'z"} — katta foto va qatlamli editorial panel.\n\n'
         '24) "map": {"title","nodes":[4-6 ta {"label":"marshrut nuqtasi","detail":"qisqa izoh"}],"text":"izoh"} — konseptual marshrut sxemasi; aniq koordinata bo\'lmasa geografik xarita deb ko\'rsatma.\n'
         '25) "isometric": {"title","stages":[3-5 ta {"label":"jarayon bosqichi","text":"qisqa izoh"}],"text":"izoh"} — izometrik tizim yoki ta\'minot zanjiri diagrammasi.\n\n'
         'PREMIUM V8 YANGI MAKETLAR (mazmunga mos kelsagina ishlat):\n'
@@ -2979,7 +2979,7 @@ def _sanitize_outline(data, topic: str, n: int, with_images: bool) -> dict:
             out["text"] = re.sub(r"(?<!\S)(\d{1,2}[.)])\s+", r"\n\1 ", out["text"]).strip()
             if lay in ("split", "image_story"):
                 out["kicker"] = _ppt_s(s.get("kicker"), 30)
-                if not out.get("image_prompt"):
+                if not out.get("photo_query"):
                     lay = out["layout"] = "text"
             if not out["text"]:
                 continue
@@ -3314,12 +3314,12 @@ def _sanitize_outline(data, topic: str, n: int, with_images: bool) -> dict:
 
 def _ppt_outline_prompt_compact(topic: str, n: int, with_images: bool) -> str:
     """Soddalashtirilgan prompt: asosiy prompt ishlamasa zaxira sifatida."""
-    img = ("Rasmli maketlar (image_text, text_image) uchun 'photo_query' (INGLIZCHA 2-4 so'z) va 'image_prompt' (INGLIZCHA 1 gap) yoz. photo_query birinchi so'zi taqdimotning asosiy obyekti bo'lsin (masalan warehouse robot conveyor); ko'p ma'noli so'zni yolg'iz yozma. "
-           if with_images else "Rasmli maketlardan foydalanma, 'image_prompt' yozma. ")
+    img = ("Rasmli maketlar (image_text, text_image) uchun 'photo_query' (INGLIZCHA 2-4 so'z) va 'photo_query' (INGLIZCHA 1 gap) yoz. photo_query birinchi so'zi taqdimotning asosiy obyekti bo'lsin (masalan warehouse robot conveyor); ko'p ma'noli so'zni yolg'iz yozma. "
+           if with_images else "Rasmli maketlardan foydalanma, 'photo_query' yozma. ")
     return (
         "Mavzu bo'yicha taqdimot rejasini FAQAT JSON qilib ber.\n"
         f"Mavzu: {topic[:400]}\nSlaydlar soni (sarlavhasiz): {n}\n"
-        "Maketlar: agenda{title,items[4]} (1-slayd), image_text{title,text(40-60 so'z),image_prompt,photo_query}, "
+        "Maketlar: agenda{title,items[4]} (1-slayd), image_text{title,text(40-60 so'z),photo_query,photo_query}, "
         "text_image{...xuddi shu}, cards{title,cards[3x{head,text(20-30 so'z),icon}]}, "
         "chart{title,text,chart_type(donut|bar|line),data[4x{label,value}]}, table{title,text,columns[3],rows[3x3]}, "
         "compare{title,text,left{head,items[3]},right{head,items[3]}}, timeline{title,steps[4x{label,text}]}, "
@@ -6960,9 +6960,9 @@ def _ppt_outline_prompt_classic(topic: str, n: int, with_images: bool) -> str:
     img_rule = (
         f"- Rasmli slaydlar (image_text, text_image, banner_cards) uchun ikkita maydon yoz: "
         f"'photo_query' (INGLIZ tilida 2-4 ta kalit so'z, stok foto qidiruvi uchun, masalan \"warehouse workers forklift\") va "
-        f"'image_prompt' (INGLIZ tilida 1 gaplik sahna tavsifi, matnsiz, logotipsiz). Jami {_ppt_img_budget(n)} tadan oshmasin. MUHIM: 'photo_query' ning BIRINCHI so'zi taqdimotning asosiy obyekti yoki joyi bo'lsin (masalan ombor avtomatlashtirish haqida bo'lsa 'warehouse robot conveyor', 'warehouse shelves scanner'); 'automation', 'process', 'system', 'machine' kabi ko'p ma'noli so'zni yolg'iz yozma. Rasm slayd mazmunini AYNAN ko'rsatsin.\n"
+        f"'photo_query' (INGLIZ tilida 1 gaplik sahna tavsifi, matnsiz, logotipsiz). Jami {_ppt_img_budget(n)} tadan oshmasin. MUHIM: 'photo_query' ning BIRINCHI so'zi taqdimotning asosiy obyekti yoki joyi bo'lsin (masalan ombor avtomatlashtirish haqida bo'lsa 'warehouse robot conveyor', 'warehouse shelves scanner'); 'automation', 'process', 'system', 'machine' kabi ko'p ma'noli so'zni yolg'iz yozma. Rasm slayd mazmunini AYNAN ko'rsatsin.\n"
         if with_images else
-        "- 'image_prompt' maydonini yozma; rasmli maketlardan (image_text, text_image, banner_cards) foydalanma.\n"
+        "- 'photo_query' maydonini yozma; rasmli maketlardan (image_text, text_image, banner_cards) foydalanma.\n"
     )
     return (
         "Sen premium darajadagi akademik taqdimot dizayneri va muallifisan. Mavzu bo'yicha mazmunli, tekshirilgan va vizual jihatdan juda toza slaydlar rejasini JSON qilib tuz.\n"
@@ -6977,11 +6977,11 @@ def _ppt_outline_prompt_classic(topic: str, n: int, with_images: bool) -> str:
         f"Slaydlar soni (sarlavha slaydidan tashqari): {n}\n\n"
         "MAKETLAR (har slaydga bittasini tanla, ketma-ket bir xil maket takrorlanmasin):\n"
         '1) "agenda": {"title","items":[4-7 ta qisqa band]}  — faqat 1-slayd sifatida (reja).\n'
-        '2) "image_text": {"title","text":"40-70 so\'zlik abzas","image_prompt"} — rasm chapda.\n'
+        '2) "image_text": {"title","text":"40-70 so\'zlik abzas","photo_query"} — rasm chapda.\n'
         '3) "text_image": xuddi image_text, rasm o\'ngda.\n'
         '4) "cards": {"title","cards":[3 yoki 4 ta {"head":"2-4 so\'z","text":"20-35 so\'z","icon"}]}; '
         f"icon: {', '.join(PPT_ICONS)} dan biri.\n"
-        '5) "banner_cards": {"title","image_prompt","cards":[3 yoki 4 ta {"head","text":"15-25 so\'z"}]}.\n'
+        '5) "banner_cards": {"title","photo_query","cards":[3 yoki 4 ta {"head","text":"15-25 so\'z"}]}.\n'
         '6) "chart": {"title","text":"20-40 so\'zlik izoh","chart_type":"donut|bar|line",'
         '"data":[4-6 ta {"label":"qisqa","value":son}]} — qiymatlar namunaviy ko\'rsatkich (0-100), '
         "haqiqiy statistika deb ko'rsatma.\n"
@@ -6989,20 +6989,20 @@ def _ppt_outline_prompt_classic(topic: str, n: int, with_images: bool) -> str:
         "katak 3-12 so'z]}.\n"
         '8) "compare": {"title","text":"1 gaplik izoh","left":{"head","items":[4-5 band]},"right":{"head","items":[4-5 band]}}.\n'
         '9) "text": {"title","text":"50-80 so\'zlik abzas"} — oxirgi slayd (xulosa) uchun.\n'
-        '10) "hero": {"title","text":"15-30 so\'zlik qisqa gap","image_prompt","photo_query"} — butun slaydga katta foto, ustida yozuv (1-3 marta ishlat, faqat rasm yoqilgan bo\'lsa).\n'
+        '10) "hero": {"title","text":"15-30 so\'zlik qisqa gap","photo_query","photo_query"} — butun slaydga katta foto, ustida yozuv (1-3 marta ishlat, faqat rasm yoqilgan bo\'lsa).\n'
         '11) "section": {"title":"bo\'lim nomi","text":"1 gaplik izoh"} — bo\'lim ajratuvchi (katta raqam bilan), uzun taqdimotda 1-2 marta.\n'
         '12) "statement": {"title":"2-3 so\'zlik kichik sarlavha","text":"BITTA kuchli gap, 8-18 so\'z"} — minimal matn, ulkan tipografiya. 1-2 marta.\n'
         '13) "bignumber": {"title":"kichik sarlavha","value":"72% yoki 3.5x","label":"2-5 so\'z","text":"1 gaplik izoh"} — bitta ulkan raqam (faqat ishonchli yoki aniq namunaviy deb belgilangan).\n'
         '14) "stats": {"title","stats":[3 ta {"value":"qisqa raqam","label":"3-8 so\'z"}],"text":"1 gap"} — data-editorial 3 ko\'rsatkich.\n'
         '15) "timeline": {"title","steps":[3-5 ta {"label":"1-3 so\'z","text":"8-18 so\'z"}]} — bosqichlar/xronologiya.\n'
-        '16) "split": {"title","kicker":"1-2 so\'z","text":"25-50 so\'z","image_prompt","photo_query"} — yarim slayd katta foto, yonida editorial matn.\n'
+        '16) "split": {"title","kicker":"1-2 so\'z","text":"25-50 so\'z","photo_query","photo_query"} — yarim slayd katta foto, yonida editorial matn.\n'
         '17) "collage": {"title","captions":[3 ta 2-5 so\'zlik izoh],"collage_queries":[3 ta INGLIZCHA 2-4 so\'zli foto qidiruv]} — 3 fotoli assimetrik kollaj.\n'
         '18) "matrix": {"title","x_label","y_label","quadrants":[4 ta {"head":"2-4 so\'z","text":"10-20 so\'z"}]} — 2x2 matritsa (SWOT, ustuvorlik). 2-chi katak ajralib turadi (eng muhimi).\n'
         '19) "funnel": {"title","levels":[3-5 ta {"head":"1-3 so\'z","text":"8-16 so\'z"}]} — voronka/piramida (yuqoridan pastga torayadi).\n'
         '20) "hub": {"title","center":"1-3 so\'z","items":[4-6 ta {"head":"1-3 so\'z","text":"6-12 so\'z"}]} — markazda asosiy tushuncha, atrofida bog\'liq elementlar (chiziqlar bilan).\n'
         '21) "closing": {"title":"asosiy xulosa (qisqa)","text":"2-3 gap","takeaways":[3 ta {"head":"2-5 so\'z","text":"8-16 so\'z"}],"final":"yakuniy fikr yoki savol (1 gap)"} — oxirgi slayd.\n\n'
         '22) "editorial": {"title","kicker","text":"40-70 so\'z","side_note","pull_quote"} — jurnal uslubidagi asimmetrik tipografik kompozitsiya.\n'
-        '23) "image_story": {"title","text":"25-45 so\'z","kicker","image_prompt":"INGLIZCHA 1 gap","photo_query":"INGLIZCHA 2-4 so\'z"} — katta foto va qatlamli editorial panel.\n\n'
+        '23) "image_story": {"title","text":"25-45 so\'z","kicker","photo_query":"INGLIZCHA 1 gap","photo_query":"INGLIZCHA 2-4 so\'z"} — katta foto va qatlamli editorial panel.\n\n'
         "QOIDALAR:\n"
         "- 1-slayd \"agenda\", oxirgisi \"closing\". Oraliqda kamida 5 xil maket ishlat; har bir slayd mazmuniga mos maketni tanla (jarayon -> timeline, tushuncha xaritasi -> hub, raqam -> bignumber/stats, solishtirish -> compare/matrix, ustuvorlik -> matrix/funnel). Hamma slayd bir xil ko'rinmasin.\n"
         f"{img_rule}"
@@ -7038,7 +7038,7 @@ def _sanitize_outline_classic(data, topic: str, n: int, with_images: bool) -> di
             motion = "auto"
         out = {"layout": lay, "title": title, "notes": _ppt_s(s.get("notes"), 600),
                "motion": motion}
-        prompt = _ppt_s(s.get("image_prompt"), 400)
+        prompt = _ppt_s(s.get("photo_query"), 400)
         pquery = _ppt_s(s.get("photo_query"), 80)
         if lay == "collage":
             qs = [_ppt_s(x, 80) for x in (s.get("collage_queries") or []) if _ppt_s(x, 80)][:3]
@@ -7051,7 +7051,7 @@ def _sanitize_outline_classic(data, topic: str, n: int, with_images: bool) -> di
                     out["text"] = _ppt_s(" ".join(_ppt_s(c, 60) for c in (s.get("captions") or [])), 400) or title
         if lay in ("image_text", "text_image", "banner_cards", "hero", "split", "image_story"):
             if with_images and (prompt or pquery) and img_count < img_cap:
-                out["image_prompt"] = prompt or pquery
+                out["photo_query"] = prompt or pquery
                 out["photo_query"] = pquery or prompt[:80]
                 img_count += 1
         if lay == "agenda":
@@ -7063,7 +7063,7 @@ def _sanitize_outline_classic(data, topic: str, n: int, with_images: bool) -> di
             out["text"] = _ppt_s(s.get("text"), {"hero": 220, "split": 360, "image_story": 360}.get(lay, 900))
             if lay in ("split", "image_story"):
                 out["kicker"] = _ppt_s(s.get("kicker"), 30)
-                if not out.get("image_prompt"):
+                if not out.get("photo_query"):
                     lay = out["layout"] = "text"
             if not out["text"]:
                 continue
@@ -7198,12 +7198,12 @@ def _sanitize_outline_classic(data, topic: str, n: int, with_images: bool) -> di
 
 def _ppt_outline_prompt_compact_classic(topic: str, n: int, with_images: bool) -> str:
     """Soddalashtirilgan prompt: asosiy prompt ishlamasa zaxira sifatida."""
-    img = ("Rasmli maketlar (image_text, text_image) uchun 'photo_query' (INGLIZCHA 2-4 so'z) va 'image_prompt' (INGLIZCHA 1 gap) yoz. photo_query birinchi so'zi taqdimotning asosiy obyekti bo'lsin (masalan warehouse robot conveyor); ko'p ma'noli so'zni yolg'iz yozma. "
-           if with_images else "Rasmli maketlardan foydalanma, 'image_prompt' yozma. ")
+    img = ("Rasmli maketlar (image_text, text_image) uchun 'photo_query' (INGLIZCHA 2-4 so'z) va 'photo_query' (INGLIZCHA 1 gap) yoz. photo_query birinchi so'zi taqdimotning asosiy obyekti bo'lsin (masalan warehouse robot conveyor); ko'p ma'noli so'zni yolg'iz yozma. "
+           if with_images else "Rasmli maketlardan foydalanma, 'photo_query' yozma. ")
     return (
         "Mavzu bo'yicha taqdimot rejasini FAQAT JSON qilib ber.\n"
         f"Mavzu: {topic[:400]}\nSlaydlar soni (sarlavhasiz): {n}\n"
-        "Maketlar: agenda{title,items[4]} (1-slayd), image_text{title,text(40-60 so'z),image_prompt,photo_query}, "
+        "Maketlar: agenda{title,items[4]} (1-slayd), image_text{title,text(40-60 so'z),photo_query,photo_query}, "
         "text_image{...xuddi shu}, cards{title,cards[3x{head,text(20-30 so'z),icon}]}, "
         "chart{title,text,chart_type(donut|bar|line),data[4x{label,value}]}, table{title,text,columns[3],rows[3x3]}, "
         "compare{title,text,left{head,items[3]},right{head,items[3]}}, timeline{title,steps[4x{label,text}]}, "
@@ -8782,7 +8782,7 @@ async def _ppt_generate_and_send(msg, context, topic, n, with_images, author, mo
         outline["author"] = cover.get("name", "")     # Telegram ismi endi avtomatik qo'yilmaydi
         outline["cover"] = cover
         _t1 = time.monotonic()
-        if with_images and any(s.get("image_prompt") or s.get("collage_queries") for s in outline["slides"]):
+        if with_images and any(s.get("photo_query") or s.get("collage_queries") for s in outline["slides"]):
             try:
                 await status.edit_text("🖼 Rasmlar tanlanmoqda (bir necha soniya)...")
             except Exception:
