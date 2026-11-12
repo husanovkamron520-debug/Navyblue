@@ -3300,6 +3300,9 @@ def _sanitize_outline(data, topic: str, n: int, with_images: bool) -> dict:
             palette[key] = value
     motif = _ppt_s(ad.get("motif"), 20).lower()
     transition = _ppt_s(ad.get("transition"), 12).lower()
+    # Reja yetishmagan slaydlar endi mazmundan avtomatik kengaytirilmaydi.
+    # QA metrikasi uchun qiymat aniq 0 qilib beriladi.
+    expanded = 0
     return {"title": _ppt_s(data.get("title") or topic, 100), "subtitle": _ppt_s(data.get("subtitle"), 140),
             "cover_query": _ppt_s(data.get("cover_query"), 80),
             "style": _ppt_s(data.get("style"), 20).lower(),
