@@ -3375,8 +3375,78 @@ def _ppt_proofread_outline(outline):
     return outline
 
 
+def _ppt_expand_missing_slides(outline, topic, requested, with_images, sanitizer):
+    """Gemini yetkazmagan slaydlarni mavzu oqimiga mos, yangi mazmun bilan davom ettiradi."""
+    try:
+        slides = list(outline.get("slides") or [])
+        def is_special(item):
+            return item.get("layout") in ("executive", "agenda", "closing")
+        base_count = sum(1 for item in slides if item.get("layout") != "executive")
+        missing = max(0, min(PPT_MAX_SLIDES, int(requested)) - base_count)
+        if not missing:
+            return outline
+        existing = [item for item in slides if not is_special(item)]
+        context = []
+        for item in existing:
+            body = _ppt_clip(_ppt_slide_text(item), 260)
+            context.append({"title": item.get("title", ""), "key_content": body})
+        added = []
+        for attempt in range(2):
+            remaining = missing - len(added)
+            if remaining <= 0:
+                break
+            prompt = (
+                "Sen professional prezentatsiya muharririsan. Oldingi reja kerakli slaydlar soniga yetmadi. "
+                "Quyidagi taqdimotni aynan davom ettir: FAQAT yetishmayotgan yangi mazmunli slaydlarni yarat. "
+                "Mavjud slaydlarni takrorlama, sarlavhalarni qayta yozma, umumiy gap bilan son to'ldirma. "
+                "Har bir yangi slayd alohida yangi savol, sabab, mexanizm, dalil, taqqoslash, amaliy misol yoki yechimni ochsin. "
+                "Mantiqiy ketma-ketlik va kuchli storytelling saqlansin; har slaydning aniq xulosasi bo'lsin. "
+                "Mavzuga aloqasiz bezak, uydirma fakt, statistik raqam yoki manba qo'shma. "
+                "Raqamli dalil berilmagan bo'lsa, raqam to'qima; sifatli tahlil, jarayon yoki misol ishlat. "
+                "Slaydlar mazmunan to'liq, vizual jihatdan xilma-xil va professional bo'lsin. "
+                "Rasm yaratish prompti yozma; faqat kerak bo'lsa 2-4 inglizcha kalit so'zdan iborat photo_query ber. "
+                f"Til: mavzu tilida. Mavzu: {str(topic)[:500]}\n"
+                f"Kerakli yangi slaydlar soni: {remaining}. JSON slides massivida aynan {remaining + 2} obyekt qaytar: "
+                "birinchi obyekt agenda, oxirgisi closing, ularning orasida aynan kerakli yangi mazmunli slaydlar bo'lsin. "
+                "Mavjud slaydlar mazmuni (takrorlamaslik uchun): "
+                + json.dumps(context, ensure_ascii=False)[:6500]
+                + '\nJSON format: {"slides":[{"layout":"text|image_text|text_image|cards|timeline|compare|chart|table|matrix|hub|funnel|bento|kpi|pyramid|venn|orbit|chain|iceberg|before_after|statement|editorial","title":"aniq sarlavha","text":"mazmunli izoh","photo_query":"2-4 English keywords","story_role":"analysis","story_beat":"keyingi fikrga ko\'prik","notes":""}]}'
+            )
+            try:
+                raw = _json_loads_loose(_ai_generate_text_sync(
+                    prompt, 0.45, min(8500, 1800 + remaining * 650), True, [AI_FALLBACK_MODELS[0]]
+                ))
+                expanded_outline = sanitizer(raw, topic, remaining + 2, with_images)
+                candidates = [
+                    item for item in (expanded_outline.get("slides") or [])
+                    if item.get("layout") not in ("executive", "agenda", "closing")
+                ]
+                seen = {re.sub(r"[^a-z0-9]+", "", str(x.get("title", "")).casefold()) for x in existing + added}
+                for item in candidates:
+                    key = re.sub(r"[^a-z0-9]+", "", str(item.get("title", "")).casefold())
+                    if key and key not in seen and len(added) < missing:
+                        added.append(item)
+                        seen.add(key)
+            except Exception as exc:
+                logger.warning("Yetishmagan slaydlarni davom ettirish xatosi: %s", exc)
+                break
+        if added:
+            closing_index = next((i for i, item in enumerate(slides) if item.get("layout") == "closing"), len(slides))
+            slides[closing_index:closing_index] = added
+            outline["slides"] = slides
+        outline["_expanded"] = len(added)
+        if len(added) < missing:
+            logger.warning("Taqdimot: %s ta slayd yetishmadi, %s ta qo'shimcha slayd yaratildi", missing, len(added))
+        else:
+            logger.info("Taqdimot: yetishmagan %s ta slayd sifatli davom ettirildi", len(added))
+        return outline
+    except Exception:
+        logger.exception("Yetishmagan slaydlarni to'ldirish jarayoni ishlamadi")
+        return outline
+
+
 def _gemini_outline_sync(topic: str, n_slides: int, with_images: bool = True) -> dict:
-    """To'liq prompt -> (xato bo'lsa) zaxira model -> soddalashtirilgan prompt. Kesilgan JSON ham tuzatiladi."""
+    """To'liq prompt -> zaxira prompt; kam slayd kelsa, mazmunli davom ettiradi."""
     if not ai_client:
         raise RuntimeError("GEMINI_API_KEY sozlanmagan")
     last_exc = None
@@ -3386,6 +3456,7 @@ def _gemini_outline_sync(topic: str, n_slides: int, with_images: bool = True) ->
             try:
                 text = _ai_generate_text_sync(build(topic, n_slides, with_images), temp, mx, True, [model])
                 outline = _sanitize_outline(_json_loads_loose(text), topic, n_slides, with_images)
+                outline = _ppt_expand_missing_slides(outline, topic, n_slides, with_images, _sanitize_outline)
                 return _ppt_proofread_outline(outline)
             except Exception as exc:
                 last_exc = exc
@@ -7218,7 +7289,7 @@ def _ppt_outline_prompt_compact_classic(topic: str, n: int, with_images: bool) -
 
 
 def _gemini_outline_sync_classic(topic: str, n_slides: int, with_images: bool = True) -> dict:
-    """To'liq prompt -> (xato bo'lsa) zaxira model -> soddalashtirilgan prompt. Kesilgan JSON ham tuzatiladi."""
+    """Classic rejimda ham kam slaydlar sifatli davom ettiriladi."""
     if not ai_client:
         raise RuntimeError("GEMINI_API_KEY sozlanmagan")
     last_exc = None
@@ -7227,7 +7298,8 @@ def _gemini_outline_sync_classic(topic: str, n_slides: int, with_images: bool = 
         for model in (AI_FALLBACK_MODELS * 3)[:3]:
             try:
                 text = _ai_generate_text_sync(build(topic, n_slides, with_images), temp, mx, True, [model])
-                return _sanitize_outline_classic(_json_loads_loose(text), topic, n_slides, with_images)
+                outline = _sanitize_outline_classic(_json_loads_loose(text), topic, n_slides, with_images)
+                return _ppt_expand_missing_slides(outline, topic, n_slides, with_images, _sanitize_outline_classic)
             except Exception as exc:
                 last_exc = exc
                 logger.warning("Taqdimot rejasi xatosi (%s, %s): %s", build.__name__, model, exc)
