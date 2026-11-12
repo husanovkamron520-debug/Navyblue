@@ -3956,7 +3956,7 @@ _PPT_BAD_TAGS = {
 
 
 def _ppt_find_photo_sync(query: str, anchor: str, used: set):
-    """Pixabay/Pexels'dan slayd uchun foto topadi. 3 bosqich: (1) qattiq moslik, (2) yumshoq moslik,
+    """Pixabay'dan slayd uchun foto topadi. 3 bosqich: (1) qattiq moslik, (2) yumshoq moslik,
     (3) faqat mavzu so'zi bo'yicha eng mashhur foto. Natija bo'lsa HAR DOIM rasm qaytadi (slayd rasmsiz qolmasin)."""
     if not (PIXABAY_API_KEY) or not (query or anchor or "").strip():
         return None
