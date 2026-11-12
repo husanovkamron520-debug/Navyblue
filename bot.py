@@ -3172,6 +3172,9 @@ def _sanitize_outline(data, topic: str, n: int, with_images: bool) -> dict:
         slides.append(out)
     if not slides:
         raise RuntimeError("Reja bo'sh chiqdi")
+    slides = _ppt_dedupe_slides(slides)
+    if not slides:
+        raise RuntimeError("Takroriy slaydlarni filtrlashdan so'ng reja bo'sh qoldi")
     # Hikoya oqimi: 1-slayd agenda, oxirgisi closing. Yetishmasa, mavjud mazmundan
     # reja/xulosa tuziladi; yangi fakt yoki raqam qo'shilmaydi.
     target_count = max(2, min(PPT_MAX_SLIDES, n))
@@ -3215,48 +3218,7 @@ def _sanitize_outline(data, topic: str, n: int, with_images: bool) -> dict:
                       "motion": "fade", "story_role": "conclusion", "design": {"visual_focus": "Asosiy xulosalar", "visual_type": "typography",
                       "composition": "typographic", "hierarchy": {"primary": "conclusion", "secondary": "takeaways", "support": "closing line"},
                       "density": "medium", "motion_reason": "Emphasize final takeaways"}}
-    # Agar AI noto'g'ri/oz slayd qaytarsa, mavjud bo'limlardagi bandlardan mazmuniy
-    # qo'shimcha slaydlar tuzamiz. Ma'lumot yetmasa, yangi fakt emas, muhokama savoli beriladi.
-    expanded = 0
-    content_specs = [x for x in slides if x.get("layout") not in ("agenda", "closing")]
-    candidates = []
-    for spec in content_specs:
-        title0 = _ppt_s(spec.get("title"), 80) or _ppt_s(topic, 80)
-        for card in spec.get("cards", []) if isinstance(spec.get("cards"), list) else []:
-            if isinstance(card, dict):
-                candidates.append((_ppt_s(card.get("head"), 70), _ppt_s(card.get("text"), 260)))
-        for step in spec.get("steps", []) if isinstance(spec.get("steps"), list) else []:
-            if isinstance(step, dict):
-                candidates.append((_ppt_s(step.get("label"), 70), _ppt_s(step.get("text"), 260)))
-        for quad in spec.get("quadrants", []) if isinstance(spec.get("quadrants"), list) else []:
-            if isinstance(quad, dict):
-                candidates.append((_ppt_s(quad.get("head"), 70), _ppt_s(quad.get("text"), 260)))
-        for level in spec.get("levels", []) if isinstance(spec.get("levels"), list) else []:
-            if isinstance(level, dict):
-                candidates.append((_ppt_s(level.get("head"), 70), _ppt_s(level.get("text"), 260)))
-        body = _ppt_s(spec.get("text"), 700)
-        sentences = [x.strip() for x in re.split(r"(?<=[.!?])\s+", body) if len(x.strip()) > 25]
-        for sentence in sentences[1:]:
-            candidates.append((title0, sentence))
-    candidate_i = 0
-    while len(slides) < target_count:
-        if candidate_i < len(candidates):
-            head, body = candidates[candidate_i]
-            candidate_i += 1
-            fill_title = head or f"{content_specs[(expanded) % len(content_specs)].get('title', topic)} — qo'shimcha jihat" if content_specs else "Qo'shimcha tahlil"
-            fill_text = body or f"{fill_title} bo'yicha asosiy mazmunni amaliy vaziyat bilan bog'lab tahlil qiling."
-        else:
-            base_title = (content_specs[(expanded) % len(content_specs)].get("title") if content_specs else topic) or topic
-            fill_title = f"{_ppt_s(base_title, 55)} — muhokama"
-            fill_text = f"«{_ppt_s(base_title, 80)}» bo'limidagi g'oyani amaliyotga tatbiq etish uchun qaysi shartlar va mezonlar muhim?"
-        slides.insert(max(1, len(slides) - 1), {
-            "layout": "text", "title": fill_title[:90], "text": fill_text[:900], "notes": "Avtomatik to'ldirilgan mazmuniy slayd",
-            "motion": "fade", "_auto_expanded": True,
-            "design": {"visual_focus": fill_title[:80], "visual_type": "typography", "composition": "editorial_split",
-                       "hierarchy": {"primary": "title", "secondary": "main explanation", "support": "discussion prompt"},
-                       "density": "medium", "motion_reason": "Readable explanation"}
-        })
-        expanded += 1
+    # Kartochka va bandlarni alohida slaydga ko'chirib, sun'iy takror yaratmaymiz.
     role_sequence = ["context", "problem", "analysis", "mechanism", "evidence", "implication", "solution"]
     content_role_i = 0
     for spec in slides:
