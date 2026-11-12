@@ -105,6 +105,7 @@ _LAYOUT_ROLE = {
     "cards": "taxonomy", "bento": "synthesis", "editorial": "interpretation",
     "statement": "principle", "hero": "opening_question", "image_story": "case_study",
     "collage": "example", "agenda": "context", "closing": "conclusion",
+    "waterfall": "measurement", "swimlane": "workflow", "network": "relationship", "quote": "reflection",
 }
 
 def _fold(value):
