@@ -4431,7 +4431,8 @@ async def _ppt_attach_images(outline: dict, owner_ai: bool = False):
             return None
 
     async def one(sl):
-        got = await stock(sl.get("map_query") or sl.get("photo_query") or sl.get("title"))
+        query = sl.get("map_query") if sl.get("layout") == "map" else (sl.get("photo_query") or sl.get("title"))
+        got = await stock(query)
         if got:
             sl["_img"] = got[0]
             credits.append(f"Rasm: {got[1] or got[2]} / {got[2]}")
