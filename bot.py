@@ -8890,10 +8890,13 @@ async def _ppt_generate_and_send(msg, context, topic, n, with_images, author, mo
     fname = _safe_filename(outline["title"])
     again = InlineKeyboardMarkup([[InlineKeyboardButton("📑 Slayd sonini o'zgartirish", callback_data="ppt:redo")]])
     qa = outline.get("_qa") or {}
+    photo_sources = sorted(source for source in ("Pixabay", "Unsplash", "Openverse")
+                           if any(f"/ {source}" in str(item) for item in (outline.get("_credits") or [])))
     if mode == "common":
         qa = {k: qa[k] for k in ("fixes", "rebuilt") if k in qa}
     caption = (f"📊 {outline['title']} — {len(outline['slides']) + 1} slayd"
-               + ("\n📷 Rasmlar: Pixabay" if outline.get("_credits") else "")
+               + (f"\n📷 Rasmlar: {', '.join(photo_sources)}" if photo_sources else
+                  ("\n📷 Vizual materiallar: mahalliy grafikalar" if outline.get("_img_fallback_count") else ""))
                + (f"\n📚 Adabiyotlar: {len(outline.get('refs') or [])} ta — topshirishdan oldin tekshiring"
                   if outline.get("refs") else "")
                + ("\n🤖 AI rasm: yoqilgan (ega rejimi)" if owner_ai else "")
