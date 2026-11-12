@@ -260,53 +260,84 @@ def render_quote(self, sl):
 
 def render_extended_chart(self, sl, original):
     ct = sl.get("chart_type", "donut")
-    if ct not in ("area", "bar_horizontal"):
+    supplied_series = sl.get("series") or []
+    extended = ct in ("area", "bar_horizontal", "radar", "stacked_bar") or bool(supplied_series)
+    if not extended:
         return original(sl)
     from pptx.chart.data import CategoryChartData
-    from pptx.enum.chart import XL_CHART_TYPE, XL_LABEL_POSITION
+    from pptx.enum.chart import XL_CHART_TYPE, XL_LABEL_POSITION, XL_LEGEND_POSITION
     I, Pt = self.Inches, self.Pt
     s = self.new_slide()
     self.title(s, sl["title"])
     if sl.get("text"):
-        self.text(s, 1.0, 1.75, 11.33, 0.95, sl["text"],
-                  self.fit(sl["text"], 11.2, 0.95, 15, 11), "text", False, "c", "m")
+        self.text(s, 1.0, 1.75, 11.33, 0.72, sl["text"],
+                  self.fit(sl["text"], 11.2, 0.72, 15, 10), "text", False, "c", "m")
     pts = sl["data"]
     cd = CategoryChartData()
     cd.categories = [p["label"] for p in pts]
-    cd.add_series("Ko'rsatkich", [p["value"] for p in pts])
-    kind = XL_CHART_TYPE.AREA if ct == "area" else XL_CHART_TYPE.BAR_CLUSTERED
-    gf = s.shapes.add_chart(kind, I(1.2), I(2.55), I(10.95), I(4.05), cd)
+    series = supplied_series or [{"name": "Ko'rsatkich", "values": [p["value"] for p in pts]}]
+    if ct == "donut" and supplied_series:
+        ct = "bar"
+    for item in series:
+        cd.add_series(item["name"], item["values"])
+    kinds = {
+        "area": XL_CHART_TYPE.AREA,
+        "bar_horizontal": XL_CHART_TYPE.BAR_CLUSTERED,
+        "radar": getattr(XL_CHART_TYPE, "RADAR_MARKERS", XL_CHART_TYPE.RADAR),
+        "stacked_bar": getattr(XL_CHART_TYPE, "COLUMN_STACKED", XL_CHART_TYPE.COLUMN_CLUSTERED),
+        "bar": XL_CHART_TYPE.COLUMN_CLUSTERED,
+        "line": XL_CHART_TYPE.LINE_MARKERS,
+    }
+    kind = kinds.get(ct, XL_CHART_TYPE.COLUMN_CLUSTERED)
+    gf = s.shapes.add_chart(kind, I(1.1), I(2.55), I(11.1), I(4.0), cd)
     ch, plot = gf.chart, gf.chart.plots[0]
     ch.has_title = False
-    ch.has_legend = False
-    ch.font.size = Pt(12)
+    ch.has_legend = len(series) > 1
+    if ch.has_legend:
+        ch.legend.position = XL_LEGEND_POSITION.BOTTOM
+        ch.legend.include_in_layout = False
+        ch.legend.font.size = Pt(10)
+    ch.font.size = Pt(11)
     ch.font.name = self.bf
     ch.font.color.rgb = self.col("text")
     plot.has_data_labels = True
     plot.data_labels.show_value = True
-    plot.data_labels.font.size = Pt(11)
+    plot.data_labels.font.size = Pt(10)
     plot.data_labels.font.bold = True
     plot.data_labels.font.color.rgb = self.col("dark")
-    ser = plot.series[0]
-    if ct == "area":
-        ser.format.fill.solid()
-        ser.format.fill.fore_color.rgb = self.col("b2")
-        ser.format.line.color.rgb = self.col("brown")
-        ser.format.line.width = Pt(2.5)
-    else:
-        plot.gap_width = 55
-        ser.format.fill.solid()
-        ser.format.fill.fore_color.rgb = self.col("b1")
+    palette = self.pal.get("donut") or [self.pal.get("b1"), self.pal.get("b2"), self.pal.get("b3"), self.pal.get("brown")]
+    for i, ser in enumerate(plot.series):
+        color = palette[i % len(palette)]
+        if ct in ("area", "stacked_bar", "bar_horizontal", "bar"):
+            ser.format.fill.solid()
+            ser.format.fill.fore_color.rgb = self.col(color)
+            if ct == "area":
+                ser.format.line.color.rgb = self.col(color)
+                ser.format.line.width = Pt(1.8)
+        else:
+            ser.format.line.color.rgb = self.col(color)
+            ser.format.line.width = Pt(2.5)
+            try:
+                ser.marker.format.fill.solid()
+                ser.marker.format.fill.fore_color.rgb = self.col(color)
+                ser.marker.size = 7
+            except Exception:
+                pass
     try:
+        if ct in ("bar", "bar_horizontal", "stacked_bar"):
+            plot.gap_width = 55
         ch.value_axis.has_major_gridlines = True
         ch.value_axis.major_gridlines.format.line.color.rgb = self.col("soft")
         ch.value_axis.format.line.fill.background()
-        ch.category_axis.tick_labels.font.size = Pt(11)
-        ch.value_axis.tick_labels.font.size = Pt(10)
-        if ct == "area":
+        ch.category_axis.tick_labels.font.size = Pt(10)
+        ch.value_axis.tick_labels.font.size = Pt(9)
+        if ct in ("area", "line"):
             plot.data_labels.position = XL_LABEL_POSITION.ABOVE
     except Exception:
         pass
+    note = sl.get("data_note") or "Namunaviy ma'lumot — haqiqiy statistika sifatida talqin qilmang."
+    self.text(s, 1.0, 6.7, 11.3, 0.28, note,
+              self.fit(note, 11.2, 0.28, 10, 7.5), "brown", False, "r", "m")
     self.notes(s, sl.get("notes"))
 
 
