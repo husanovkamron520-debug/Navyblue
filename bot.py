@@ -3185,8 +3185,6 @@ def _sanitize_outline(data, topic: str, n: int, with_images: bool) -> dict:
     # Hikoya oqimi: 1-slayd agenda, oxirgisi closing. Yetishmasa, mavjud mazmundan
     # reja/xulosa tuziladi; yangi fakt yoki raqam qo'shilmaydi.
     target_count = max(2, min(PPT_MAX_SLIDES, n))
-    if len(slides) == 1:
-        slides.append(copy.deepcopy(slides[0]))
     slides = slides[:target_count]
     role_sequence = ["context", "problem", "analysis", "mechanism", "evidence", "implication", "solution"]
     content_i = 0
@@ -3204,11 +3202,15 @@ def _sanitize_outline(data, topic: str, n: int, with_images: bool) -> dict:
         agenda_items = [x for x in content_titles[:6] if x][:6]
         if len(agenda_items) < 2:
             agenda_items = [slides[0].get("title", topic[:70]), "Asosiy tahlil", "Yakuniy xulosa"]
-        slides[0] = {"layout": "agenda", "title": "Taqdimot rejasi", "items": agenda_items[:6],
-                     "notes": "Taqdimotning asosiy bo'limlari", "motion": "fade", "story_role": "hook",
-                     "design": {"visual_focus": "Taqdimot yo'nalishi", "visual_type": "none",
-                                 "composition": "modular", "hierarchy": {"primary": "title", "secondary": "agenda items", "support": "sequence"},
-                                 "density": "low", "motion_reason": "Clear agenda reveal"}}
+        agenda_slide = {"layout": "agenda", "title": "Taqdimot rejasi", "items": agenda_items[:6],
+                         "notes": "Taqdimotning asosiy bo'limlari", "motion": "fade", "story_role": "hook",
+                         "design": {"visual_focus": "Taqdimot yo'nalishi", "visual_type": "none",
+                                    "composition": "modular", "hierarchy": {"primary": "title", "secondary": "agenda items", "support": "sequence"},
+                                    "density": "low", "motion_reason": "Clear agenda reveal"}}
+        if len(slides) >= 3:
+            slides[0] = agenda_slide
+        else:
+            slides.insert(0, agenda_slide)
     if True:  # mavjud AI xulosasi ham butun taqdimot mazmunidan qayta yig'iladi
         source = [x for x in slides if x.get("layout") not in ("agenda", "closing")]
         # Xulosa butun taqdimotdan: bosh, o'rta va yakuniy bo'limlardan.
@@ -3227,11 +3229,15 @@ def _sanitize_outline(data, topic: str, n: int, with_images: bool) -> dict:
             closing_text = _ppt_s(topic, 240)
         while len(takeaways) < 2:
             takeaways.append({"head": "Yakuniy fikr", "text": closing_text or _ppt_s(topic, 110)})
-        slides[-1] = {"layout": "closing", "title": "Asosiy xulosa", "text": closing_text,
-                      "takeaways": takeaways[-3:], "final": "Savollar va muhokama.", "notes": "Yakuniy xulosa",
-                      "motion": "fade", "story_role": "conclusion", "design": {"visual_focus": "Asosiy xulosalar", "visual_type": "typography",
-                      "composition": "typographic", "hierarchy": {"primary": "conclusion", "secondary": "takeaways", "support": "closing line"},
-                      "density": "medium", "motion_reason": "Emphasize final takeaways"}}
+        closing_slide = {"layout": "closing", "title": "Asosiy xulosa", "text": closing_text,
+                         "takeaways": takeaways[-3:], "final": "Savollar va muhokama.", "notes": "Yakuniy xulosa",
+                         "motion": "fade", "story_role": "conclusion", "design": {"visual_focus": "Asosiy xulosalar", "visual_type": "typography",
+                         "composition": "typographic", "hierarchy": {"primary": "conclusion", "secondary": "takeaways", "support": "closing line"},
+                         "density": "medium", "motion_reason": "Emphasize final takeaways"}}
+        if len(slides) >= 3:
+            slides[-1] = closing_slide
+        else:
+            slides.append(closing_slide)
     # Kartochka va bandlarni alohida slaydga ko'chirib, sun'iy takror yaratmaymiz.
     role_sequence = ["context", "problem", "analysis", "mechanism", "evidence", "implication", "solution"]
     content_role_i = 0
