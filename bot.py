@@ -2740,6 +2740,8 @@ PPT_THEMES = [
 PPT_TITLE_FONT = "Arial"
 # Bepul kalit: pixabay.com/api/docs/  ->  Render Environment'ga PIXABAY_API_KEY sifatida qo'shing.
 PIXABAY_API_KEY = (os.environ.get("PIXABAY_API_KEY") or "").strip()
+# Unsplash Developer API: Render Environment -> UNSPLASH_ACCESS_KEY
+UNSPLASH_ACCESS_KEY = (os.environ.get("UNSPLASH_ACCESS_KEY") or "").strip()
 PPT_BODY_FONT = "Arial"
 
 
@@ -3955,10 +3957,72 @@ _PPT_BAD_TAGS = {
 }
 
 
+def _unsplash_photo_sync(query: str, used: set):
+    """Unsplash API'dan landscape foto topadi; API download-tracking talabini bajaradi."""
+    if not UNSPLASH_ACCESS_KEY or not (query or "").strip():
+        return None
+    import urllib.parse as _urlparse
+    params = _urlparse.urlencode({
+        "query": (query or "").strip()[:120],
+        "orientation": "landscape",
+        "per_page": 30,
+        "content_filter": "high",
+    })
+    api_url = "https://api.unsplash.com/search/photos?" + params
+    req = urllib.request.Request(api_url, headers={
+        "Authorization": "Client-ID " + UNSPLASH_ACCESS_KEY,
+        "Accept-Version": "v1",
+        "User-Agent": "NavybluePresentationBot/1.0",
+    })
+    try:
+        with urllib.request.urlopen(req, timeout=20) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except Exception as exc:
+        logger.warning("Unsplash qidiruv xatosi: %s", exc)
+        return None
+    results = [p for p in (payload.get("results") or []) if p.get("id") and ("us" + str(p.get("id"))) not in used]
+    if not results:
+        logger.info("Unsplash: mos rasm topilmadi (query=%r)", query)
+        return None
+    random.shuffle(results)
+    for photo in results[:8]:
+        try:
+            dl = (photo.get("links") or {}).get("download_location")
+            if dl:
+                track_url = dl + ("&" if "?" in dl else "?") + _urlparse.urlencode({"client_id": UNSPLASH_ACCESS_KEY})
+                track_req = urllib.request.Request(track_url, headers={"Accept-Version": "v1", "User-Agent": "NavybluePresentationBot/1.0"})
+                with urllib.request.urlopen(track_req, timeout=15) as track_resp:
+                    track_resp.read(1024)
+            image_url = ((photo.get("urls") or {}).get("regular") or (photo.get("urls") or {}).get("small"))
+            if not image_url:
+                continue
+            image_req = urllib.request.Request(image_url, headers={"User-Agent": "NavybluePresentationBot/1.0"})
+            with urllib.request.urlopen(image_req, timeout=35) as image_resp:
+                raw = image_resp.read(12 * 1024 * 1024 + 1)
+            if len(raw) > 12 * 1024 * 1024 or not _ppt_valid_image(raw):
+                logger.warning("Unsplash rasmi yaroqsiz yoki juda katta (id=%s)", photo.get("id"))
+                continue
+            used.add("us" + str(photo.get("id")))
+            user = photo.get("user") or {}
+            author = str(user.get("name") or user.get("username") or "Unsplash contributor")
+            profile = (user.get("links") or {}).get("html") or ""
+            page_url = photo.get("links", {}).get("html") or ""
+            credit = author + " / Unsplash"
+            if profile:
+                credit += " (" + profile + ")"
+            if page_url:
+                credit += " — " + page_url
+            logger.info("Unsplash rasm olindi: query=%r id=%s", query, photo.get("id"))
+            return raw, credit, "Unsplash"
+        except Exception as exc:
+            logger.warning("Unsplash rasmni yuklash xatosi (id=%s): %s", photo.get("id"), exc)
+    return None
+
+
 def _ppt_find_photo_sync(query: str, anchor: str, used: set):
     """Pixabay'dan slayd uchun foto topadi. 3 bosqich: (1) qattiq moslik, (2) yumshoq moslik,
     (3) faqat mavzu so'zi bo'yicha eng mashhur foto. Natija bo'lsa HAR DOIM rasm qaytadi (slayd rasmsiz qolmasin)."""
-    if not (PIXABAY_API_KEY) or not (query or anchor or "").strip():
+    if not (PIXABAY_API_KEY or UNSPLASH_ACCESS_KEY) or not (query or anchor or "").strip():
         return None
     an = _kw_stems(anchor)
     qtext = ((query or "") + " " + (anchor or "")).lower()
@@ -3981,7 +4045,8 @@ def _ppt_find_photo_sync(query: str, anchor: str, used: set):
         used.add(pick["id"])
         return raw, str(pick.get("user") or ""), pick["provider"]
 
-    for tier in (1, 2):
+    if PIXABAY_API_KEY:
+      for tier in (1, 2):
         for qy in tries:
             if not qy:
                 continue
@@ -4026,7 +4091,15 @@ def _ppt_find_photo_sync(query: str, anchor: str, used: set):
             got = _download(h)
             if got:
                 return got
-    logger.warning("Stok rasm topilmadi: query=%r anchor=%r", query, anchor)
+    # Pixabay natija bermasa yoki yuklanmasa, Unsplash zaxira manba bo'ladi.
+    if UNSPLASH_ACCESS_KEY:
+        for qy in tries:
+            if not qy:
+                continue
+            got = _unsplash_photo_sync(qy, used)
+            if got:
+                return got
+    logger.warning("Stok rasm topilmadi (Pixabay/Unsplash): query=%r anchor=%r", query, anchor)
     return None
 
 
@@ -4051,7 +4124,7 @@ async def _ppt_attach_images(outline: dict, owner_ai: bool = False):
     _img_gate = asyncio.Semaphore(2)
 
     async def stock(q):
-        if not (PIXABAY_API_KEY):
+        if not (PIXABAY_API_KEY or UNSPLASH_ACCESS_KEY):
             return None
         try:
             return await asyncio.to_thread(_ppt_find_photo_sync, q, anchor, used)
