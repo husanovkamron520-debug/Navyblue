@@ -4,6 +4,7 @@ import json
 import time
 import logging
 import random
+import math
 import contextvars
 import asyncio
 import threading
@@ -2778,7 +2779,8 @@ def _ppt_outline_prompt(topic: str, n: int, with_images: bool) -> str:
         "SPEAKER NOTES: har slaydning notes maydoniga taqdimotchi uchun 2-4 tabiiy gap yoz: slayddagi asosiy fikrni izohla, zarur kontekst yoki hayotiy misol ber, keyingi slaydga tabiiy ko'prik yarat. Slayddagi matnni aynan takrorlama; yangi raqam yoki manbasiz fakt qo'shma. Notes tomoshabinga ko'rinmaydi, PowerPoint Presenter View uchun.\n"
         f"{build_story_guidance(topic, n)}\n"
         "STORYTELLING: qat'iy bitta ketma-ketlikka yopishma; har slaydga mavzuga mos story_role va story_beat yoz. Sarlavhalar konkret bo'lsin, umumiy qolipni takrorlama.\n"
-        "PROFESSIONAL COMPOSITION CATALOG: 36 profil oilasidan mavzuga mosini tanla: editorial_split, asym_grid, full_bleed, modular, timeline, radial, data_focus, comparison, typographic, layered, swiss_column, swiss_modular, editorial_masthead, editorial_pullquote, magazine_spread, split_caption, asymmetric_caption, image_dominant, photo_triptych, photo_diptych, cinematic_panorama, cinematic_frame, brutalist_type, oversized_numeral, metric_wall, data_dashboard, data_waterfall, data_lollipop, data_slopegraph, process_lane, swimlane, isometric_stack, isometric_exploded, radial_network, map_route, typographic_poster. Bir slaydda bitta asosiy fokus; ketma-ket profilni takrorlama.\n"
+        "PROFESSIONAL COMPOSITION CATALOG: 42 profil oilasidan mavzuga mosini tanla: editorial_split, asym_grid, full_bleed, modular, timeline, radial, data_focus, comparison, typographic, layered, swiss_column, swiss_modular, editorial_masthead, editorial_pullquote, magazine_spread, split_caption, asymmetric_caption, image_dominant, photo_triptych, photo_diptych, cinematic_panorama, cinematic_frame, brutalist_type, oversized_numeral, metric_wall, data_dashboard, data_waterfall, data_lollipop, data_slopegraph, process_lane, swimlane, isometric_stack, isometric_exploded, radial_network, map_route, typographic_poster, network_graph, waterfall, quote_stage, editorial_rows, asym_cards. Bir slaydda bitta asosiy fokus; ketma-ket profilni takrorlama.\n"
+        "YANGI VIZUAL TURLAR: waterfall {steps:[4-7 ta {label,value,kind:delta|total}]} — qiymatlar bosqichma-bosqich o'zgarishi va yakuniy jami; swimlane {lanes:[2-4 ta {label,steps:[2-4 ta {label,detail}]}]} — bo'limlar kesimida jarayon; network {nodes:[4-7 ta {label,detail}],links:[{from:index,to:index,label}]} — faqat asoslangan aloqalarni chiz; quote {quote,attribution,context} — faqat tekshiriladigan, manbasi ko'rsatilgan iqtibos. Uydirma iqtibos yoki bog'lanish yasama. Chart chart_type: donut|bar|line|area|bar_horizontal.\n"
         "MAP va ISOMETRIC: geografik ma'lumot aniq bo'lmasa haqiqiy xarita da'vo qilma; 'map' faqat konseptual marshrut sxemasi, 4-6 ta node va ketma-ket bog'lanishlar uchun. 'isometric' 3-5 bosqichli tizim/ta'minot/ishlab chiqarish oqimi uchun.\n"
         "SLIDE DESIGN BLUEPRINT (har bir slaydga alohida): layout bilan birga 'visual_focus' (2-8 so'z), 'visual_type' (photo|diagram|chart|timeline|map|table|typography|cards|matrix|none), 'composition' (36-profile catalog above), 'hierarchy' ({'primary':'asosiy sarlavha/vizual','secondary':'ikkinchi darajali izoh','support':'yordamchi ma'lumot'}), 'density' (low|medium|high), 'motion_reason' (qisqa sabab) maydonlarini qaytar. Bu maydonlar mazmunga mos bo'lsin; xarita yoki aniq geografik ma'lumot bo'lmasa map tanlama; haqiqiy statistika bo'lmasa chartni fakt sifatida ko'rsatma. Har slaydda bitta asosiy vizual fokus bo'lsin.\n"
         f"Mavzu: {topic[:500]}\n"
@@ -2927,6 +2929,7 @@ def _sanitize_outline(data, topic: str, n: int, with_images: bool) -> dict:
             "stats": "chart", "bignumber": "typography", "statement": "typography",
             "editorial": "typography", "agenda": "none", "closing": "typography",
             "map": "map", "isometric": "diagram",
+            "waterfall": "chart", "swimlane": "timeline", "network": "diagram", "quote": "typography",
         }
         layout_composition = {
             "hero": "full_bleed", "image_story": "layered", "collage": "asym_grid",
@@ -2936,6 +2939,7 @@ def _sanitize_outline(data, topic: str, n: int, with_images: bool) -> dict:
             "matrix": "comparison", "hub": "radial", "funnel": "radial",
             "editorial": "editorial_split", "statement": "typographic", "agenda": "modular",
             "closing": "typographic", "map": "map_route", "isometric": "isometric_stack",
+            "waterfall": "data_waterfall", "swimlane": "swimlane", "network": "network_graph", "quote": "quote_stage",
         }
         raw_visual = _ppt_s(s.get("visual_type"), 20).lower()
         raw_composition = _ppt_s(s.get("composition"), 24).lower()
@@ -3079,6 +3083,64 @@ def _sanitize_outline(data, topic: str, n: int, with_images: bool) -> dict:
             if len(tk) < 2:
                 continue
             out.update(text=_ppt_s(s.get("text"), 280), takeaways=tk, final=_ppt_s(s.get("final"), 150))
+        elif lay == "waterfall":
+            steps = []
+            for d in (s.get("steps") or [])[:7]:
+                if not isinstance(d, dict) or not _ppt_s(d.get("label"), 28):
+                    continue
+                try:
+                    value = float(d.get("value"))
+                except (TypeError, ValueError):
+                    continue
+                if not math.isfinite(value):
+                    continue
+                kind = _ppt_s(d.get("kind"), 10).lower()
+                steps.append({"label": _ppt_s(d.get("label"), 28), "value": value,
+                              "kind": kind if kind in ("delta", "total") else "delta"})
+            if len(steps) < 4:
+                continue
+            out.update(steps=steps, text=_ppt_s(s.get("text"), 180))
+        elif lay == "swimlane":
+            lanes = []
+            for lane in (s.get("lanes") or [])[:4]:
+                if not isinstance(lane, dict) or not _ppt_s(lane.get("label"), 28):
+                    continue
+                steps = []
+                for step in (lane.get("steps") or [])[:4]:
+                    if isinstance(step, dict) and _ppt_s(step.get("label"), 28):
+                        steps.append({"label": _ppt_s(step.get("label"), 28),
+                                      "detail": _ppt_s(step.get("detail"), 70)})
+                if len(steps) >= 2:
+                    lanes.append({"label": _ppt_s(lane.get("label"), 28), "steps": steps})
+            if len(lanes) < 2:
+                continue
+            out.update(lanes=lanes)
+        elif lay == "network":
+            nodes = []
+            for node in (s.get("nodes") or [])[:7]:
+                if isinstance(node, dict) and _ppt_s(node.get("label"), 30):
+                    nodes.append({"label": _ppt_s(node.get("label"), 30),
+                                  "detail": _ppt_s(node.get("detail"), 70)})
+            links = []
+            for edge in (s.get("links") or [])[:12]:
+                if not isinstance(edge, dict):
+                    continue
+                try:
+                    a, b = int(edge.get("from")), int(edge.get("to"))
+                except (TypeError, ValueError):
+                    continue
+                if 0 <= a < len(nodes) and 0 <= b < len(nodes) and a != b:
+                    links.append({"from": a, "to": b, "label": _ppt_s(edge.get("label"), 20)})
+            if len(nodes) < 4 or len(links) < 3:
+                continue
+            out.update(nodes=nodes, links=links, text=_ppt_s(s.get("text"), 180))
+        elif lay == "quote":
+            quote = _ppt_s(s.get("quote"), 520)
+            attribution = _ppt_s(s.get("attribution"), 120)
+            if not quote or not attribution:
+                continue
+            out.update(quote=quote, attribution=attribution,
+                       context=_ppt_s(s.get("context"), 180), kicker=_ppt_s(s.get("kicker"), 30))
         elif lay == "chart":
             pts = []
             for d in (s.get("data") or [])[:4]:
@@ -3088,8 +3150,9 @@ def _sanitize_outline(data, topic: str, n: int, with_images: bool) -> dict:
                     pass
             if len(pts) < 3:
                 continue
-            ct = _ppt_s(s.get("chart_type"), 8).lower()
-            out.update(text=_ppt_s(s.get("text"), 400), data=pts, chart_type=ct if ct in ("donut", "bar", "line") else "donut")
+            ct = _ppt_s(s.get("chart_type"), 16).lower()
+            out.update(text=_ppt_s(s.get("text"), 400), data=pts,
+                       chart_type=ct if ct in ("donut", "bar", "line", "area", "bar_horizontal") else "donut")
         elif lay == "table":
             cols = [_ppt_s(c, 40) for c in (s.get("columns") or [])][:4]
             rows = []
@@ -3229,6 +3292,11 @@ def _sanitize_outline(data, topic: str, n: int, with_images: bool) -> dict:
         "cards": ["modular", "asym_grid", "comparison"],
         "banner_cards": ["layered", "modular", "asym_grid"],
         "section": ["typographic", "editorial_split", "modular"],
+        "waterfall": ["data_waterfall", "data_focus", "editorial_split"],
+        "swimlane": ["swimlane", "process_lane", "modular"],
+        "network": ["network_graph", "radial_network", "layered"],
+        "quote": ["quote_stage", "typographic", "editorial_split"],
+        "cards": ["modular", "editorial_split", "asym_grid", "layered", "comparison"],
     }
     composition_repairs = 0
     composition_history = []
@@ -3285,7 +3353,7 @@ def _ppt_outline_prompt_compact(topic: str, n: int, with_images: bool) -> str:
         f"Mavzu: {topic[:400]}\nSlaydlar soni (sarlavhasiz): {n}\n"
         "Maketlar: agenda{title,items[4]} (ixtiyoriy), image_text{title,text(40-60 so'z),photo_query}, "
         "text_image{...xuddi shu}, cards{title,cards[3x{head,text(20-30 so'z),icon}]}, "
-        "chart{title,text,chart_type(donut|bar|line),data[4x{label,value}]}, table{title,text,columns[3],rows[3x3]}, "
+        "chart{title,text,chart_type(donut|bar|line|area|bar_horizontal),data[4x{label,value}]}, waterfall{title,steps[4-7x{label,value,kind}]}, swimlane{title,lanes[2-4x{label,steps[2-4x{label,detail}]}]}, network{title,nodes[4-7x{label,detail}],links[{from,to,label}]}, quote{title,quote,attribution,context}, table{title,text,columns[3],rows[3x3]}, "
         "compare{title,text,left{head,items[3]},right{head,items[3]}}, timeline{title,steps[4x{label,text}]}, "
         "map{title,nodes[4-6x{label,detail}],text}, isometric{title,stages[3-5x{label,text}],text}, "
         "statement{title,text}, bignumber{title,value,label,text}, closing{title,text,takeaways[3x{head,text}],final} (ixtiyoriy yakun).\n"
@@ -3375,7 +3443,7 @@ def _ppt_expand_missing_slides(outline, topic, requested, with_images, sanitizer
                 f"Kerakli yangi kontent slaydlari soni: {remaining}. JSON slides massivida aynan {remaining} ta yangi slayd qaytar. "
                 "Mavjud slaydlar mazmuni (takrorlamaslik uchun): "
                 + json.dumps(context, ensure_ascii=False)[:6500]
-                + '\nJSON format: {"slides":[{"layout":"text|image_text|text_image|cards|timeline|compare|chart|table|matrix|hub|funnel|bento|kpi|pyramid|venn|orbit|chain|iceberg|before_after|statement|editorial","title":"aniq sarlavha","text":"mazmunli izoh","photo_query":"2-4 English keywords","story_role":"analysis","story_beat":"keyingi fikrga ko\'prik","notes":""}]}'
+                + '\nJSON format: {"slides":[{"layout":"text|image_text|text_image|cards|timeline|compare|chart|table|matrix|hub|funnel|bento|kpi|pyramid|venn|orbit|chain|iceberg|before_after|statement|editorial|waterfall|swimlane|network|quote","title":"aniq sarlavha","text":"mazmunli izoh","photo_query":"2-4 English keywords","story_role":"analysis","story_beat":"keyingi fikrga ko\'prik","notes":""}]}'
             )
             try:
                 raw = _json_loads_loose(_ai_generate_text_sync(
@@ -5936,7 +6004,7 @@ class _PptBuilder:
                     composition = getattr(slide, "_jarvis_composition", "modular")
                     if slide_motion in ("fade", "wipe", "zoom"):
                         object_motion = slide_motion
-                    elif has_chart or visual_type in ("chart", "diagram", "timeline", "matrix") or layout_name in ("timeline", "funnel", "matrix", "hub"):
+                    elif has_chart or visual_type in ("chart", "diagram", "timeline", "matrix") or layout_name in ("timeline", "funnel", "matrix", "hub", "waterfall", "swimlane", "network"):
                         object_motion = "wipe"
                     elif has_image or visual_type == "photo" or composition in ("full_bleed", "layered") or layout_name in ("hero", "image_story", "collage"):
                         object_motion = "zoom"
@@ -6043,7 +6111,7 @@ class _PptBuilder:
                     transition_tag = "push"
                 elif layout_name in ("stats", "bignumber", "compare", "matrix", "cards", "banner_cards"):
                     transition_tag = "split"
-                elif design_type in ("chart", "diagram", "timeline", "matrix", "map") or layout_name in ("timeline", "funnel", "matrix", "hub", "chart", "map", "isometric"):
+                elif design_type in ("chart", "diagram", "timeline", "matrix", "map") or layout_name in ("timeline", "funnel", "matrix", "hub", "chart", "map", "isometric", "waterfall", "swimlane", "network"):
                     transition_tag = "wipe"
                 elif story_role == "conclusion":
                     transition_tag = "fade"
@@ -7013,6 +7081,11 @@ def _build_pptx_bytes(outline: dict) -> bytes:
     return _PptBuilder(outline.get("author", ""), outline.get("_theme"), outline.get("_bg"), outline.get("_bg_title")).build(outline)
 
 
+# Native editable visual extensions: installed after the premium builder is defined.
+from ppt_visual_engine import install as _install_ppt_visual_engine
+_install_ppt_visual_engine(_PptBuilder, PPT_LAYOUTS, PPT_COMPOSITIONS)
+
+
 # ============================================================
 # COMMON TAQDIMOT — ESKI (v5-2) USLUB: rasmlar, fon, shakllar, animatsiya avvalgidek.
 # Premium'dan alohida; Premium kodiga tegilmagan.
@@ -7089,7 +7162,9 @@ def _sanitize_outline_classic(data, topic: str, n: int, with_images: bool) -> di
         if not isinstance(s, dict):
             continue
         lay = _ppt_s(s.get("layout"), 20)
-        if lay not in (PPT_LAYOUTS - {"map", "isometric"}):
+        if lay in {"waterfall", "swimlane", "network", "quote"}:
+            lay = "text"
+        if lay not in (PPT_LAYOUTS - {"map", "isometric", "waterfall", "swimlane", "network", "quote"}):
             lay = "text" if s.get("text") else lay
         title = _ppt_s(s.get("title"), 90)
         if not title:
