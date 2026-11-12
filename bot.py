@@ -4299,8 +4299,7 @@ _PPT_STOCK_USED_LOCK = threading.Lock()
 
 
 def _ppt_find_photo_sync(query: str, anchor: str, used: set):
-    """Pixabay'dan slayd uchun foto topadi. 3 bosqich: (1) qattiq moslik, (2) yumshoq moslik,
-    (3) faqat mavzu so'zi bo'yicha eng mashhur foto. Har slaydga takrorlanmagan rasm tanlaydi."""
+    """Pixabay, Unsplash, Openverse va Wikimedia Commons'dan takrorlanmagan vizual qidiradi."""
     if not (query or anchor or "").strip():
         return None
     an = _kw_stems(anchor)
@@ -4408,7 +4407,7 @@ def _ppt_find_photo_sync(query: str, anchor: str, used: set):
 
 
 async def _ppt_attach_images(outline: dict, owner_ai: bool = False):
-    """Faqat Pixabay -> Unsplash -> Openverse manbalaridan foto qidiradi.
+    """Pixabay, Unsplash, Openverse va Wikimedia Commons'dan foto yoki xarita qidiradi.
     Gemini image generation ishlatilmaydi; topilmasa mahalliy vektor vizual qo'llanadi."""
     used, credits = set(), []
     anchor = " ".join(re.findall(r"[A-Za-z]+", str(outline.get("topic_en") or ""))[:4])
