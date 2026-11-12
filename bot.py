@@ -4019,6 +4019,50 @@ def _unsplash_photo_sync(query: str, used: set):
     return None
 
 
+def _openverse_photo_sync(query: str, used: set):
+    """Openverse'dan tijoriy foydalanishga ruxsat etilgan ochiq litsenziyali rasm izlaydi."""
+    if not (query or '').strip():
+        return None
+    import urllib.parse as _urlparse
+    params = _urlparse.urlencode({'q': (query or '').strip()[:180], 'page_size': 20, 'license_type': 'commercial', 'mature': 'false', 'filter_dead': 'true'})
+    api_url = 'https://api.openverse.org/v1/images/?' + params
+    req = urllib.request.Request(api_url, headers={'User-Agent': 'NavybluePresentationBot/1.0', 'Accept': 'application/json'})
+    try:
+        with urllib.request.urlopen(req, timeout=20) as response:
+            payload = json.loads(response.read().decode('utf-8'))
+    except Exception as exc:
+        logger.warning('Openverse qidiruv xatosi: %s', exc)
+        return None
+    results = [x for x in (payload.get('results') or []) if x.get('id') and ('ov' + str(x.get('id'))) not in used]
+    random.shuffle(results)
+    for item in results[:8]:
+        try:
+            image_url = item.get('url') or item.get('thumbnail')
+            if not image_url:
+                continue
+            image_req = urllib.request.Request(image_url, headers={'User-Agent': 'NavybluePresentationBot/1.0'})
+            with urllib.request.urlopen(image_req, timeout=35) as image_resp:
+                raw = image_resp.read(12 * 1024 * 1024 + 1)
+            if len(raw) > 12 * 1024 * 1024 or not _ppt_valid_image(raw):
+                logger.warning('Openverse rasmi yaroqsiz yoki juda katta (id=%s)', item.get('id'))
+                continue
+            used.add('ov' + str(item.get('id')))
+            title = str(item.get('title') or 'Untitled')
+            creator = str(item.get('creator') or 'Unknown creator')
+            license_name = str(item.get('license') or 'license unspecified').upper()
+            license_url = str(item.get('license_url') or '')
+            landing = str(item.get('foreign_landing_url') or item.get('detail_url') or '')
+            credit = '"' + title + '" — ' + creator + '; ' + license_name
+            if license_url:
+                credit += ' (' + license_url + ')'
+            if landing:
+                credit += ' — ' + landing
+            logger.info('Openverse rasm olindi: query=%r id=%s license=%s', query, item.get('id'), license_name)
+            return raw, credit, 'Openverse'
+        except Exception as exc:
+            logger.warning('Openverse rasmni yuklash xatosi (id=%s): %s', item.get('id'), exc)
+    return None
+
 def _ppt_find_photo_sync(query: str, anchor: str, used: set):
     """Pixabay'dan slayd uchun foto topadi. 3 bosqich: (1) qattiq moslik, (2) yumshoq moslik,
     (3) faqat mavzu so'zi bo'yicha eng mashhur foto. Natija bo'lsa HAR DOIM rasm qaytadi (slayd rasmsiz qolmasin)."""
@@ -4099,7 +4143,14 @@ def _ppt_find_photo_sync(query: str, anchor: str, used: set):
             got = _unsplash_photo_sync(qy, used)
             if got:
                 return got
-    logger.warning("Stok rasm topilmadi (Pixabay/Unsplash): query=%r anchor=%r", query, anchor)
+    # 3-manba: Openverse — tijoriy foydalanishga mos ochiq litsenziyali rasmlar.
+    for qy in tries:
+        if not qy:
+            continue
+        got = _openverse_photo_sync(qy, used)
+        if got:
+            return got
+    logger.warning("Stok rasm topilmadi (Pixabay/Unsplash/Openverse): query=%r anchor=%r", query, anchor)
     return None
 
 
@@ -4124,7 +4175,7 @@ async def _ppt_attach_images(outline: dict, owner_ai: bool = False):
     _img_gate = asyncio.Semaphore(2)
 
     async def stock(q):
-        if not (PIXABAY_API_KEY or UNSPLASH_ACCESS_KEY):
+        if not (q or anchor):
             return None
         try:
             return await asyncio.to_thread(_ppt_find_photo_sync, q, anchor, used)
