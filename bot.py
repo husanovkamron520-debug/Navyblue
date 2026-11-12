@@ -27,6 +27,7 @@ from difflib import SequenceMatcher
 from http.server import BaseHTTPRequestHandler, HTTPServer, ThreadingHTTPServer
 import museum
 import supply_chain
+from ppt_media_sources import find_commons_photo
 from ppt_story_engine import STORY_ROLES, build_story_guidance, infer_story_role, story_quality_report, enforce_story_quality
 
 from telegram import (
@@ -2750,6 +2751,31 @@ PIXABAY_API_KEY = (os.environ.get("PIXABAY_API_KEY") or "").strip()
 UNSPLASH_ACCESS_KEY = (os.environ.get("UNSPLASH_ACCESS_KEY") or "").strip()
 PPT_BODY_FONT = "Arial"
 
+# Mavzu kayfiyatiga mos, keng tarqalgan PowerPoint shrift juftliklari.
+# Mavjud temadagi tfont/bfont aniq berilgan bo'lsa, u ustun turadi.
+PPT_FONT_PAIRS = {
+    "neon": ("Bahnschrift", "Arial"),
+    "aurora": ("Aptos Display", "Aptos"),
+    "light": ("Arial", "Arial"),
+    "corporate": ("Aptos Display", "Aptos"),
+    "sunset": ("Georgia", "Arial"),
+    "forest": ("Georgia", "Calibri"),
+    "swiss": ("Arial", "Arial"),
+    "editorial": ("Georgia", "Arial"),
+    "brutal": ("Bahnschrift", "Arial"),
+    "luxury": ("Georgia", "Arial"),
+    "navy": ("Bahnschrift", "Calibri"),
+    "glass": ("Aptos Display", "Arial"),
+    "retro": ("Courier New", "Arial"),
+    "organic": ("Georgia", "Calibri"),
+    "lux_gold": ("Georgia", "Aptos"),
+    "tech_emerald": ("Bahnschrift", "Aptos"),
+    "white_glass": ("Aptos Display", "Aptos"),
+    "coral_energy": ("Trebuchet MS", "Arial"),
+    "royal_violet": ("Aptos Display", "Calibri"),
+    "ruby_rose": ("Georgia", "Aptos"),
+}
+
 
 def _parse_ppt_request(raw: str):
     """'mavzu | 8 slayd' -> (mavzu, 8). Son yozilmasa (mavzu, None)."""
@@ -4362,7 +4388,18 @@ def _ppt_find_photo_sync(query: str, anchor: str, used: set):
         got = _openverse_photo_sync(qy, used)
         if got:
             return got
-    logger.warning("Stok rasm topilmadi (Pixabay/Unsplash/Openverse): query=%r anchor=%r", query, anchor)
+    # 4-manba: Wikimedia Commons — Public Domain, CC0 va attribution litsenziyalari.
+    for qy in tries:
+        if not qy:
+            continue
+        try:
+            got = find_commons_photo(qy, used, _ppt_valid_image)
+        except Exception as exc:
+            logger.warning("Wikimedia Commons fallback xatosi: %s", exc)
+            got = None
+        if got:
+            return got
+    logger.warning("Stok rasm topilmadi (Pixabay/Unsplash/Openverse/Wikimedia Commons): query=%r anchor=%r", query, anchor)
     return None
 
 
@@ -4748,8 +4785,9 @@ class _PptBuilder:
         self.author = author
         self.theme = theme or _ppt_pick_theme()
         self.pal = self.theme
-        self.tf = self.pal.get("tfont", PPT_TITLE_FONT)
-        self.bf = self.pal.get("bfont", PPT_BODY_FONT)
+        _font_pair = PPT_FONT_PAIRS.get(self.pal.get("key"), (PPT_TITLE_FONT, PPT_BODY_FONT))
+        self.tf = self.pal.get("tfont") or _font_pair[0]
+        self.bf = self.pal.get("bfont") or _font_pair[1]
         self.left = self.pal.get("align") == "l"
         self.sec_n = 0
         self.qa_fixes = 0
