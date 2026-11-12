@@ -3348,7 +3348,9 @@ def _ppt_expand_missing_slides(outline, topic, requested, with_images, sanitizer
         context = []
         for item in existing:
             body = _ppt_clip(_ppt_slide_text(item), 260)
-            context.append({"title": item.get("title", ""), "key_content": body})
+            context.append({"title": item.get("title", ""), "key_content": body,
+                            "story_role": item.get("story_role", ""), "story_beat": item.get("story_beat", ""),
+                            "layout": item.get("layout", "")})
         added = []
         for attempt in range(2):
             remaining = missing - len(added)
@@ -3365,6 +3367,8 @@ def _ppt_expand_missing_slides(outline, topic, requested, with_images, sanitizer
                 "Slaydlar mazmunan to'liq, vizual jihatdan xilma-xil va professional bo'lsin. "
                 "Rasm yaratish prompti yozma; faqat kerak bo'lsa 2-4 inglizcha kalit so'zdan iborat photo_query ber. "
                 f"Til: mavzu tilida. Mavzu: {str(topic)[:500]}\n"
+                f"{build_story_guidance(topic, requested)}\n"
+                "Oldingi slaydlarning story_role va story_beat vazifalarini takrorlama; yangi mazmuniy yo'nalish tanla. "
                 f"Kerakli yangi kontent slaydlari soni: {remaining}. JSON slides massivida aynan {remaining} ta yangi slayd qaytar. "
                 "Mavjud slaydlar mazmuni (takrorlamaslik uchun): "
                 + json.dumps(context, ensure_ascii=False)[:6500]
