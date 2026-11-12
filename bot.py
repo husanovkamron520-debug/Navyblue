@@ -2842,7 +2842,7 @@ def _ppt_outline_prompt(topic: str, n: int, with_images: bool) -> str:
 
 def _ppt_s(v, limit):
     """Matnni belgi emas, so'z chegarasida qisqartiradi."""
-    value = re.sub(r"\s+", " ", str(v if v is not None else "")).strip()
+    value = re.sub(r"[ \t]+", " ", str(v if v is not None else "")).strip()
     if len(value) <= limit:
         return value
     cut = value[:max(1, limit - 1)].rsplit(" ", 1)[0].rstrip(",;:-—")
@@ -2873,8 +2873,8 @@ def _ppt_dedupe_slides(slides, threshold=0.82):
     for slide in slides:
         if not isinstance(slide, dict):
             continue
-        title = re.sub(r"[^a-z0-9]+", " ", str(slide.get("title") or "").casefold()).strip()
-        body = re.sub(r"[^a-z0-9]+", " ", _ppt_slide_text(slide).casefold()).strip()
+        title = re.sub(r"[^\w]+", " ", str(slide.get("title") or "").casefold(), flags=re.UNICODE).strip()
+        body = re.sub(r"[^\w]+", " ", _ppt_slide_text(slide).casefold(), flags=re.UNICODE).strip()
         signature = (title + " " + body).strip()
         if not signature:
             continue
@@ -3207,7 +3207,7 @@ def _sanitize_outline(data, topic: str, n: int, with_images: bool) -> dict:
                      "design": {"visual_focus": "Taqdimot yo'nalishi", "visual_type": "none",
                                  "composition": "modular", "hierarchy": {"primary": "title", "secondary": "agenda items", "support": "sequence"},
                                  "density": "low", "motion_reason": "Clear agenda reveal"}}
-    if slides[-1].get("layout") != "closing":
+    if True:  # mavjud AI xulosasi ham butun taqdimot mazmunidan qayta yig'iladi
         source = [x for x in slides if x.get("layout") not in ("agenda", "closing")]
         # Xulosa butun taqdimotdan: bosh, o'rta va yakuniy bo'limlardan.
         summaries = [(item.get("title") or "Asosiy fikr", _ppt_slide_text(item)) for item in source]
