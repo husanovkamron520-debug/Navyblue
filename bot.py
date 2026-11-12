@@ -9871,7 +9871,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (update.message.text or "").strip()
     _is_btn = text in {v for k, v in globals().items() if k.startswith("BTN_") and isinstance(v, str)}
     if _is_btn:
-        for _k in ("_dg_wait", "_src_wait"):
+        for _k in ("_dg_wait", "_src_wait", "_sc_wait"):
             context.user_data.pop(_k, None)
     if text == BTN_SUPPLY:
         await supply_chain.open_supply(update, context)
