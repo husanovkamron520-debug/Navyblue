@@ -2836,7 +2836,49 @@ def _ppt_outline_prompt(topic: str, n: int, with_images: bool) -> str:
 
 
 def _ppt_s(v, limit):
-    return str(v if v is not None else "").strip()[:limit]
+    """Matnni belgi emas, so'z chegarasida qisqartiradi."""
+    value = re.sub(r"\\s+", " ", str(v if v is not None else "")).strip()
+    if len(value) <= limit:
+        return value
+    cut = value[:max(1, limit - 1)].rsplit(" ", 1)[0].rstrip(",;:-—")
+    return (cut + "…") if cut else value.split(" ", 1)[0]
+
+
+def _ppt_slide_text(slide):
+    """Slaydning haqiqiy mazmunini yig'adi."""
+    parts = []
+    for key in ("text", "final", "kicker", "side_note", "pull_quote"):
+        value = slide.get(key)
+        if isinstance(value, str) and value.strip():
+            parts.append(value.strip())
+    for key in ("cards", "steps", "quadrants", "levels", "nodes", "stages", "takeaways", "items", "stats", "kpis", "captions"):
+        values = slide.get(key)
+        if isinstance(values, list):
+            for item in values:
+                if isinstance(item, dict):
+                    parts.extend(str(item.get(k) or "").strip() for k in ("head", "label", "text", "detail", "value") if str(item.get(k) or "").strip())
+                elif isinstance(item, str) and item.strip():
+                    parts.append(item.strip())
+    return re.sub(r"\\s+", " ", " ".join(parts)).strip()
+
+
+def _ppt_dedupe_slides(slides, threshold=0.82):
+    """Mazmuni 82%+ o'xshash slaydlarni olib tashlaydi."""
+    kept, signatures = [], []
+    for slide in slides:
+        if not isinstance(slide, dict):
+            continue
+        title = re.sub(r"[^a-z0-9]+", " ", str(slide.get("title") or "").casefold()).strip()
+        body = re.sub(r"[^a-z0-9]+", " ", _ppt_slide_text(slide).casefold()).strip()
+        signature = (title + " " + body).strip()
+        if not signature:
+            continue
+        if any(SequenceMatcher(None, signature, old).ratio() >= threshold for old in signatures):
+            logger.info("Takroriy slayd olib tashlandi: %s", slide.get("title", "")[:80])
+            continue
+        kept.append(slide)
+        signatures.append(signature)
+    return kept
 
 
 def _sanitize_outline(data, topic: str, n: int, with_images: bool) -> dict:
