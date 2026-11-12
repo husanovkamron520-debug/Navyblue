@@ -3687,8 +3687,7 @@ def _pixabay_video_hits(q, page=1, per_page=15):
 
 def _stock_hits_sync(q: str, kind: str = "photo", page: int = 1, per_page: int = 20, orientation: str = "",
                      min_width: int = 0, relevant: bool = True):
-    """Pexels (kalit bo'lsa) -> Pixabay. Mavzuga aloqasiz natijalar filtrlanadi; mos topilmasa BO'SH ro'yxat qaytadi
-    (tasodifiy begona rasm/video yuborilmaydi). Faqat ikkala manba ham xato bersa xato ko'tariladi."""
+    """Pexels va Pixabay natijalarini birlashtiradi: bir manbada natija bo'lmasa ikkinchisi ham tekshiriladi."""
     words = (q or "").split()
     variants = [" ".join(words)] if len(words) <= 2 else [" ".join(words[:i]) for i in range(len(words), 1, -1)]
     providers = []
@@ -3697,9 +3696,12 @@ def _stock_hits_sync(q: str, kind: str = "photo", page: int = 1, per_page: int =
     if PIXABAY_API_KEY:
         providers.append("pixabay")
     if not providers:
-        raise RuntimeError("PIXABAY_API_KEY sozlanmagan")
+        raise RuntimeError("PIXABAY_API_KEY yoki PEXELS_API_KEY sozlanmagan")
+
+    combined, seen_ids = [], set()
     ok_any, last_exc = False, None
     for prov in providers:
+        provider_hits = []
         for v in variants:
             try:
                 if prov == "pexels":
@@ -3711,15 +3713,19 @@ def _stock_hits_sync(q: str, kind: str = "photo", page: int = 1, per_page: int =
                 ok_any = True
             except Exception as exc:
                 last_exc = exc
-                logger.warning("Stock qidiruv xatosi (%s): %s", prov, exc)
+                logger.warning("Stock qidiruv xatosi (%s, %s): %s", prov, v, exc)
                 break
-            hits = _rel_filter(hits, v, relevant)
-            if hits:
-                return hits
+            for hit in _rel_filter(hits, v, relevant):
+                hid = hit.get("id")
+                if hid not in seen_ids:
+                    seen_ids.add(hid)
+                    provider_hits.append(hit)
+            if len(provider_hits) >= per_page:
+                break
+        combined.extend(provider_hits)
     if not ok_any and last_exc:
         raise last_exc
-    return []
-
+    return combined
 
 def _pxb_download_checked(url: str, limit: int = 48 * 1024 * 1024) -> bytes:
     with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (TelegramBot)"}), timeout=60) as r:
