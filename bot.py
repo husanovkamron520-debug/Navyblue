@@ -5580,30 +5580,67 @@ class _PptBuilder:
         self.notes(s, sl.get("notes"))
 
     def map_diagram(self, sl):
-        """Konseptual marshrut xaritasi: geografik koordinatasiz, tahrirlanadigan vektor sxema."""
-        s = self.new_slide(); self.title(s, sl["title"])
+        """Xarita rasmi mavjud bo'lsa editorial map + marshrut ro'yxati; aks holda konseptual sxema."""
+        s = self.new_slide()
         nodes = sl["nodes"]
-        # Yumshoq yo'nalish chizig'i va stansiyalar — bu geografik xarita emas.
-        x0, x1, y = 1.25, 12.05, 4.0
-        ln = s.shapes.add_connector(1, self.Inches(x0), self.Inches(y), self.Inches(x1), self.Inches(y))
-        ln.line.color.rgb = self.col("soft"); ln.line.width = self.Pt(3)
-        step = (x1 - x0) / max(1, len(nodes) - 1)
-        for i, node in enumerate(nodes):
-            cx = x0 + i * step
-            cy = y + (-0.55 if i % 2 else 0.55)
-            connector = s.shapes.add_connector(1, self.Inches(cx), self.Inches(y), self.Inches(cx), self.Inches(cy))
-            connector.line.color.rgb = self.col("brown" if i == 0 or i == len(nodes)-1 else "soft")
-            connector.line.width = self.Pt(1.8)
-            dot = s.shapes.add_shape(self.SHAPE.OVAL, self.Inches(cx-0.16), self.Inches(y-0.16), self.Inches(0.32), self.Inches(0.32))
-            dot.fill.solid(); dot.fill.fore_color.rgb = self.col("brown" if i in (0, len(nodes)-1) else "b2")
-            dot.line.color.rgb = self.col("white"); dot.line.width = self.Pt(1.2)
-            by = cy - 1.0 if i % 2 else cy + 0.32
-            self.box(s, max(0.65, cx-0.92), by, 1.84, 0.82, fill="card", line="line")
-            self.text(s, max(0.72, cx-0.85), by+0.06, 1.7, 0.30, node["label"], self.fit(node["label"], 1.65, 0.3, 15, 9, 0.58, 1.0), "dark", True, "c", "m", self.tf)
-            if node.get("detail"):
-                self.text(s, max(0.72, cx-0.85), by+0.38, 1.7, 0.36, node["detail"], self.fit(node["detail"], 1.65, 0.34, 10, 8), "text", False, "c", "m")
-        if sl.get("text"):
-            self.text(s, 1.0, 6.35, 11.3, 0.55, sl["text"], self.fit(sl["text"], 11.2, 0.55, 15, 10), "text", False, "c", "m")
+        if sl.get("_img"):
+            self.title(s, sl["title"])
+            self.image_or_placeholder(s, sl, 0.95, 1.85, 7.25, 4.85)
+            self._img_caption(s, sl, 0.98, 6.74, 7.1)
+            self.box(s, 8.48, 1.85, 3.9, 4.85, fill="card", line="line", rounded=True, radius=0.06)
+            self._kicker(s, "MARSHRUT NUQTALARI", 8.78, 2.05)
+            row_h = 4.15 / max(1, len(nodes))
+            for i, node in enumerate(nodes):
+                y = 2.45 + i * row_h
+                if i < len(nodes) - 1:
+                    connector = s.shapes.add_connector(
+                        1, self.Inches(9.02), self.Inches(y + 0.36),
+                        self.Inches(9.02), self.Inches(y + row_h + 0.02)
+                    )
+                    connector.line.color.rgb = self.col("soft")
+                    connector.line.width = self.Pt(1.4)
+                dot = s.shapes.add_shape(
+                    self.SHAPE.OVAL, self.Inches(8.82), self.Inches(y + 0.08),
+                    self.Inches(0.4), self.Inches(0.4)
+                )
+                dot.fill.solid()
+                dot.fill.fore_color.rgb = self.col("brown" if i in (0, len(nodes) - 1) else "b2")
+                dot.line.fill.background()
+                self.text(s, 8.82, y + 0.08, 0.4, 0.4, str(i + 1), 11, "white", True, "c", "m", self.tf)
+                self.text(s, 9.38, y + 0.02, 2.65, 0.36, node["label"],
+                          self.fit(node["label"], 2.55, 0.34, 15, 9, 0.58, 1.0), "dark", True, "l", "m", self.tf)
+                if node.get("detail"):
+                    self.text(s, 9.38, y + 0.39, 2.65, max(0.22, row_h - 0.42), node["detail"],
+                              self.fit(node["detail"], 2.55, max(0.22, row_h - 0.44), 11, 8), "text", False, "l", "t")
+            if sl.get("text"):
+                self.text(s, 1.0, 6.82, 11.3, 0.22, sl["text"],
+                          self.fit(sl["text"], 11.2, 0.22, 10, 7), "text", False, "c", "m")
+        else:
+            self.title(s, sl["title"])
+            # Koordinata yoki tekshirilgan xarita bo'lmasa, faqat konseptual yo'nalish sxemasi.
+            x0, x1, y = 1.25, 12.05, 4.0
+            ln = s.shapes.add_connector(1, self.Inches(x0), self.Inches(y), self.Inches(x1), self.Inches(y))
+            ln.line.color.rgb = self.col("soft")
+            ln.line.width = self.Pt(3)
+            step = (x1 - x0) / max(1, len(nodes) - 1)
+            for i, node in enumerate(nodes):
+                cx = x0 + i * step
+                cy = y + (-0.55 if i % 2 else 0.55)
+                connector = s.shapes.add_connector(1, self.Inches(cx), self.Inches(y), self.Inches(cx), self.Inches(cy))
+                connector.line.color.rgb = self.col("brown" if i == 0 or i == len(nodes)-1 else "soft")
+                connector.line.width = self.Pt(1.8)
+                dot = s.shapes.add_shape(self.SHAPE.OVAL, self.Inches(cx-0.16), self.Inches(y-0.16), self.Inches(0.32), self.Inches(0.32))
+                dot.fill.solid()
+                dot.fill.fore_color.rgb = self.col("brown" if i in (0, len(nodes)-1) else "b2")
+                dot.line.color.rgb = self.col("white")
+                dot.line.width = self.Pt(1.2)
+                by = cy - 1.0 if i % 2 else cy + 0.32
+                self.box(s, max(0.65, cx-0.92), by, 1.84, 0.82, fill="card", line="line")
+                self.text(s, max(0.72, cx-0.85), by+0.06, 1.7, 0.30, node["label"], self.fit(node["label"], 1.65, 0.3, 15, 9, 0.58, 1.0), "dark", True, "c", "m", self.tf)
+                if node.get("detail"):
+                    self.text(s, max(0.72, cx-0.85), by+0.38, 1.7, 0.36, node["detail"], self.fit(node["detail"], 1.65, 0.34, 10, 8), "text", False, "c", "m")
+            if sl.get("text"):
+                self.text(s, 1.0, 6.35, 11.3, 0.55, sl["text"], self.fit(sl["text"], 11.2, 0.55, 15, 10), "text", False, "c", "m")
         self.notes(s, sl.get("notes"))
 
     def isometric(self, sl):
