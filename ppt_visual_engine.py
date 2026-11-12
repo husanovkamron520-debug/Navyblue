@@ -45,7 +45,7 @@ def render_cards_varied(self, sl):
     s = self.new_slide()
     _title(self, s, sl["title"])
     colors = ["b1", "b2", "b3", "brown"]
-    if comp == "editorial_split" and len(cards) >= 3:
+    if comp in {"editorial_split", "editorial_rows"} and len(cards) >= 3:
         # Editorial: one dominant idea + compact evidence rail.
         first = cards[0]
         self.box(s, 1.0, 2.05, 5.0, 4.65, fill="hdr1", line=None, rounded=True, radius=0.06)
@@ -66,7 +66,7 @@ def render_cards_varied(self, sl):
                       self.fit(c["text"], 4.8, max(0.42, row_h - 0.62), 14, 9), "text", False, "l", "t")
             if i < len(rest) - 1:
                 self.box(s, 7.25, y + row_h - 0.06, 4.7, 0.015, fill="line", line=None)
-    elif comp == "asym_grid" and len(cards) >= 3:
+    elif comp in {"asym_grid", "asym_cards"} and len(cards) >= 3:
         # Asymmetric magazine grid: wide lead card, smaller supporting blocks.
         first = cards[0]
         self.box(s, 1.0, 2.05, 6.2, 4.65, fill="card", line="line", rounded=True, radius=0.06)
