@@ -2837,7 +2837,7 @@ def _ppt_outline_prompt(topic: str, n: int, with_images: bool) -> str:
 
 def _ppt_s(v, limit):
     """Matnni belgi emas, so'z chegarasida qisqartiradi."""
-    value = re.sub(r"\\s+", " ", str(v if v is not None else "")).strip()
+    value = re.sub(r"\s+", " ", str(v if v is not None else "")).strip()
     if len(value) <= limit:
         return value
     cut = value[:max(1, limit - 1)].rsplit(" ", 1)[0].rstrip(",;:-—")
@@ -2859,7 +2859,7 @@ def _ppt_slide_text(slide):
                     parts.extend(str(item.get(k) or "").strip() for k in ("head", "label", "text", "detail", "value") if str(item.get(k) or "").strip())
                 elif isinstance(item, str) and item.strip():
                     parts.append(item.strip())
-    return re.sub(r"\\s+", " ", " ".join(parts)).strip()
+    return re.sub(r"\s+", " ", " ".join(parts)).strip()
 
 
 def _ppt_dedupe_slides(slides, threshold=0.82):
