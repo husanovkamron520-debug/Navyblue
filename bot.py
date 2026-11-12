@@ -3327,6 +3327,43 @@ def _ppt_outline_prompt_compact(topic: str, n: int, with_images: bool) -> str:
     )
 
 
+def _ppt_merge_proofread(original, corrected):
+    """Faqat mavjud matnlarni imlo jihatidan tuzatadi; tuzilma va faktlarni o'zgartirmaydi."""
+    if isinstance(original, str):
+        if isinstance(corrected, str) and corrected.strip():
+            candidate = corrected.strip()
+            ratio = SequenceMatcher(None, original.casefold(), candidate.casefold()).ratio()
+            if 0.55 <= ratio <= 1.65:
+                return candidate
+        return original
+    if isinstance(original, dict) and isinstance(corrected, dict):
+        return {key: _ppt_merge_proofread(value, corrected.get(key, value)) for key, value in original.items()}
+    if isinstance(original, list) and isinstance(corrected, list) and len(original) == len(corrected):
+        return [_ppt_merge_proofread(a, b) for a, b in zip(original, corrected)]
+    return original
+
+
+def _ppt_proofread_outline(outline):
+    """Gemini bilan ikkinchi imlo o'tishi; faqat bir xil JSON tuzilmasidagi matnlar qabul qilinadi."""
+    try:
+        payload = json.dumps(outline.get("slides") or [], ensure_ascii=False)
+        prompt = (
+            "Quyidagi taqdimot slaydlaridagi matnlarni faqat imlo, grammatik xato, apostrof va "
+            "so'z o'rtasidan kesilib qolgan joylar bo'yicha tuzat. MA'NO, fakt, raqam, sarlavha mazmuni, "
+            "layout, obyektlar soni va JSON tuzilmasini o'zgartirma. Yangi gap yoki fakt qo'shma. "
+            "Har bir massiv va obyekt soni hamda kalitlari aynan saqlansin. Texnik placeholder matnni "
+            "yaratma. Faqat tuzatilgan JSON massivini qaytar.\n" + payload
+        )
+        result = _json_loads_loose(_ai_generate_text_sync(prompt, 0.1, 7000, True, [AI_FALLBACK_MODELS[0]]))
+        corrected = result.get("slides") if isinstance(result, dict) else result
+        if isinstance(corrected, list) and len(corrected) == len(outline.get("slides") or []):
+            outline["slides"] = _ppt_merge_proofread(outline["slides"], corrected)
+            logger.info("Taqdimot imlo tekshiruvi yakunlandi")
+    except Exception as exc:
+        logger.warning("Taqdimot imlo tekshiruvi o'tkazilmadi: %s", exc)
+    return outline
+
+
 def _gemini_outline_sync(topic: str, n_slides: int, with_images: bool = True) -> dict:
     """To'liq prompt -> (xato bo'lsa) zaxira model -> soddalashtirilgan prompt. Kesilgan JSON ham tuzatiladi."""
     if not ai_client:
@@ -3337,7 +3374,8 @@ def _gemini_outline_sync(topic: str, n_slides: int, with_images: bool = True) ->
         for model in (AI_FALLBACK_MODELS * 3)[:3]:
             try:
                 text = _ai_generate_text_sync(build(topic, n_slides, with_images), temp, mx, True, [model])
-                return _sanitize_outline(_json_loads_loose(text), topic, n_slides, with_images)
+                outline = _sanitize_outline(_json_loads_loose(text), topic, n_slides, with_images)
+                return _ppt_proofread_outline(outline)
             except Exception as exc:
                 last_exc = exc
                 logger.warning("Taqdimot rejasi xatosi (%s, %s): %s", build.__name__, model, exc)
