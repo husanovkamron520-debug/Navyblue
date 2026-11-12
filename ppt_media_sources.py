@@ -3,6 +3,7 @@
 Only accepts public-domain, CC0, and attribution-based Creative Commons assets.
 Every returned asset includes creator, license, and source-page attribution.
 """
+import html
 import json
 import logging
 import re
@@ -26,7 +27,7 @@ def _allowed_license(name):
     if not value or any(term in value for term in ("noncommercial", "non-commercial", "no derivatives", "no-derivatives", "nc", "nd")):
         return False
     return (
-        value in {"cc0", "pdm", "public domain", "public domain mark"}
+        value.startswith(("cc0", "pdm", "public domain"))
         or bool(re.match(r"^cc by(?:-sa)?(?:\s|$)", value))
     )
 
@@ -70,7 +71,7 @@ def find_commons_photo(query, used, valid_image):
             continue
         info = info_list[0]
         mime = str(info.get("mime") or "").lower()
-        if mime not in {"image/jpeg", "image/png", "image/webp"}:
+        if mime not in {"image/jpeg", "image/png"}:
             continue
         metadata = info.get("extmetadata") or {}
         license_name = _metadata_value(metadata, "LicenseShortName")
