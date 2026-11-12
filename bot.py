@@ -2822,12 +2822,17 @@ def _ppt_outline_prompt(topic: str, n: int, with_images: bool) -> str:
         "METAFORA: quruq ma'lumot o'rniga mavzuga mos vizual analogiya tanla (yashirin xarajat -> iceberg, jarayon -> chain/orbit, ierarxiya -> pyramid, kesishma -> venn, taqqoslash -> before_after).\n"
         'DATA SYNTHESIZER: sarlavha va head maydonlarini "aniq ko\'rsatkich + aktsent so\'z + oqibat" formulasida yoz, masalan 95% suv tejamkorligi — yopiq gidroponika orqali. "X juda muhim va rivojlanmoqda" kabi quruq gaplarni yozma. HEADLINE GRAMMAR: bog\'lovchisiz, faqat kalit iboralar va fe\'llar. Raqamlar FAQAT haqiqiy, keng tanilgan yoki manbasi aniq bo\'lsin; ishonching komil bo\'lmasa raqam o\'ylab topma (kuchli sifat iborasi yoz) yoki namunaviy raqamni ~ bilan belgila.\n'
         'JSON ILDIZIGA QO\'SHIMCHA: "executive":{"kpis":[3 ta {"value","label"} — faqat ishonchli raqamlar bo\'lsa],"problem":"1-2 gap","solution":"1-2 gap","goal":"1 gap"}, "stepper":[4 ta qisqa bosqich nomi mavzu tilida, masalan Muammo, Tahlil, Yechim, Natija], "topic_en":"taqdimot mavzusining INGLIZCHA 2-3 so\'zi, asosiy obyekt yoki joy birinchi (masalan warehouse automation)".\n'
+        "- HAR BIR SLAYD NOYOB: oldingi slayd sarlavhasi, asosiy g'oyasi yoki kartasini takrorlama. Bento/cards ichidagi kartalarni alohida slayd qilib qayta bermagin.\n"
+        "- ZAXIRA MATN TAQIQLANADI: 'Asosiy mazmun saqlandi', 'joylashuv avtomatik qayta tiklandi', 'Ushbu bo'limdagi asosiy mazmun' kabi texnik yoki mazmunsiz iboralarni yozma; bo'sh maydonni tashla.\n"
+        "- SO'ZNI KESMA: sarlavha, stepper va karta yozuvlari so'z o'rtasida tugamasin. Stepper 18 belgigacha qisqa bo'lsin. Ro'yxatlar items[] yoki steps[] massivida alohida band bo'lsin.\n"
+        "- XULOSA: butun taqdimotdan 3 muhim xulosani yig'; sarlavhalarni shunchaki qaytarma, dalilsiz raqam yoki statistik da'vo qo'shma.\n"
+        "- IMLO: o'zbekcha lotin yozuvida izchil imlo va apostroflardan foydalan.\n"
         "QOIDALAR:\n"
         "- 1-slayd \"agenda\", oxirgisi \"closing\". Oraliqda kamida 5 xil maket ishlat; har bir slayd mazmuniga mos maketni tanla (jarayon -> timeline, tushuncha xaritasi -> hub, raqam -> bignumber/stats, solishtirish -> compare/matrix, ustuvorlik -> matrix/funnel). Hamma slayd bir xil ko'rinmasin.\n"
         f"{img_rule}"
         "- Til: mavzu qaysi tilda bo'lsa shu tilda (o'zbekcha bo'lsa lotin yozuvida).\n"
         "- Faktlarni o'ylab topma, ishonchsiz aniq raqam/manba yozma. Mantiq: kirish -> asosiy qismlar -> xulosa.\n"
-        + ("- RASM QOIDASI: slaydlarning taxminan uchdan birida rasm bo'lsin (image_text, text_image, banner_cards, hero), faqat mazmunga ANIQ mos bo'lsa; "
+        + ("- RASM QOIDASI: slaydlarning 60-70 foizida mazmunga aniq mos rasm bo'lsin (image_text, text_image, banner_cards, hero), faqat mazmunga ANIQ mos bo'lsa; "
            "Eng yuqori darajada 'cover_query' (INGLIZ tilida 2-4 so'z, muqova foto uchun) yoz.\n" if with_images else "")
         + "\n"
         "- 'style' maydoni: mavzu va auditoriyaga eng mos BITTA uslub kalitini tanla: neon (texnologiya/AI/startap), aurora (innovatsiya), light (universal toza), corporate (biznes/moliya/logistika), sunset (hikoya/marketing), forest (ekologiya/salomatlik), swiss (ilmiy, Swiss tipografiya), editorial (jurnal: tarix/madaniyat/tahlil), brutal (yoshlar/jasur/bahs), luxury (premium/brend), navy (Dark Luxury Navy: to'q ko'k + oltin; biznes/analitika/logistika/moliya), glass (zamonaviy IT/dizayn), retro (futurizm/texno/o'yin), organic (tabiat/ta'lim/psixologiya).\n"
