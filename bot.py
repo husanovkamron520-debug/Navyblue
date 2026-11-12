@@ -4162,9 +4162,13 @@ def _openverse_photo_sync(query: str, used: set):
             logger.warning('Openverse rasmni yuklash xatosi (id=%s): %s', item.get('id'), exc)
     return None
 
+# Bir taqdimot ichida parallel stock qidiruvlari bir xil rasmni tanlab qolmasligi uchun.
+_PPT_STOCK_USED_LOCK = threading.Lock()
+
+
 def _ppt_find_photo_sync(query: str, anchor: str, used: set):
     """Pixabay'dan slayd uchun foto topadi. 3 bosqich: (1) qattiq moslik, (2) yumshoq moslik,
-    (3) faqat mavzu so'zi bo'yicha eng mashhur foto. Natija bo'lsa HAR DOIM rasm qaytadi (slayd rasmsiz qolmasin)."""
+    (3) faqat mavzu so'zi bo'yicha eng mashhur foto. Har slaydga takrorlanmagan rasm tanlaydi."""
     if not (query or anchor or "").strip():
         return None
     an = _kw_stems(anchor)
@@ -4180,12 +4184,19 @@ def _ppt_find_photo_sync(query: str, anchor: str, used: set):
     seen, all_hits = set(), []
 
     def _download(pick):
+        # used umumiy set: asyncio.gather ichidagi bir nechta thread bir paytda
+        # ayni rasmni tanlashi mumkin. ID ni yuklashdan OLDIN atomar band qilamiz.
+        with _PPT_STOCK_USED_LOCK:
+            if pick["id"] in used:
+                return None
+            used.add(pick["id"])
         try:
             raw = _pxb_download(pick["img"], 12 * 1024 * 1024)
         except Exception as exc:
+            with _PPT_STOCK_USED_LOCK:
+                used.discard(pick["id"])
             logger.warning("Rasm yuklab bo'lmadi: %s", exc)
             return None
-        used.add(pick["id"])
         return raw, str(pick.get("user") or ""), pick["provider"]
 
     if PIXABAY_API_KEY:
