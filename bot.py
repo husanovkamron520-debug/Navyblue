@@ -5325,8 +5325,9 @@ class _PptBuilder:
                 ser.marker.format.fill.solid(); ser.marker.format.fill.fore_color.rgb = self.col("dark")
                 ser.marker.size = 9
                 plot.data_labels.position = XL_LABEL_POSITION.ABOVE
-        self.text(s, 1.0, 6.75, 11.33, 0.3, "Ko'rsatkichlar namunaviy (tushuntirish uchun) — haqiqiy statistika emas.",
-                  10, "brown", False, "r", "t", italic=True)
+        chart_note = sl.get("data_note") or "Ko'rsatkichlar namunaviy (tushuntirish uchun) — haqiqiy statistika emas."
+        self.text(s, 1.0, 6.75, 11.33, 0.3, chart_note,
+                  self.fit(chart_note, 11.2, 0.3, 10, 7.5), "brown", False, "r", "t", italic=True)
         self.notes(s, sl.get("notes"))
 
     def table(self, sl):
