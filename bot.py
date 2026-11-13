@@ -34,6 +34,8 @@ from ppt_template_library import choose_design_reference, download_design_refere
 from ppt_semantic_visuals import fantasy_visual_kind, render_fantasy_visual
 from ppt_medical_visuals import cardiovascular_topic, cardiovascular_visual_kind, render_cardiovascular_visual
 from ppt_cloning_visuals import cloning_topic, cloning_visual_kind, render_cloning_visual
+from ppt_remus_lupin_visuals import (remus_lupin_topic, remus_lupin_visual_kind,
+                                     render_remus_lupin_visual, sanitize_remus_lupin_slide)
 from ppt_visual_relevance import metadata_relevant, contextually_irrelevant
 from ppt_visual_qa import visual_integrity_issues, package_qa_blockers, VisualIntegrityError
 
@@ -2819,6 +2821,7 @@ def _ppt_outline_prompt(topic: str, n: int, with_images: bool) -> str:
         "SPEAKER NOTES: har slaydning notes maydoniga taqdimotchi uchun 2-4 tabiiy gap yoz: slayddagi asosiy fikrni izohla, zarur kontekst yoki hayotiy misol ber, keyingi slaydga tabiiy ko'prik yarat. Slayddagi matnni aynan takrorlama; yangi raqam yoki manbasiz fakt qo'shma. Notes tomoshabinga ko'rinmaydi, PowerPoint Presenter View uchun.\n"
         f"{build_story_guidance(topic, n)}\n"
         "STORYTELLING: qat'iy bitta ketma-ketlikka yopishma; har slaydga mavzuga mos story_role va story_beat yoz. Sarlavhalar konkret bo'lsin, umumiy qolipni takrorlama.\n"
+        "BADIY QA: agar mavzu badiiy qahramon yoki fantastik olam bo'lsa, manbasiz foiz, reyting, KPI, 100% fidoyilik, uydirma yil/son yoki soxta statistika yaratma. Qahramon hissasini sahnadagi aniq voqea, qaror va munosabatlar orqali sifat jihatdan tushuntir. Statistikaga o'xshash kartalar faqat tekshiriladigan manba va aniq o'lchov bo'lsa ishlatiladi.\n"
         "SLIDE DENSITY QA: har bir kontent slaydida sarlavhadan tashqari kamida 2 mazmuniy element yoki 35-60 so'zlik izoh bo'lsin. Faqat bo'sh fon + sarlavha qoldirma. Qisqa bo'lim slaydi ham bitta aniq izoh, obyekt yoki vizual dalilga ega bo'lsin.\n"
         "PROFESSIONAL COMPOSITION CATALOG: kengaytirilgan profil katalogidan mavzuga mosini tanla: editorial_split, asym_grid, full_bleed, modular, timeline, radial, data_focus, comparison, typographic, layered, swiss_column, swiss_modular, editorial_masthead, editorial_pullquote, magazine_spread, split_caption, asymmetric_caption, image_dominant, photo_triptych, photo_diptych, cinematic_panorama, cinematic_frame, brutalist_type, oversized_numeral, metric_wall, data_dashboard, data_waterfall, data_lollipop, data_slopegraph, process_lane, swimlane, isometric_stack, isometric_exploded, radial_network, map_route, typographic_poster, network_graph, waterfall, quote_stage, editorial_rows, asym_cards. Bir slaydda bitta asosiy fokus; ketma-ket profilni takrorlama.\n"
         "YANGI VIZUAL TURLAR: waterfall {steps:[4-7 ta {label,value,kind:delta|total}]} — qiymatlar bosqichma-bosqich o'zgarishi va yakuniy jami; swimlane {lanes:[2-4 ta {label,steps:[2-4 ta {label,detail}]}]} — bo'limlar kesimida jarayon; network {nodes:[4-7 ta {label,detail}],links:[{from:index,to:index,label}]} — faqat asoslangan aloqalarni chiz; quote {quote,attribution,source,context} — faqat tekshiriladigan, manbasi ko'rsatilgan iqtibos. Uydirma iqtibos yoki bog'lanish yasama. Chart chart_type: donut|bar|line|area|bar_horizontal|radar|stacked_bar. Multi-series uchun series:[{name,values}] va data_note maydonlarini qo'sh; values uzunligi data kategoriyalari bilan bir xil bo'lsin.\n"
@@ -4549,6 +4552,12 @@ async def _ppt_attach_images(outline: dict, owner_ai: bool = False):
     """Pixabay, Unsplash, Openverse va Wikimedia Commons'dan foto yoki xarita qidiradi.
     Gemini image generation ishlatilmaydi; topilmasa mahalliy vektor vizual qo'llanadi."""
     used, credits = set(), []
+    lupin_subject = " ".join(str(outline.get(k) or "") for k in ("_source_topic", "title", "topic_en"))
+    lupin_topic = remus_lupin_topic(lupin_subject)
+    if lupin_topic:
+        for slide in outline.get("slides", []):
+            if sanitize_remus_lupin_slide(slide):
+                logger.info("Remus Lupin uchun manbasiz KPI/statistika olib tashlandi: %r", slide.get("title"))
     cardio_topic = cardiovascular_topic(outline.get("_source_topic") or outline.get("title") or outline.get("topic_en") or "")
     anchor = "heart cardiovascular system" if cardio_topic else " ".join(re.findall(r"[A-Za-z]+", str(outline.get("topic_en") or ""))[:4])
     if not anchor and not cardio_topic:
@@ -4570,6 +4579,13 @@ async def _ppt_attach_images(outline: dict, owner_ai: bool = False):
             return None
 
     async def one(sl):
+        if lupin_topic:
+            lupin_kind = remus_lupin_visual_kind(lupin_subject, sl.get("title") or "", _ppt_slide_text(sl))
+            sl["_img"] = await asyncio.to_thread(render_remus_lupin_visual, lupin_kind)
+            sl["_visual_kind"] = "remus_lupin_" + lupin_kind
+            credits.append(f"Original Remus Lupin illustratsiyasi: {lupin_kind} / Navyblue")
+            logger.info("Remus Lupin uchun maxsus vizual: title=%r kind=%s", sl.get("title"), lupin_kind)
+            return
         clone_subject = " ".join(str(outline.get(k) or "") for k in ("_source_topic", "title", "topic_en"))
         if cloning_topic(clone_subject):
             clone_kind = cloning_visual_kind(clone_subject, sl.get("title") or "", _ppt_slide_text(sl))
@@ -4624,7 +4640,8 @@ async def _ppt_attach_images(outline: dict, owner_ai: bool = False):
           if sl.get("photo_query") or sl.get("map_query") or sl.get("layout") in ("hero", "image_text", "text_image", "banner_cards", "split", "image_story", "map")
           or fantasy_visual_kind(outline.get("title") or outline.get("topic_en") or "", sl.get("title") or "", _ppt_slide_text(sl))
           or cardio_topic
-          or cloning_topic(" ".join(str(outline.get(k) or "") for k in ("_source_topic", "title", "topic_en")))),
+          or cloning_topic(" ".join(str(outline.get(k) or "") for k in ("_source_topic", "title", "topic_en")))
+          or lupin_topic),
         *(many(sl) for sl in outline.get("slides", []) if sl.get("collage_queries"))
     )
     outline["_credits"] = credits
@@ -4727,6 +4744,10 @@ def _ppt_historical_fallback_visual(sl: dict, outline: dict, variant: int = 0):
 
 def _ppt_fallback_visual(sl: dict, outline: dict, variant: int = 0) -> bytes:
     """Tashqi rasm topilmasa mavzuga mos original vektor vizual yaratadi."""
+    lupin_subject = " ".join(str(outline.get(k) or "") for k in ("_source_topic", "title", "topic_en"))
+    if remus_lupin_topic(lupin_subject):
+        kind = remus_lupin_visual_kind(lupin_subject, sl.get("title") or "", _ppt_slide_text(sl))
+        return render_remus_lupin_visual(kind, variant)
     historical_query = _ppt_historical_visual_query(outline, sl)
     if historical_query:
         return _ppt_historical_fallback_visual(sl, outline, variant)
