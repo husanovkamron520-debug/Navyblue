@@ -68,7 +68,8 @@ def build_photorealistic_query(domain: str, topic: str, title: str, body: str = 
         for terms, query in rules:
             if any(term in text for term in terms):
                 return query
-        return "photorealistic 3D medical render anatomically accurate human heart cardiovascular system"
+        subject = " ".join(x for x in (topic, title) if x).strip()[:140]
+        return f"photorealistic anatomically accurate 3D medical render {subject}".strip()
 
     if domain in {"fiction", "fantasy", "remus", "remus lupin"} or "remus lupin" in text:
         rules = (
@@ -88,7 +89,8 @@ def build_photorealistic_query(domain: str, topic: str, title: str, body: str = 
         for terms, query in rules:
             if any(term in text for term in terms):
                 return query
-        return "cinematic photorealistic mysterious wizard professor portrait gothic castle moody film still"
+        subject = " ".join(x for x in (topic, title) if x).strip()[:140]
+        return f"cinematic photorealistic live action film still {subject} natural dramatic lighting".strip()
 
     # Keep the presentation topic in every generic query; slide titles like
     # "Conclusion" or "Introduction" are not meaningful search subjects alone.
