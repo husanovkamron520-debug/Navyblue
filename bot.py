@@ -3745,6 +3745,8 @@ def _ppt_make_backgrounds_sync(theme: dict, cover_query: str = "", cover_visual_
     if theme.get("file"):
         with open(PPT_BG_PATH, "rb") as f:
             raw = f.read()
+        if cover_visual_kind == "cardiovascular_heart":
+            return raw, render_cardiovascular_visual("heart"), "Navyblue original cardiovascular educational illustration"
         return raw, raw, ""
     used = set()
     main, credit = _bg_make_sync(theme, None, used)
@@ -4444,7 +4446,7 @@ async def _ppt_attach_images(outline: dict, owner_ai: bool = False):
     """Pixabay, Unsplash, Openverse va Wikimedia Commons'dan foto yoki xarita qidiradi.
     Gemini image generation ishlatilmaydi; topilmasa mahalliy vektor vizual qo'llanadi."""
     used, credits = set(), []
-    cardio_topic = cardiovascular_topic(outline.get("title") or outline.get("topic_en") or "")
+    cardio_topic = cardiovascular_topic(outline.get("_source_topic") or outline.get("title") or outline.get("topic_en") or "")
     anchor = " ".join(re.findall(r"[A-Za-z]+", str(outline.get("topic_en") or ""))[:4])
     if not anchor:
         try:
@@ -4613,6 +4615,32 @@ def _ppt_order_images(outline: dict):
             last = lay
 
 
+def _ppt_repair_numeric_ellipsis(outline):
+    """Raqamdan keyin qolib ketgan uch nuqtani tozalaydi; value maydonida nuqtasiz raqam saqlanadi."""
+    changed = 0
+    pattern = re.compile(r"(?<=\d)(?:…|\.{3,})\s*$")
+    def walk(node):
+        nonlocal changed
+        if isinstance(node, dict):
+            for k, value in list(node.items()):
+                if isinstance(value, str):
+                    replacement = "" if k in ("value", "number") else "."
+                    fixed, n = pattern.subn(replacement, value)
+                    if n:
+                        node[k] = fixed
+                        changed += n
+                elif isinstance(value, (dict, list)):
+                    walk(value)
+        elif isinstance(node, list):
+            for value in node:
+                if isinstance(value, (dict, list)):
+                    walk(value)
+    walk(outline)
+    if changed:
+        logger.info("Raqamdan keyingi uzilish belgisi tozalandi: %s", changed)
+    return changed
+
+
 def _ppt_visual_body(sl):
     """Yig'ma mazmun: strukturali slaydni rasmli editorial maketga o'tkazishda ma'lumot yo'qolmasin."""
     parts = []
@@ -4631,17 +4659,17 @@ def _ppt_visual_body(sl):
         elif isinstance(value, (str, int, float)) and str(value).strip():
             parts.append(str(value).strip())
     walk(sl)
-    text = re.sub(r"\\s+", " ", " · ".join(parts)).strip()
+    text = re.sub(r"\s+", " ", " · ".join(parts)).strip()
     if len(text) > 620:
         cut = text[:620]
-        sentence = re.search(r"^(.{120,620}[.!?])(?:\\s|$)", cut)
+        sentence = re.search(r"^(.{120,620}[.!?])(?:\s|$)", cut)
         text = sentence.group(1) if sentence else cut.rsplit(" ", 1)[0].rstrip(" ,;:-") + "."
     return text
 
 
 def _ppt_apply_cardiovascular_visuals(outline: dict) -> int:
     """Heart-topic deck: replace generic stock with custom medical scenes and require visible art."""
-    topic = str(outline.get("title") or outline.get("topic_en") or "")
+    topic = str(outline.get("_source_topic") or outline.get("title") or outline.get("topic_en") or "")
     if not cardiovascular_topic(topic):
         return 0
     slides = [s for s in outline.get("slides", []) if isinstance(s, dict)]
@@ -4650,7 +4678,8 @@ def _ppt_apply_cardiovascular_visuals(outline: dict) -> int:
     # Every content slide gets a scene-specific original illustration; no skull/portrait stock fallback.
     for index, sl in enumerate(slides):
         kind = cardiovascular_visual_kind(topic, sl.get("title") or "", _ppt_slide_text(sl)) or "heart"
-        sl["_img"] = render_cardiovascular_visual(kind, index)
+        if not (_ppt_valid_image(sl.get("_img")) and str(sl.get("_visual_kind") or "").startswith("cardiovascular_")):
+            sl["_img"] = render_cardiovascular_visual(kind, index)
         sl["_visual_kind"] = "cardiovascular_" + kind
     target = max(1, int(math.ceil(len(slides) * 0.65)))
     current = sum(1 for sl in slides if sl.get("layout") in _PPT_IMG_LAYOUTS)
@@ -8250,8 +8279,8 @@ class _PptBuilderClassic:
             if not getattr(shape, "has_text_frame", False):
                 continue
             raw = str(shape.text_frame.text or "")
-            norm = re.sub(r"\\s+", " ", raw).strip().casefold()
-            norm = re.sub(r"[^\\w ]+", "", norm, flags=re.UNICODE).strip()
+            norm = re.sub(r"\s+", " ", raw).strip().casefold()
+            norm = re.sub(r"[^\w ]+", "", norm, flags=re.UNICODE).strip()
             if len(norm) < 42:
                 continue
             if norm in seen:
@@ -9311,6 +9340,8 @@ async def _ppt_generate_and_send(msg, context, topic, n, with_images, author, mo
                 outline = await asyncio.to_thread(_gemini_outline_sync, topic, n, with_images)
         outline["author"] = cover.get("name", "")     # Telegram ismi endi avtomatik qo'yilmaydi
         outline["cover"] = cover
+        outline["_source_topic"] = topic
+        outline["_numeric_ellipsis_repairs"] = _ppt_repair_numeric_ellipsis(outline)
         _t1 = time.monotonic()
         # Tashqi litsenziyalangan dizayn namunasini mavzuga mos tanlaymiz.
         # Bu faqat dizayn/rang referensi: begona matn, logo va rasmlar ko'chirilmaydi.
