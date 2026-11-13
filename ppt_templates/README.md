@@ -9,3 +9,6 @@ Navyblue may fetch design references from [ai-ppt-template/free-ppt-template](ht
 - Downloaded decks are references only. Their original text, logos, photos and topic-specific claims must not be copied into generated decks.
 - A catalog template is **not** assumed to contain Morph. The library inspects the actual PPTX package and marks Morph only when a slide transition contains a Morph element.
 - The current renderer remains the owner of generated slide content and its own Morph transitions. Full slide cloning is intentionally not attempted with python-pptx because unsupported OOXML relationships/extensions may be lost.
+
+
+At generation time, Navyblue selects one topic-matched reference, inspects it, and uses validated accent colors for automatic themes. If fetching or inspection fails, generation falls back to the built-in design system.
