@@ -65,4 +65,4 @@ Generate high-quality, topic-faithful, visually varied and structurally valid de
 
 ## Safety and deployment
 
-Changes are developed on a feature branch and reviewed through a pull request. Secrets and production service settings are not modified by this architecture work. A passing Python test suite is not equivalent to visual acceptance of generated decks; rendered end-to-end checks remain mandatory.
+The current integration commits to the connected main branch; branch protection and mandatory pull-request review are not enabled. The primary Render service is configured for automatic deployment from main, so each pushed commit can trigger a production deploy. Secrets and production environment settings are not modified by this architecture work. A green CI run or successful Render deploy is not equivalent to visual acceptance of generated decks; rendered end-to-end checks remain mandatory.
