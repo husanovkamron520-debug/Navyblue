@@ -29,7 +29,7 @@ import museum
 import supply_chain
 from ppt_media_sources import find_commons_photo
 from ppt_story_engine import STORY_ROLES, build_story_guidance, infer_story_role, story_quality_report, enforce_story_quality
-from ppt_visual_director import build_visual_direction_guidance, apply_visual_direction
+from ppt_visual_director import build_visual_direction_guidance, apply_visual_direction, classify_visual_domain
 from ppt_content_critic import critique_content
 from ppt_asset_manifest import build_asset_manifest
 from pptx_package_qa import inspect_pptx_bytes
@@ -4461,6 +4461,10 @@ def _ppt_find_photo_sync(query: str, anchor: str, used: set, historical: bool = 
                     continue
                 t = (h.get("tags") or "").lower().strip()
                 words = set(re.findall(r"[a-z]+", t))
+                # Pixabay image_type=photo is not sufficient by itself: reject
+                # illustration/cartoon-labelled assets for every subject family.
+                if is_nonphotographic_metadata(t):
+                    continue
                 if contextually_irrelevant(anchor or query, t):
                     continue
                 # Tarixiy tasvirlarda painting/illustration/castle/architecture kabi
@@ -4601,7 +4605,9 @@ async def _ppt_attach_images(outline: dict, owner_ai: bool = False):
         title = str(sl.get("title") or "")
         body = _ppt_slide_text(sl)
         plan = sl.get("_visual_plan") if isinstance(sl.get("_visual_plan"), dict) else {}
-        visual_domain = "fiction" if lupin_topic else ("medical" if cardio_topic else "general")
+        visual_domain = ("fiction" if lupin_topic else
+                         "medical" if cardio_topic else
+                         classify_visual_domain(" ".join(str(outline.get(k) or "") for k in ("_source_topic", "title", "topic_en"))))
 
         if lupin_topic:
             query = build_photorealistic_query("fiction", lupin_subject, title, body)
@@ -4615,9 +4621,20 @@ async def _ppt_attach_images(outline: dict, owner_ai: bool = False):
                 visual_domain = "fiction"
             else:
                 historical_query = _ppt_historical_visual_query(outline, sl)
-                query = (historical_query if historical_query else
-                         (sl.get("map_query") if sl.get("layout") == "map" or plan.get("visual_type") == "map"
-                          else (sl.get("photo_query") or plan.get("asset_query") or title)))
+                is_map_visual = sl.get("layout") == "map" or plan.get("visual_type") == "map"
+                if is_map_visual:
+                    query = sl.get("map_query") or plan.get("asset_query") or title
+                elif historical_query:
+                    # Keep the curated historical subject, but explicitly request a real photograph.
+                    query = historical_query + " photorealistic documentary photograph"
+                else:
+                    # One shared photo-first policy for every non-special topic.
+                    query = build_photorealistic_query(
+                        visual_domain,
+                        outline.get("_source_topic") or outline.get("title") or "",
+                        title,
+                        body,
+                    )
                 got = await stock(query, historical=bool(historical_query))
                 if got:
                     sl["_img"] = got[0]
