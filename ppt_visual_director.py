@@ -158,12 +158,14 @@ def build_visual_manifest(topic, slides):
         if not isinstance(slide, dict):
             continue
         kind, rationale = _visual_kind(slide, topic)
-        variant = counts[kind]
         counts[kind] += 1
         title = str(slide.get("title") or "").strip()
-        # Keep queries short and grounded in the actual slide title and deck topic.
-        query = " ".join(x for x in (title, str(topic or "").strip()) if x)
+        supplied_query = slide.get("map_query") if kind == "map" else slide.get("photo_query")
+        supplied_query = re.sub(r"\s+", " ", str(supplied_query or "")).strip(" ,;")
+        query = supplied_query if len(_fold(supplied_query).split()) >= 2 else " ".join(x for x in (title, str(topic or "").strip()) if x)
         query = re.sub(r"\s+", " ", query).strip()[:180]
+        composition = _choose_composition(kind, topic, slide, index, previous_compositions)
+        previous_compositions.append(composition)
         plan = {
             "slide": index,
             "domain": domain,
