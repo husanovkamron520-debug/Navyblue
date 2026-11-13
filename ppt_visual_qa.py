@@ -35,6 +35,23 @@ def visual_integrity_issues(slides, image_layouts, valid_image):
 
 
 def package_qa_blockers(report):
-    """Only structural failures block delivery; heuristic warnings remain visible diagnostics."""
+    """Block only high-confidence structural/content failures; leave fuzzy fit warnings diagnostic."""
     report = report if isinstance(report, dict) else {}
-    return list(report.get("empty_slides") or [])
+    blockers = ["empty slide: " + str(item) for item in (report.get("empty_slides") or [])]
+    blockers.extend("numeric truncation: " + str(item.get("slide", "unknown"))
+                    for item in (report.get("numeric_truncations") or []) if isinstance(item, dict))
+    blockers.extend("unfinished sentence: " + str(item.get("slide", "unknown"))
+                    for item in (report.get("truncated_text_blocks") or [])
+                    if isinstance(item, dict) and item.get("reason") == "dangling_connector")
+    # Geometry-based estimates vary across PowerPoint renderers; block only extreme overflow.
+    for item in (report.get("text_fit_warnings") or []):
+        if not isinstance(item, dict):
+            continue
+        try:
+            estimated = float(item.get("estimated_height_pt", 0))
+            available = float(item.get("available_height_pt", 0))
+        except (TypeError, ValueError):
+            continue
+        if available > 0 and estimated > available * 1.5:
+            blockers.append("severe text overflow: " + str(item.get("slide", "unknown")))
+    return blockers
