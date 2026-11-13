@@ -35,6 +35,30 @@ def _fold(value):
     return re.sub(r"[^a-z0-9]+", " ", value).strip()
 
 
+_DOMAIN_TERMS = {
+    "medical": ("heart", "cardio", "medical", "medicine", "anatomy", "health", "yurak", "qon tomir", "anatomiya", "tibbiyot", "salomatlik"),
+    "history": ("history", "historical", "empire", "war", "dynasty", "tarix", "imperiya", "urush", "sulola", "sivilizatsiya"),
+    "fiction": ("fiction", "fantasy", "wizard", "magic", "harry potter", "hogwarts", "sehr", "fantastika", "afsona", "qahramon"),
+    "science": ("science", "biology", "chemistry", "physics", "cloning", "cell", "biologiya", "klonlash", "hujayra", "fizika", "kimyo"),
+    "finance": ("budget", "finance", "accounting", "economy", "byudjet", "budjet", "moliya", "buxgalteriya", "iqtisod"),
+    "logistics": ("logistics", "supply chain", "warehouse", "transport", "freight", "logistika", "ta'minot zanjiri", "ombor", "transport"),
+    "geography": ("geography", "map", "region", "country", "geografiya", "xarita", "mintaqa", "mamlakat"),
+    "biography": ("biography", "life of", "person", "biografiya", "hayoti", "shaxs"),
+}
+
+
+def classify_visual_domain(topic):
+    """Classify broad subject family for QA policies, independent of narrative archetype."""
+    folded = _fold(topic)
+    scored = []
+    for domain, terms in _DOMAIN_TERMS.items():
+        score = sum(2 if len(_fold(term).split()) > 1 else 1
+                    for term in terms if _fold(term) and _fold(term) in folded)
+        if score:
+            scored.append((score, domain))
+    return sorted(scored, key=lambda x: (-x[0], x[1]))[0][1] if scored else "general"
+
+
 def _slide_text(slide):
     parts = [slide.get("title", ""), slide.get("text", ""), slide.get("story_beat", "")]
     for key in ("cards", "items", "steps", "nodes", "levels", "takeaways", "stats", "kpis"):
