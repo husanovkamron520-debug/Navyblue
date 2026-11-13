@@ -140,7 +140,7 @@ def build_visual_manifest(topic, slides):
         slide["design"] = design
         if kind == "map" and not slide.get("map_query"):
             slide["map_query"] = query
-        elif plan["requires_external_asset"] and kind == "photo" and not slide.get("photo_query"):
+        elif plan["requires_external_asset"] and not slide.get("photo_query"):
             slide["photo_query"] = query
         manifest.append(plan)
     return {
