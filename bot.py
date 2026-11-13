@@ -33,6 +33,7 @@ from pptx_package_qa import inspect_pptx_bytes
 from ppt_template_library import choose_design_reference, download_design_reference, inspect_pptx as inspect_template_pptx
 from ppt_semantic_visuals import fantasy_visual_kind, render_fantasy_visual
 from ppt_medical_visuals import cardiovascular_topic, cardiovascular_visual_kind, render_cardiovascular_visual
+from ppt_cloning_visuals import cloning_topic, cloning_visual_kind, render_cloning_visual
 
 from telegram import (
     Update,
@@ -4560,6 +4561,14 @@ async def _ppt_attach_images(outline: dict, owner_ai: bool = False):
             return None
 
     async def one(sl):
+        clone_subject = " ".join(str(outline.get(k) or "") for k in ("_source_topic", "title", "topic_en"))
+        if cloning_topic(clone_subject):
+            clone_kind = cloning_visual_kind(clone_subject, sl.get("title") or "", _ppt_slide_text(sl))
+            sl["_img"] = await asyncio.to_thread(render_cloning_visual, clone_kind)
+            sl["_visual_kind"] = "cloning_" + clone_kind
+            credits.append(f"Original biologik klonlash sxemasi: {clone_kind} / Navyblue")
+            logger.info("Klonlash uchun aniq o'quv vizuali ishlatildi: title=%r kind=%s", sl.get("title"), clone_kind)
+            return
         kind = fantasy_visual_kind(outline.get("title") or outline.get("topic_en") or "",
                                    sl.get("title") or "", _ppt_slide_text(sl))
         if kind:
@@ -4605,7 +4614,8 @@ async def _ppt_attach_images(outline: dict, owner_ai: bool = False):
         *(one(sl) for sl in outline.get("slides", [])
           if sl.get("photo_query") or sl.get("map_query") or sl.get("layout") in ("hero", "image_text", "text_image", "banner_cards", "split", "image_story", "map")
           or fantasy_visual_kind(outline.get("title") or outline.get("topic_en") or "", sl.get("title") or "", _ppt_slide_text(sl))
-          or cardio_topic),
+          or cardio_topic
+          or cloning_topic(" ".join(str(outline.get(k) or "") for k in ("_source_topic", "title", "topic_en")))),
         *(many(sl) for sl in outline.get("slides", []) if sl.get("collage_queries"))
     )
     outline["_credits"] = credits
