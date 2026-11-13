@@ -12,16 +12,16 @@ def sample_deck():
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     box = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(8), Inches(1))
     box.text_frame.text = "QA test title"
-    out = io.BytesIO()
+    prs.slides.add_slide(prs.slide_layouts[6])\n    out = io.BytesIO()
     prs.save(out)
     return out.getvalue()
 
 
 class PPTXPackageQATests(unittest.TestCase):
     def test_valid_deck(self):
-        report = inspect_pptx_bytes(sample_deck(), expected_slides=1)
+        report = inspect_pptx_bytes(sample_deck(), expected_slides=2)
         self.assertTrue(report["valid"])
-        self.assertEqual(report["slides"], 1)
+        self.assertEqual(report["slides"], 2)
 
     def test_rejects_invalid_bytes(self):
         with self.assertRaises(PPTXPackageError):
