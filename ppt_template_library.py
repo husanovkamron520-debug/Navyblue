@@ -122,7 +122,8 @@ def _validate_pptx_archive(data: bytes) -> zipfile.ZipFile:
 
 def download_design_reference(item: dict, cache_dir: Path | str = CACHE_DIR) -> Path:
     """Download a catalog PPTX after checking its source, license and archive bounds."""
-    if (str(item.get("license") or "").upper() not in {"CC BY 4.0", "CC-BY-4.0", "CC BY 4.0 (CREATIVE COMMONS)"}\n            or item.get("license_verified_from_source_license") is not True):
+    if (str(item.get("license") or "").upper() not in {"CC BY 4.0", "CC-BY-4.0", "CC BY 4.0 (CREATIVE COMMONS)"}
+            or item.get("license_verified_from_source_license") is not True):
         raise ValueError("A verified CC BY 4.0 license is required")
     url = _safe_url(item.get("pptx_url", ""), ALLOWED_CDN_HOSTS)
     data = _read_url(url, ALLOWED_CDN_HOSTS, MAX_DOWNLOAD_BYTES)
