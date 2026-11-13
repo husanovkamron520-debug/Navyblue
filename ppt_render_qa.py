@@ -127,7 +127,8 @@ def render_and_inspect_pptx(data: bytes, timeout: int = 60, dpi: int = 96, inclu
         pptx_path.write_bytes(bytes(data))
         try:
             result = subprocess.run(
-                [office, "--headless", "--convert-to", "pdf", "--outdir", str(root), str(pptx_path)],
+                [office, f"-env:UserInstallation={(root / 'lo-profile').as_uri()}", "--headless",
+                 "--convert-to", "pdf", "--outdir", str(root), str(pptx_path)],
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout, check=False,
             )
         except subprocess.TimeoutExpired:
