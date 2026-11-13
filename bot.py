@@ -4494,7 +4494,11 @@ def _ppt_find_photo_sync(query: str, anchor: str, used: set, historical: bool = 
             if not qy:
                 continue
             try:
-                got = find_commons_photo(qy, used, _ppt_valid_image)
+                got = find_commons_photo(
+                    qy, used, _ppt_valid_image,
+                    relevance=lambda metadata: metadata_relevant(qy, metadata, minimum=1)
+                    and not contextually_irrelevant(anchor or query, metadata),
+                )
             except Exception as exc:
                 logger.warning("Wikimedia tarixiy qidiruv xatosi: %s", exc)
                 got = None
@@ -4527,7 +4531,11 @@ def _ppt_find_photo_sync(query: str, anchor: str, used: set, historical: bool = 
             if not qy:
                 continue
             try:
-                got = find_commons_photo(qy, used, _ppt_valid_image)
+                got = find_commons_photo(
+                    qy, used, _ppt_valid_image,
+                    relevance=lambda metadata: metadata_relevant(qy, metadata, minimum=1)
+                    and not contextually_irrelevant(anchor or query, metadata),
+                )
             except Exception as exc:
                 logger.warning("Wikimedia Commons fallback xatosi: %s", exc)
                 got = None
