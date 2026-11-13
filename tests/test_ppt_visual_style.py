@@ -35,6 +35,14 @@ class PhotographicStyleTests(unittest.TestCase):
         self.assertIn("biological cell", query)
         self.assertNotIn("human heart", query)
 
+    def test_medical_and_fiction_fallbacks_keep_the_topic(self):
+        medical = build_photorealistic_query("medical", "Diabetes", "Insulin regulation")
+        fiction = build_photorealistic_query("fiction", "The Lord of the Rings", "The Shire")
+        self.assertIn("Diabetes", medical)
+        self.assertIn("Insulin regulation", medical)
+        self.assertIn("The Lord of the Rings", fiction)
+        self.assertIn("The Shire", fiction)
+
     def test_non_special_subjects_all_get_photo_first_queries(self):
         topics = [
             ("history", "Ottoman Empire", "Architecture of Istanbul"),
