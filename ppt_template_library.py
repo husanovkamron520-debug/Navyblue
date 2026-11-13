@@ -33,8 +33,13 @@ _PROFILE_TERMS = {
     "historical_chronicle": {"history", "historical", "heritage", "chronicle", "story"},
     "process_system": {"business", "project", "planning", "process", "strategy", "logistics", "data"},
     "research_evidence": {"academic", "thesis", "research", "data", "charts", "infographic"},
-    "science_and_technology": {"technology", "science", "engineering", "ai", "product"},
-    "educational_method": {"education", "classroom", "lesson", "academic", "learning"},
+    "science_and_technology": {"technology", "science", "engineering", "ai", "product", "software"},
+    "medical_education": {"medical", "health", "clinical", "biology", "anatomy", "medicine", "wellness"},
+    "arts_culture": {"creative", "portfolio", "art", "culture", "design", "editorial", "photography"},
+    "geography_environment": {"nature", "environment", "sustainability", "ecology", "travel", "geography"},
+    "civic_policy": {"government", "policy", "public", "civic", "law", "politics", "community"},
+    "finance_accounting": {"finance", "accounting", "budget", "economics", "investment", "financial"},
+    "educational_method": {"education", "classroom", "lesson", "academic", "learning", "teaching"},
     "concept_explainer": {"general", "minimal", "aesthetic", "education", "infographic"},
 }
 
@@ -98,8 +103,13 @@ def choose_design_reference(topic: str, archetype: str = "concept_explainer",
             ranked.append((score, str(item.get("slug") or item.get("title") or ""), item))
     if not ranked:
         return None
+    # Keep selection stable for the same topic, but rotate among equally strong
+    # references instead of always choosing the alphabetically first template.
     ranked.sort(key=lambda row: (-row[0], row[1]))
-    chosen = dict(ranked[0][2])
+    best_score = ranked[0][0]
+    shortlist = [row for row in ranked if row[0] >= best_score - 1][:12]
+    seed = hashlib.sha256(str(topic).casefold().encode("utf-8")).digest()
+    chosen = dict(shortlist[int.from_bytes(seed[:4], "big") % len(shortlist)][2])
     # The source repository LICENSE explicitly covers every listed PPTX and preview image.
     chosen["license"] = "CC BY 4.0"
     chosen["license_verified_from_source_license"] = True
