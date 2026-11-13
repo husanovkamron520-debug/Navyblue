@@ -6018,7 +6018,7 @@ class _PptBuilder:
             raw = str(shape.text_frame.text or "")
             norm = re.sub(r"\s+", " ", raw).strip().casefold()
             norm = re.sub(r"[^\w ]+", "", norm, flags=re.UNICODE).strip()
-            if len(norm) < 42:
+            if len(norm) < 24:
                 continue
             if norm in seen:
                 try:
@@ -8363,7 +8363,7 @@ class _PptBuilderClassic:
             raw = str(shape.text_frame.text or "")
             norm = re.sub(r"\s+", " ", raw).strip().casefold()
             norm = re.sub(r"[^\w ]+", "", norm, flags=re.UNICODE).strip()
-            if len(norm) < 42:
+            if len(norm) < 24:
                 continue
             if norm in seen:
                 try:
