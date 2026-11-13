@@ -6073,6 +6073,11 @@ class _PptBuilder:
         soft_issue_count = sum(1 for item in self.qa_slide_issues for issue in item.get("issues", [])
                                if issue not in ("xato", "chegaradan chiqdi", "matn sig'madi", "mazmun bo'sh", "mazmun kam"))
         empty_slide_count = sum(1 for item in self.qa_slide_issues if "mazmun bo'sh" in item.get("issues", []))
+        sparse_slide_count = sum(1 for item in self.qa_slide_issues
+                                 if "mazmun kam" in item.get("issues", [])
+                                 or "mazmun kam" in item.get("repair_issues", []))
+        if sparse_slide_count:
+            qa_warnings.append(f"kam mazmunli slaydlar qayta qurildi: {sparse_slide_count}")
         if soft_issue_count:
             qa_warnings.append(f"yumshoq vizual kesishish/qatlam ogohlantirishlari: {soft_issue_count}")
         if self.repaired:
@@ -6090,7 +6095,8 @@ class _PptBuilder:
                           "repeated_focus": repeated_focus, "expanded": outline.get("_expanded", 0),
                           "composition_repairs": outline.get("_composition_repairs", 0),
                           "slide_issues": self.qa_slide_issues, "hard_repairs": self.qa_hard_repairs,
-                          "empty_slides": empty_slide_count, "soft_issue_count": soft_issue_count,
+                          "empty_slides": empty_slide_count, "sparse_slides": sparse_slide_count,
+                          "soft_issue_count": soft_issue_count,
                           "warnings": qa_warnings,
                           "story_order_ok": bool(layouts and layouts[0] == "agenda" and layouts[-1] == "closing"),
                           "slide_count_ok": len(self.prs.slides) == len(slide_specs) + 1}
