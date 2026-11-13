@@ -2,6 +2,10 @@
 from __future__ import annotations
 
 
+class VisualIntegrityError(RuntimeError):
+    """Raised when a required visual slot or serialized slide is structurally empty."""
+
+
 def visual_integrity_issues(slides, image_layouts, valid_image):
     """Return required visual slots that remain empty or contain invalid image bytes."""
     issues = []
