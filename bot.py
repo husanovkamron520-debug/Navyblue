@@ -2811,6 +2811,7 @@ def _ppt_outline_prompt(topic: str, n: int, with_images: bool) -> str:
         "SPEAKER NOTES: har slaydning notes maydoniga taqdimotchi uchun 2-4 tabiiy gap yoz: slayddagi asosiy fikrni izohla, zarur kontekst yoki hayotiy misol ber, keyingi slaydga tabiiy ko'prik yarat. Slayddagi matnni aynan takrorlama; yangi raqam yoki manbasiz fakt qo'shma. Notes tomoshabinga ko'rinmaydi, PowerPoint Presenter View uchun.\n"
         f"{build_story_guidance(topic, n)}\n"
         "STORYTELLING: qat'iy bitta ketma-ketlikka yopishma; har slaydga mavzuga mos story_role va story_beat yoz. Sarlavhalar konkret bo'lsin, umumiy qolipni takrorlama.\n"
+        "SLIDE DENSITY QA: har bir kontent slaydida sarlavhadan tashqari kamida 2 mazmuniy element yoki 35-60 so'zlik izoh bo'lsin. Faqat bo'sh fon + sarlavha qoldirma. Qisqa bo'lim slaydi ham bitta aniq izoh, obyekt yoki vizual dalilga ega bo'lsin.\n"
         "PROFESSIONAL COMPOSITION CATALOG: kengaytirilgan profil katalogidan mavzuga mosini tanla: editorial_split, asym_grid, full_bleed, modular, timeline, radial, data_focus, comparison, typographic, layered, swiss_column, swiss_modular, editorial_masthead, editorial_pullquote, magazine_spread, split_caption, asymmetric_caption, image_dominant, photo_triptych, photo_diptych, cinematic_panorama, cinematic_frame, brutalist_type, oversized_numeral, metric_wall, data_dashboard, data_waterfall, data_lollipop, data_slopegraph, process_lane, swimlane, isometric_stack, isometric_exploded, radial_network, map_route, typographic_poster, network_graph, waterfall, quote_stage, editorial_rows, asym_cards. Bir slaydda bitta asosiy fokus; ketma-ket profilni takrorlama.\n"
         "YANGI VIZUAL TURLAR: waterfall {steps:[4-7 ta {label,value,kind:delta|total}]} — qiymatlar bosqichma-bosqich o'zgarishi va yakuniy jami; swimlane {lanes:[2-4 ta {label,steps:[2-4 ta {label,detail}]}]} — bo'limlar kesimida jarayon; network {nodes:[4-7 ta {label,detail}],links:[{from:index,to:index,label}]} — faqat asoslangan aloqalarni chiz; quote {quote,attribution,source,context} — faqat tekshiriladigan, manbasi ko'rsatilgan iqtibos. Uydirma iqtibos yoki bog'lanish yasama. Chart chart_type: donut|bar|line|area|bar_horizontal|radar|stacked_bar. Multi-series uchun series:[{name,values}] va data_note maydonlarini qo'sh; values uzunligi data kategoriyalari bilan bir xil bo'lsin.\n"
         "MAP va 3D: geografik ma'lumot aniq bo'lmasa haqiqiy xarita da'vo qilma; 'map' faqat tekshirilgan xarita yoki konseptual marshrut sxemasi uchun. 'isometric' 3-5 bosqichli tizim, ombor, ishlab chiqarish, logistika yoki ta'minot oqimida mos bo'lsa tanla; kub shaklli obyektlar, qatlamlar, chuqurlik va izometrik joylashuvdan foydalan. Isometric composition uchun isometric_stack yoki isometric_exploded tanla. 3D ni bezak uchun emas, mazmunni fazoviy tushuntirish uchun ishlat.\n"
@@ -3422,6 +3423,7 @@ def _ppt_outline_prompt_compact(topic: str, n: int, with_images: bool) -> str:
         "Art director sifatida mavzuga mos mustaqil rang palitrasi, mood, motif va o'tish tanla. Rang/shape/foto/kompozitsiya majburiy shablon emas; faqat mazmunga mosini ishlat. Har slaydning layouti turlicha va vizual jihatdan puxta bo'lsin.\n"
         f"{build_story_guidance(topic, n)}\n"
         "STORYTELLING: bitta muammo-yechim qolipini majburlama; har slayd yangi bilim yoki dalil qo'shsin.\n"
+        "SLIDE DENSITY QA: faqat sarlavha va bo'sh fon bo'lmasin; har slaydda kamida 2 mazmuniy element yoki yetarli izoh bo'lsin.\n"
         "Kompozitsiya katalogi 36 profildan tanlanadi; map va isometric maketlaridan konseptual marshrut yoki bosqichli tizim uchun foydalan.\n"
         "HAR BIR SLAYD UCHUN DESIGN BLUEPRINT: har bir slaydning visual_focus, visual_type, composition, hierarchy, density va motion_reason maydonlarini qaytar. Bir slaydda bitta asosiy fokus; chart uchun tekshirilgan yoki namunaviy deb belgilangan raqamlar. Agenda/closing faqat mazmunga mos bo'lsa.\n"
         'FAQAT JSON: {"title":"","subtitle":"","style":"corporate","topic_en":"warehouse automation","story_architecture":"process_system","story_rationale":"...","executive":{"enabled":false},"cover_query":"","art_direction":{"mood":"","palette":{"bg":"071A35","card":"102544","line":"294466","soft":"456080","dark":"FFFFFF","text":"DCE6F2","brown":"D5B36A","tan":"B99A58","b1":"245A91","b2":"D5B36A","b3":"5C9BCB","hdr1":"173D68","hdr2":"8A6A32","row1":"102544","row2":"0B1B30","white":"FFFFFF"},"motif":"none","transition":"fade"},"slides":[{"layout":"","title":"",...,"notes":""}]}'
@@ -5988,7 +5990,7 @@ class _PptBuilder:
                 self.qa_slide_issues.append({"title": sl.get("title", "")[:80], "issues": unique_issues})
                 # Geometrik xato va sig'magan matn — jiddiy; ataylab qatlamlangan dizayndagi
                 # kesishish esa yumshoq ogohlantirish bo'lib, butun slaydni buzib yubormaydi.
-                hard = [x for x in unique_issues if x in ("xato", "chegaradan chiqdi", "matn sig'madi", "mazmun bo'sh")]
+                hard = [x for x in unique_issues if x in ("xato", "chegaradan chiqdi", "matn sig'madi", "mazmun bo'sh", "mazmun kam")]
                 if hard:
                     logger.warning("Avto-tekshiruv: %s slaydi qayta tiklanadi: %s", sl.get("layout"), hard)
                     try:
@@ -6047,7 +6049,7 @@ class _PptBuilder:
         if len(self.prs.slides) != len(slide_specs) + 1:
             qa_warnings.append("slaydlar soni reja bilan mos kelmadi")
         soft_issue_count = sum(1 for item in self.qa_slide_issues for issue in item.get("issues", [])
-                               if issue not in ("xato", "chegaradan chiqdi", "matn sig'madi", "mazmun bo'sh"))
+                               if issue not in ("xato", "chegaradan chiqdi", "matn sig'madi", "mazmun bo'sh", "mazmun kam"))
         empty_slide_count = sum(1 for item in self.qa_slide_issues if "mazmun bo'sh" in item.get("issues", []))
         if soft_issue_count:
             qa_warnings.append(f"yumshoq vizual kesishish/qatlam ogohlantirishlari: {soft_issue_count}")
