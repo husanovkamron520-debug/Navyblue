@@ -3758,30 +3758,27 @@ def _bg_make_sync(theme: dict, strength=None, used=None):
 
 
 def _ppt_make_backgrounds_sync(theme: dict, cover_query: str = "", cover_visual_kind: str | None = None):
-    """Taqdimot uchun ikkita fon: asosiy slaydlar va sarlavha slaydi."""
+    """Create slide backgrounds; all topic covers use retrieved photographic assets, never forced 2D art."""
+    used = set()
     if theme.get("file"):
         with open(PPT_BG_PATH, "rb") as f:
-            raw = f.read()
-        if cover_visual_kind == "cardiovascular_heart":
-            return raw, render_cardiovascular_visual("heart"), "Navyblue original cardiovascular educational illustration"
-        return raw, raw, ""
-    used = set()
-    main, credit = _bg_make_sync(theme, None, used)
-    title, _ = _bg_make_sync(theme, max(0.5, theme.get("wash", 0.8) - 0.18), used)
-    if cover_visual_kind == "hogwarts_castle":
-        title = render_fantasy_visual("hogwarts_castle")
-        credit = credit or "Navyblue original illustration: gothic wizarding castle"
-    elif cover_visual_kind == "cardiovascular_heart":
-        title = render_cardiovascular_visual("heart")
-        credit = credit or "Navyblue original cardiovascular educational illustration"
-    elif (PIXABAY_API_KEY) and (cover_query or "").strip():
+            main = raw = f.read()
+        title = raw
+        credit = ""
+    else:
+        main, credit = _bg_make_sync(theme, None, used)
+        title, _ = _bg_make_sync(theme, max(0.5, theme.get("wash", 0.8) - 0.18), used)
+
+    if (cover_query or "").strip():
         try:
-            got = _pixabay_photo_sync(cover_query, used, min_width=1920)
+            got = _ppt_find_photo_sync(cover_query, cover_query, used, historical=False)
             if got:
                 title = _bg_wash(got[0], theme, 0.62)
                 credit = credit or f"Muqova: {got[1] or got[2]} / {got[2]}"
+            else:
+                logger.info("Muqova uchun mos fotografiya topilmadi; mavzuga aloqasiz 2D tasvir qo'yilmadi: %r", cover_query)
         except Exception as exc:
-            logger.warning("Muqova rasmi olinmadi: %s", exc)
+            logger.warning("Muqova fotografiyasi olinmadi: %s", exc)
     return main, title, credit
 
 
@@ -4559,8 +4556,8 @@ def _ppt_find_photo_sync(query: str, anchor: str, used: set, historical: bool = 
 
 
 async def _ppt_attach_images(outline: dict, owner_ai: bool = False):
-    """Pixabay, Unsplash, Openverse va Wikimedia Commons'dan foto yoki xarita qidiradi.
-    Mos foto topilmasa, slayd editorial/card maketiga o'tadi; multfilm fallback ishlatilmaydi."""
+    """Search photographic assets from Pixabay, Unsplash, Openverse and Wikimedia Commons.
+    No hand-drawn, vector or cartoon fallback is permitted for photo slots."""
     used, credits = set(), []
     lupin_subject = " ".join(str(outline.get(k) or "") for k in ("_source_topic", "title", "topic_en"))
     lupin_topic = remus_lupin_topic(lupin_subject)
@@ -8179,14 +8176,18 @@ class _PptBuilderClassic:
         return pic
 
     def image_or_placeholder(self, slide, sl, x, y, w, h):
-        if sl.get("_img"):
+        raw = sl.get("_img")
+        if _ppt_valid_image(raw):
             try:
-                return self.picture_cover(slide, sl["_img"], x, y, w, h)
+                return self.picture_cover(slide, raw, x, y, w, h)
             except Exception:
                 logger.exception("Rasmni joylashda xato")
-        # rasm bo'lmasa — bezakli blok
+        # No clip-art, vector or cartoon substitute when a real photo is unavailable.
         self.box(slide, x, y, w, h, fill="card", line="line", rounded=False)
-        self.box(slide, x + w * 0.44, y + h * 0.48, w * 0.12, 0.045, fill="brown", line=None, rounded=False)
+        focus = str((sl.get("design") or {}).get("visual_focus") or sl.get("title") or "").strip()
+        if focus:
+            self.text(slide, x + 0.22, y + h * 0.40, w - 0.44, 0.52,
+                      focus[:70], 14, "dark", True, "c", "m")
 
     def icon(self, slide, name, x, y, d, color="white"):
         I = self.Inches
@@ -8974,9 +8975,10 @@ def _ppt_genre_rule(topic):
             "joylar, sirlar va hikoyadagi rolini och. Har slayd bir xil ro'yxat bo'lmasin: mavjudot portreti, "
             "afsonaviy kelib chiqish, sehr/jodu namoyishi, Hogwarts yoki boshqa joy sahnasi, sirli topilma, "
             "qahramonlar bilan munosabat va vizual hikoya kabi turli usullarni tanla. "
-            "Rasm qidiruvlari aynan nomlangan mavjudot yoki buyumga yo'nalsin: masalan 'hippogriff fantasy illustration', "
-            "'fantasy dragon illustration', 'phoenix magical bird illustration', 'house elf fantasy illustration', "
-            "'thestral winged horse illustration', 'basilisk fantasy serpent'. Oddiy fern, butterfly, ray fish, "
+            "Rasm qidiruvlari aynan nomlangan mavjudot yoki buyumga yo'nalsin va fotorealistik kino kadri sifatida tasvirlansin: "
+            "masalan 'cinematic photorealistic hippogriff film still', 'photorealistic fantasy dragon film still', "
+            "'cinematic phoenix magical bird', 'photorealistic thestral winged horse', 'cinematic basilisk serpent'. "
+            "Illustration, cartoon, anime, vector, clipart yoki bolalar kitobi uslubini so'рама. Oddiy fern, butterfly, ray fish, "
             "generic bird yoki tumanli o'rmonni sehrli mavjudot o'rniga qo'yma. "
             "Kanonik fakt bilan talqinni ajrat; bilmagan detallarni to'qima. "
             "Foiz, statistik ko'rsatkich va rasmiy protokol faqat asl manbada mavjud bo'lsa ishlatiladi.\n"
