@@ -14,11 +14,11 @@ except ImportError:
     inspect_pptx_bytes = None
 
 
-def sample_deck():
+def sample_deck(text="QA test title"):
     prs = Presentation()
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     box = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(8), Inches(1))
-    box.text_frame.text = "QA test title"
+    box.text_frame.text = text
     prs.slides.add_slide(prs.slide_layouts[6])
     out = io.BytesIO()
     prs.save(out)
@@ -32,6 +32,28 @@ class PPTXPackageQATests(unittest.TestCase):
         self.assertTrue(report["valid"])
         self.assertEqual(report["slides"], 2)
         self.assertEqual(len(report["empty_slides"]), 1)
+
+    def test_reports_ellipsis_truncation(self):
+        report = inspect_pptx_bytes(
+            sample_deck("Ushbu tarixiy jarayon mamlakatning siyosiy tuzilishiga..."),
+            expected_slides=2,
+        )
+        self.assertTrue(any(x["reason"] == "ellipsis" for x in report["truncated_text_blocks"]))
+        self.assertTrue(any("tugallanmagan jumla" in x for x in report["warnings"]))
+
+    def test_reports_dangling_uzbek_connector(self):
+        report = inspect_pptx_bytes(
+            sample_deck("Bu tizim iqtisodiy va siyosiy jarayonlar bilan"),
+            expected_slides=2,
+        )
+        self.assertTrue(any(x["reason"] == "dangling_connector" for x in report["truncated_text_blocks"]))
+
+    def test_does_not_flag_complete_sentence(self):
+        report = inspect_pptx_bytes(
+            sample_deck("Bu tizim mamlakat taraqqiyotiga sezilarli ta'sir ko'rsatdi."),
+            expected_slides=2,
+        )
+        self.assertEqual(report["truncated_text_blocks"], [])
 
     def test_rejects_invalid_bytes(self):
         with self.assertRaises(PPTXPackageError):
