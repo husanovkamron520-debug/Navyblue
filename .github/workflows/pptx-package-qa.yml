@@ -17,6 +17,6 @@ jobs:
       - name: Install PPTX parser
         run: python -m pip install "python-pptx==1.0.2"
       - name: Compile project modules
-        run: python -m compileall -q bot.py ppt_visual_engine.py ppt_story_engine.py pptx_package_qa.py
-      - name: Run package QA tests
-        run: python -m unittest discover -s tests -p "test_pptx_package_qa.py" -v
+        run: python -m compileall -q bot.py ppt_visual_engine.py ppt_story_engine.py pptx_package_qa.py ppt_template_library.py
+      - name: Run package and template-library tests
+        run: python -m unittest discover -s tests -p "test_*qa.py" -v && python -m unittest discover -s tests -p "test_ppt_template_library.py" -v
