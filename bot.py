@@ -9523,8 +9523,26 @@ def _ppt_template_archetype(topic: str, outline: dict) -> str:
         return "fantasy_fiction"
     if any(x in text for x in ("tarix", "history", "historical", "sivilizatsiya", "imperiya")):
         return "historical_chronicle"
-    if any(x in text for x in ("logistika", "supply chain", "ta'minot zanjiri", "transport", "biznes", "iqtisod")):
+    # Domain-specific profiles must precede broad science/business keyword matches.
+    if any(x in text for x in ("tibbiyot", "tibbiy", "yurak", "qon tomir", "anatomiya",
+                               "kasallik", "sog'liq", "medical", "medicine", "health",
+                               "cardiovascular", "biology", "biologiya", "farmatsiya")):
+        return "medical_education"
+    if any(x in text for x in ("logistika", "supply chain", "ta'minot zanjiri", "transport",
+                               "biznes", "iqtisod", "ombor", "yetkazib berish")):
         return "process_system"
+    if any(x in text for x in ("byudjet", "budjet", "buxgalter", "hisob-kitob", "moliya",
+                               "finance", "accounting", "bank", "investitsiya")):
+        return "finance_accounting"
+    if any(x in text for x in ("ekolog", "tabiat", "iqlim", "atrof-muhit", "geograf",
+                               "environment", "sustainability", "climate", "geography")):
+        return "geography_environment"
+    if any(x in text for x in ("madaniyat", "san'at", "adabiyot", "musiqa", "me'morchilik",
+                               "art", "culture", "architecture", "literature")):
+        return "arts_culture"
+    if any(x in text for x in ("davlat", "huquq", "konstitutsiya", "siyosat", "diplomatiya",
+                               "government", "policy", "law", "politics")):
+        return "civic_policy"
     if any(x in text for x in ("ilm", "science", "texnolog", "technology", "sun'iy intellekt", "ai")):
         return "science_and_technology"
     if any(x in text for x in ("tadqiqot", "research", "ilmiy", "statistika")):
