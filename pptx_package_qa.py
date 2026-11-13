@@ -14,7 +14,7 @@ from pptx import Presentation
 
 MAX_PPTX_BYTES = 45 * 1024 * 1024
 MAX_ZIP_ENTRIES = 4000
-MAX_UNPACKED_BYTES = 220 * 1024 * 1024
+MAX_UNPACKED_BYTES = 120 * 1024 * 1024
 P_NS = "http://schemas.openxmlformats.org/presentationml/2006/main"
 A_NS = "http://schemas.openxmlformats.org/drawingml/2006/main"
 NS = {"p": P_NS, "a": A_NS}
