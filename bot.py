@@ -9019,6 +9019,80 @@ def _gemini_outline_common_sync(topic: str, n_slides: int) -> dict:
     raise last_exc
 
 
+def _ppt_template_archetype(topic: str, outline: dict) -> str:
+    """Mavzu va story-role asosida mos tashqi dizayn kategoriyasini tanlaydi."""
+    text = str(topic or "").casefold()
+    roles = {str(s.get("story_role") or s.get("role") or "").casefold()
+             for s in (outline.get("slides") or []) if isinstance(s, dict)}
+    if roles & {"lore", "creature_profile", "artifact", "ability", "mystery", "legend"} or any(
+        x in text for x in ("harry potter", "hogwarts", "sehr", "magic", "fantasy", "afsona")):
+        return "fantasy_fiction"
+    if any(x in text for x in ("tarix", "history", "historical", "sivilizatsiya", "imperiya")):
+        return "historical_chronicle"
+    if any(x in text for x in ("logistika", "supply chain", "ta'minot zanjiri", "transport", "biznes", "iqtisod")):
+        return "process_system"
+    if any(x in text for x in ("ilm", "science", "texnolog", "technology", "sun'iy intellekt", "ai")):
+        return "science_and_technology"
+    if any(x in text for x in ("tadqiqot", "research", "ilmiy", "statistika")):
+        return "research_evidence"
+    if any(x in text for x in ("dars", "ta'lim", "education", "o'qitish", "metod")):
+        return "educational_method"
+    return "concept_explainer"
+
+
+def _ppt_prepare_template_reference(topic: str, outline: dict) -> dict | None:
+    """CC BY 4.0 katalogidan bitta dizayn namunasini oladi; xato bo'lsa generator davom etadi."""
+    try:
+        archetype = _ppt_template_archetype(topic, outline)
+        item = choose_design_reference(topic, archetype)
+        if not item:
+            return None
+        path = download_design_reference(item)
+        inspection = inspect_template_pptx(path)
+        raw_colors = item.get("colors") or item.get("palette") or []
+        if isinstance(raw_colors, dict):
+            raw_colors = list(raw_colors.values())
+        colors = []
+        for value in raw_colors if isinstance(raw_colors, (list, tuple)) else []:
+            color = str(value or "").strip().lstrip("#").upper()
+            if re.fullmatch(r"[0-9A-F]{6}", color) and color not in colors:
+                colors.append(color)
+        return {
+            "title": str(item.get("title") or item.get("slug") or "Design reference")[:120],
+            "slug": str(item.get("slug") or "")[:100],
+            "archetype": archetype,
+            "colors": colors[:8],
+            "license": "CC BY 4.0",
+            "license_url": "https://creativecommons.org/licenses/by/4.0/",
+            "source": "https://github.com/ai-ppt-template/free-ppt-template",
+            "attribution": "Template design reference by ppttemplate.ai (CC BY 4.0); adapted for Navyblue.",
+            "inspection": inspection,
+        }
+    except Exception as exc:
+        logger.warning("Tashqi PPT template tanlanmadi; ichki dizayn ishlatiladi: %s", exc)
+        return None
+
+
+def _ppt_apply_template_palette(theme: dict, reference: dict | None) -> dict:
+    """Tashqi namunaning faqat rang aksentlarini oladi; matn va rasmlarni ko'chirmaydi."""
+    if not reference:
+        return theme
+    colors = reference.get("colors") or []
+    if len(colors) < 2:
+        return theme
+    palette = {}
+    for key, color in zip(("b1", "b2", "b3", "brown", "tan"), colors):
+        if re.fullmatch(r"[0-9A-F]{6}", str(color)):
+            palette[key] = color
+    if not palette:
+        return theme
+    old_label = theme.get("label", "Adaptive")
+    updated = _ppt_apply_art_direction(theme, {"palette": palette, "mood": "licensed-template-reference"})
+    updated["label"] = f"{old_label} + Template"
+    updated["template_reference"] = reference.get("slug") or reference.get("title")
+    return _ppt_fix_contrast(updated)
+
+
 async def _ppt_generate_and_send(msg, context, topic, n, with_images, author, mode=None):
     mode = mode or context.user_data.get("_ppt_mode", "premium")
     mode = "common" if mode == "common" else "premium"
@@ -9045,6 +9119,14 @@ async def _ppt_generate_and_send(msg, context, topic, n, with_images, author, mo
         outline["author"] = cover.get("name", "")     # Telegram ismi endi avtomatik qo'yilmaydi
         outline["cover"] = cover
         _t1 = time.monotonic()
+        # Tashqi litsenziyalangan dizayn namunasini mavzuga mos tanlaymiz.
+        # Bu faqat dizayn/rang referensi: begona matn, logo va rasmlar ko'chirilmaydi.
+        template_reference = await asyncio.to_thread(_ppt_prepare_template_reference, topic, outline)
+        if template_reference:
+            outline["_template_reference"] = template_reference
+            logger.info("PPT template reference: %s | %s | Morph source=%s",
+                        template_reference.get("title"), template_reference.get("archetype"),
+                        template_reference.get("inspection", {}).get("has_morph", False))
         # Fon tayyorlash rasm qidiruvidan mustaqil: ikkalasini parallel boshlaymiz.
         theme_choice = context.user_data.get("_ppt_theme", "auto")
         theme = _ppt_pick_theme(theme_choice, outline.get("style"),
@@ -9056,6 +9138,8 @@ async def _ppt_generate_and_send(msg, context, topic, n, with_images, author, mo
                 theme = _ppt_pick_theme(_mood_key)
         if theme_choice in (None, "auto", "random") and not _mood_key:
             theme = _ppt_apply_art_direction(theme, outline.get("art_direction", {}))
+        if theme_choice in (None, "auto", "random"):
+            theme = _ppt_apply_template_palette(theme, template_reference)
         theme = _ppt_fix_contrast(theme)
         context.user_data["_ppt_last_theme"] = theme.get("key", theme.get("name", "adaptive"))
         bg_task = asyncio.create_task(asyncio.to_thread(
