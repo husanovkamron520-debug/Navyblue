@@ -55,6 +55,22 @@ class PPTXPackageQATests(unittest.TestCase):
         )
         self.assertEqual(report["truncated_text_blocks"], [])
 
+    def test_reports_likely_text_box_overflow(self):
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        box = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(2), Inches(0.25))
+        paragraph = box.text_frame.paragraphs[0]
+        run = paragraph.add_run()
+        run.text = "Juda uzun matn " * 18
+        from pptx.util import Pt
+        run.font.size = Pt(36)
+        prs.slides.add_slide(prs.slide_layouts[6])
+        out = io.BytesIO()
+        prs.save(out)
+        report = inspect_pptx_bytes(out.getvalue(), expected_slides=2)
+        self.assertTrue(report["text_fit_warnings"])
+        self.assertTrue(any("matn qutisida" in warning for warning in report["warnings"]))
+
     def test_rejects_invalid_bytes(self):
         with self.assertRaises(PPTXPackageError):
             inspect_pptx_bytes(b"not a pptx")
