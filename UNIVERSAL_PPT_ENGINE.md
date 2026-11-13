@@ -66,3 +66,8 @@ Generate high-quality, topic-faithful, visually varied and structurally valid de
 ## Safety and deployment
 
 Changes are developed on a feature branch and reviewed through a pull request. Secrets and production service settings are not modified by this architecture work. A passing Python test suite is not equivalent to visual acceptance of generated decks; rendered end-to-end checks remain mandatory.
+
+
+## Rendered-slide QA
+
+`ppt_render_qa.py` optionally renders the serialized PPTX through LibreOffice and Poppler (or PyMuPDF), then checks the resulting slide images for blank pages, very low visual signal and exact duplicate renders. If a local renderer is not installed, the stage is explicitly marked `skipped`; it is not reported as a visual pass. Set `PPT_RENDER_QA=off` to disable this optional stage. Critical blank renders block delivery when rendering succeeds.
