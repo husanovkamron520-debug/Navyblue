@@ -55,6 +55,9 @@ def inspect_pptx_bytes(data: bytes, expected_slides: int | None = None) -> dict:
             empty_slides = []
             out_of_bounds = []
             image_slides = 0
+            slides_without_images = []
+            duplicate_text_blocks = []
+            numeric_truncations = []
             presentation_root = ET.fromstring(archive.read("ppt/presentation.xml"))
             slide_size = presentation_root.find("p:sldSz", NS)
             slide_w = int(slide_size.get("cx", "12192000")) if slide_size is not None else 12192000
@@ -86,6 +89,7 @@ def inspect_pptx_bytes(data: bytes, expected_slides: int | None = None) -> dict:
                     except (TypeError, ValueError):
                         content_pictures += 1
                 text_values = []
+                paragraph_seen = set()
                 content_shapes = 0
                 for shape in shapes:
                     name_node = shape.find(".//p:cNvPr", NS)
@@ -94,6 +98,18 @@ def inspect_pptx_bytes(data: bytes, expected_slides: int | None = None) -> dict:
                         continue
                     content_shapes += 1
                     text_values.extend((node.text or "").strip() for node in shape.findall(".//a:t", NS))
+                    for paragraph in shape.findall(".//a:p", NS):
+                        paragraph_text = " ".join(
+                            (node.text or "").strip() for node in paragraph.findall(".//a:t", NS)
+                        ).strip()
+                        normalized = re.sub(r"\W+", " ", paragraph_text.casefold()).strip()
+                        if len(normalized) >= 32:
+                            if normalized in paragraph_seen:
+                                duplicate_text_blocks.append({
+                                    "slide": slide_name, "text": paragraph_text[:140]
+                                })
+                            else:
+                                paragraph_seen.add(normalized)
                     xfrm = shape.find(".//a:xfrm", NS)
                     if xfrm is not None:
                         off = xfrm.find("a:off", NS)
@@ -111,6 +127,11 @@ def inspect_pptx_bytes(data: bytes, expected_slides: int | None = None) -> dict:
                     empty_slides.append(slide_name)
                 if pictures:
                     image_slides += 1
+                else:
+                    slides_without_images.append(slide_name)
+                for value in text_values:
+                    if re.search(r"\d[\d,. ]*\s*(?:…|\.{3,})\s*$", value):
+                        numeric_truncations.append({"slide": slide_name, "text": value[:120]})
 
     except zipfile.BadZipFile as exc:
         raise PPTXPackageError("Fayl ZIP/PPTX formatida emas yoki buzilgan") from exc
@@ -137,12 +158,26 @@ def inspect_pptx_bytes(data: bytes, expected_slides: int | None = None) -> dict:
         "morph_slides": len(morph_slides),
         "morph_slide_names": morph_slides[:20],
         "image_slides": image_slides,
+        "image_coverage_ratio": round(image_slides / max(1, parsed_count), 3),
+        "slides_without_images": slides_without_images[:40],
+        "duplicate_text_blocks": duplicate_text_blocks[:40],
+        "numeric_truncations": numeric_truncations[:20],
         "empty_slides": empty_slides,
         "out_of_bounds_shapes": out_of_bounds[:30],
         "warnings": [],
     }
     if empty_slides:
         report["warnings"].append(f"{len(empty_slides)} ta bo'sh slayd")
+    if report["image_coverage_ratio"] < 0.35:
+        report["warnings"].append(
+            "Rasmli slaydlar ulushi past: {}/{} ({}%)".format(
+                image_slides, parsed_count, round(report["image_coverage_ratio"] * 100)
+            )
+        )
+    if duplicate_text_blocks:
+        report["warnings"].append(f"{len(duplicate_text_blocks)} ta slaydda takrorlangan matn bloki")
+    if numeric_truncations:
+        report["warnings"].append(f"{len(numeric_truncations)} ta raqamli matn uch nuqta bilan kesilgan")
     if out_of_bounds:
         report["warnings"].append(f"{len(out_of_bounds)} ta obyekt slayd chegarasidan chiqishi mumkin")
     return report
