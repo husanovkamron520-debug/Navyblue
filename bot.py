@@ -3887,7 +3887,9 @@ def _slug_words(url: str) -> str:
 def _pixabay_photo_hits(q, kind="photo", page=1, per_page=20, orientation="all", min_width=0):
     hits = _pxb_search_sync(q, kind, orientation=orientation, min_width=min_width, page=page, per_page=per_page)
     return [{"id": "pb%s" % h.get("id"), "user": h.get("user") or "", "pageURL": h.get("pageURL") or "",
-             "tags": h.get("tags") or "", "img": h.get("largeImageURL") or h.get("webformatURL"), "provider": "Pixabay"}
+             "tags": h.get("tags") or "", "width": int(h.get("imageWidth") or 0),
+             "height": int(h.get("imageHeight") or 0),
+             "img": h.get("largeImageURL") or h.get("webformatURL"), "provider": "Pixabay"}
             for h in hits if h.get("largeImageURL") or h.get("webformatURL")]
 
 
