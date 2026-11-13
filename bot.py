@@ -4448,18 +4448,27 @@ def _ppt_find_photo_sync(query: str, anchor: str, used: set, historical: bool = 
                     continue
                 t = (h.get("tags") or "").lower().strip()
                 words = set(re.findall(r"[a-z]+", t))
-                if any(bd in words and bd not in qtext for bd in _PPT_BAD_TAGS):
-                    continue
-                if historical and any(bd in words for bd in {
-                    "skyscraper", "office", "offices", "corporate", "business", "manhattan",
-                    "new", "york", "revolving", "door", "lobby", "modern", "contemporary",
-                    "downtown", "cityscape", "glass", "tower"
-                }):
+                # Tarixiy tasvirlarda painting/illustration/castle/architecture kabi
+                # teglar mavzuga mos bo'lishi mumkin; umumiy stock blacklistni qo'llamaymiz.
+                if historical:
+                    historical_bad_tags = {
+                        "skyscraper", "office", "offices", "corporate", "business", "manhattan",
+                        "new", "york", "revolving", "door", "lobby", "modern", "contemporary",
+                        "downtown", "cityscape", "glass", "tower", "suit", "meeting", "conference"
+                    }
+                    if any(bd in words for bd in historical_bad_tags):
+                        continue
+                elif any(bd in words and bd not in qtext for bd in _PPT_BAD_TAGS):
                     continue
                 qn_ = sum(1 for k in qs if k in t)
                 an_ = sum(1 for k in an if k in t)
                 if tier == 1:
-                    if not t or (an and an[0] not in t) or (qs and qn_ < min(2, len(qs))):
+                    if historical:
+                        # Qadimgi rasm kataloglarida "Ottoman" so'zi har doim tegda bo'lmaydi;
+                        # slaydning aniq qidiruv iborasidan kamida ikki mazmunli so'z mos bo'lsin.
+                        if not t or (qs and qn_ < min(2, len(qs))):
+                            continue
+                    elif not t or (an and an[0] not in t) or (qs and qn_ < min(2, len(qs))):
                         continue
                 else:                      # yumshoq: kamida bitta so'z mos kelsa yetadi
                     if t and (qs or an) and (qn_ + an_) == 0:
