@@ -28,6 +28,19 @@ _DOMAIN_TERMS = {
     "geography": ("geography", "map", "region", "country", "geografiya", "xarita", "mintaqa", "mamlakat"),
     "biography": ("biography", "life of", "person", "biografiya", "hayoti", "shaxs"),
 }
+SUPPORTED_COMPOSITIONS = {
+    "editorial_split", "asym_grid", "full_bleed", "modular", "timeline", "radial",
+    "data_focus", "comparison", "typographic", "layered", "swiss_column", "swiss_modular",
+    "editorial_masthead", "editorial_pullquote", "magazine_spread", "split_caption",
+    "asymmetric_caption", "image_dominant", "photo_triptych", "photo_diptych",
+    "cinematic_panorama", "cinematic_frame", "brutalist_type", "oversized_numeral",
+    "metric_wall", "data_dashboard", "data_waterfall", "data_lollipop", "map_route",
+    "typographic_poster", "data_slopegraph", "process_lane", "swimlane", "isometric_stack",
+    "isometric_exploded", "radial_network", "orbit_system", "matrix_priority", "funnel_steps",
+    "comparison_duel", "card_stack", "card_mosaic", "grid_manifesto", "negative_space",
+    "editorial_rows", "asym_cards",
+}
+
 _LAYOUT_TYPES = {
     "chart": "data_visualization", "stats": "data_visualization", "kpi": "data_visualization",
     "waterfall": "data_visualization", "table": "structured_comparison",
@@ -45,13 +58,13 @@ _COMPOSITIONS = {
     "data_visualization": ("data_dashboard", "data_focus", "editorial_split", "metric_wall"),
     "structured_comparison": ("swiss_modular", "comparison_duel", "editorial_rows", "data_dashboard"),
     "chronology": ("timeline", "cinematic_frame", "editorial_rows", "magazine_spread"),
-    "geographic_map": ("map_focus", "editorial_split", "magazine_spread"),
+    "geographic_map": ("map_route", "editorial_split", "magazine_spread"),
     "relationship_map": ("orbit_system", "radial_network", "editorial_split", "card_mosaic"),
     "process_diagram": ("process_lane", "isometric_exploded", "funnel_steps", "editorial_split"),
-    "hierarchy_diagram": ("isometric_stack", "pyramid", "editorial_rows"),
+    "hierarchy_diagram": ("isometric_stack", "isometric_exploded", "editorial_rows"),
     "comparison": ("comparison_duel", "swiss_modular", "magazine_spread", "asym_grid"),
     "decision_matrix": ("matrix_priority", "swiss_modular", "data_dashboard"),
-    "editorial_quote": ("editorial_pullquote", "quote_stage", "negative_space"),
+    "editorial_quote": ("editorial_pullquote", "typographic", "negative_space"),
     "editorial_statement": ("typographic_poster", "negative_space", "editorial_masthead"),
     "image_collection": ("photo_triptych", "card_mosaic", "magazine_spread"),
     "narrative_image": ("cinematic_frame", "photo_diptych", "magazine_spread"),
@@ -149,7 +162,7 @@ def _choose_composition(kind, topic, slide, index, previous):
     seed = hashlib.sha256((str(topic) + "|" + str(index) + "|" + _focus(slide, topic)).encode("utf-8")).digest()
     start = int.from_bytes(seed[:4], "big") % len(options)
     ordered = list(options[start:]) + list(options[:start])
-    return next((item for item in ordered if item not in previous[-2:]), ordered[0])
+    return next((item for item in ordered if item in SUPPORTED_COMPOSITIONS and item not in previous[-2:]), "editorial_split")
 
 
 def build_visual_plan(topic, slides):
@@ -165,7 +178,7 @@ def build_visual_plan(topic, slides):
         query = _search_query(slide, topic, domain)
         current_design = slide.get("design") if isinstance(slide.get("design"), dict) else {}
         supplied = str(current_design.get("composition") or "").strip()
-        composition = supplied or _choose_composition(kind, topic, slide, index, previous_compositions)
+        composition = supplied if supplied in SUPPORTED_COMPOSITIONS else _choose_composition(kind, topic, slide, index, previous_compositions)
         if composition in previous_compositions[-2:]:
             composition = _choose_composition(kind, topic, slide, index + 101, previous_compositions)
         previous_compositions.append(composition)
