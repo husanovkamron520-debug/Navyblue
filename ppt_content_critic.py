@@ -77,7 +77,7 @@ def critique_content(topic, slides):
         ):
             issues.append({"slide": number, "severity": "medium", "code": "unverified_metric",
                            "message": "Raqamli da'vo uchun manba ko'rsatilmagan", "action": "Manba qo'sh yoki raqamni aniq namunaviy deb belgilash"})
-        if domain == "fiction" and re.search(r"\b(?:kpi|reyting|indeks|index|score|100\s*%)\b", body, re.I):
+        if domain == "fiction" and (re.search(r"\b(?:kpi|reyting|indeks|index|score)\b", body, re.I) or re.search(r"100\s*%", body, re.I)):
             issues.append({"slide": number, "severity": "medium", "code": "genre_metric_drift",
                            "message": "Badiiy mavzuda sun'iy KPI yoki reyting ishlatilgan bo'lishi mumkin", "action": "Qahramon yoki voqeani aniq sahna va qarorlar bilan tushuntir"})
 
