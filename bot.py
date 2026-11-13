@@ -8978,7 +8978,7 @@ def _ppt_genre_rule(topic):
             "Rasm qidiruvlari aynan nomlangan mavjudot yoki buyumga yo'nalsin va fotorealistik kino kadri sifatida tasvirlansin: "
             "masalan 'cinematic photorealistic hippogriff film still', 'photorealistic fantasy dragon film still', "
             "'cinematic phoenix magical bird', 'photorealistic thestral winged horse', 'cinematic basilisk serpent'. "
-            "Illustration, cartoon, anime, vector, clipart yoki bolalar kitobi uslubini so'рама. Oddiy fern, butterfly, ray fish, "
+            "Illustration, cartoon, anime, vector, clipart yoki bolalar kitobi uslubini so'rama. Oddiy fern, butterfly, ray fish, "
             "generic bird yoki tumanli o'rmonni sehrli mavjudot o'rniga qo'yma. "
             "Kanonik fakt bilan talqinni ajrat; bilmagan detallarni to'qima. "
             "Foiz, statistik ko'rsatkich va rasmiy protokol faqat asl manbada mavjud bo'lsa ishlatiladi.\n"
