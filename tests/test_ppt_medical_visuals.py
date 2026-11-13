@@ -1,21 +1,31 @@
 import io
 import unittest
 
-from PIL import Image
-
-from ppt_medical_visuals import (
-    cardiovascular_topic,
-    cardiovascular_visual_kind,
-    render_cardiovascular_visual,
-)
+try:
+    from PIL import Image
+except ImportError:
+    Image = None
 
 
+
+
+@unittest.skipIf(Image is None, "Pillow is installed in the dedicated semantic visual workflow")
 class CardiovascularVisualTests(unittest.TestCase):
+    def setUp(self):
+        from ppt_medical_visuals import (
+            cardiovascular_topic,
+            cardiovascular_visual_kind,
+            render_cardiovascular_visual,
+        )
+        self.cardiovascular_topic = cardiovascular_topic
+        self.cardiovascular_visual_kind = cardiovascular_visual_kind
+        self.render_cardiovascular_visual = render_cardiovascular_visual
+
     def test_topic_detection_is_specific(self):
-        self.assertTrue(cardiovascular_topic("Yurak qon tomir tizimi"))
-        self.assertTrue(cardiovascular_topic("Cardiovascular system"))
-        self.assertFalse(cardiovascular_topic("Harry Potter olami"))
-        self.assertFalse(cardiovascular_topic("Logistika boshqaruvi"))
+        self.assertTrue(self.cardiovascular_topic("Yurak qon tomir tizimi"))
+        self.assertTrue(self.cardiovascular_topic("Cardiovascular system"))
+        self.assertFalse(self.cardiovascular_topic("Harry Potter olami"))
+        self.assertFalse(self.cardiovascular_topic("Logistika boshqaruvi"))
 
     def test_scene_selection(self):
         cases = [
@@ -28,12 +38,12 @@ class CardiovascularVisualTests(unittest.TestCase):
         ]
         for topic, title, body, expected in cases:
             with self.subTest(title=title):
-                self.assertEqual(cardiovascular_visual_kind(topic, title, body), expected)
+                self.assertEqual(self.cardiovascular_visual_kind(topic, title, body), expected)
 
     def test_all_visuals_are_valid_16_9_pngs(self):
         for kind in ("heart", "circulation", "vessels", "chambers", "valves", "ecg", "blood", "health"):
             with self.subTest(kind=kind):
-                raw = render_cardiovascular_visual(kind)
+                raw = self.render_cardiovascular_visual(kind)
                 with Image.open(io.BytesIO(raw)) as im:
                     self.assertEqual(im.size, (1600, 900))
                     self.assertEqual(im.format, "PNG")
