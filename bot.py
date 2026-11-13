@@ -4195,6 +4195,46 @@ _PPT_IMG_LAYOUTS = {"image_text", "text_image", "split", "image_story", "hero", 
 
 
 # Mavzuga aloqasiz bo'lib chiqadigan rasm turlari (teglarda bo'lsa va so'rovda yo'q bo'lsa — tashlanadi).
+
+def _ppt_historical_visual_query(outline: dict, sl: dict):
+    """Tarixiy slaydlar uchun davrga xos, slayd mazmunidan olingan qidiruv."""
+    topic = " ".join([str(outline.get("title") or ""), str(outline.get("topic_en") or ""),
+                      str(outline.get("_source_topic") or "")]).casefold()
+    slide = " ".join([str(sl.get("title") or ""), _ppt_slide_text(sl)]).casefold()
+    whole = re.sub(r"[\u2018\u2019\u02bb]", "'", topic + " " + slide)
+    ottoman = bool(re.search(
+        r"ottoman|usmonli|osmanli|usmoniy|janissar|yenicheri|akinci|suleiman|"
+        r"suleymaniye|mimar sinan|iznik|constantinople|istanbul|mehmed|balkan|bolqon",
+        whole))
+    if not ottoman:
+        return None
+    architecture = bool(re.search(
+        r"architect|me'mor|me'morch|masjid|mosque|suleymaniye|iznik|tile|koshin|"
+        r"sinan|dome|gumbaz|madaniy meros|cultural heritage", slide))
+    military = bool(re.search(
+        r"harbiy|military|army|askar|qo'shin|qoshin|janissar|yenicheri|akinci|akinji|"
+        r"jang|battle|siege|qamal|g'azo|ghazi|conquest|g'alaba|galaba|navy|flot", slide))
+    map_geo = bool(re.search(
+        r"xarita|map|geosiyosat|geopolit|hudud|territor|kengay|expansion|balkan|bolqon|"
+        r"yaqin sharq|middle east|savdo|trade|commerce|iqtisod|economic|silk road|ipak yo'li",
+        slide))
+    if architecture:
+        if re.search(r"suleymaniye|sulayman|sinan", slide):
+            return "Suleymaniye Mosque Istanbul Ottoman architecture"
+        if re.search(r"iznik|koshin|tile", slide):
+            return "Iznik Ottoman ceramic tiles historical"
+        return "Ottoman historical mosque architecture"
+    if military:
+        if re.search(r"janissar|yenicheri", slide):
+            return "Ottoman Janissary soldiers historical miniature"
+        if re.search(r"akinci|akinji|g'azo|ghazi", slide):
+            return "Ottoman Akıncı cavalry historical miniature"
+        return "Ottoman army soldiers historical miniature"
+    if map_geo:
+        return "Ottoman Empire 16th century historical map"
+    return "Ottoman Empire historical miniature 16th century"
+
+
 _PPT_BAD_TAGS = {
     "portrait", "face", "faces", "makeup", "beauty", "fashion", "model", "selfie", "costume", "mask", "halloween",
     "witch", "fantasy", "cosplay", "doll", "tattoo", "bikini", "lingerie", "cartoon", "painting", "drawing",
@@ -4340,7 +4380,7 @@ def _openverse_photo_sync(query: str, used: set):
 _PPT_STOCK_USED_LOCK = threading.Lock()
 
 
-def _ppt_find_photo_sync(query: str, anchor: str, used: set):
+def _ppt_find_photo_sync(query: str, anchor: str, used: set, historical: bool = False):
     """Pixabay, Unsplash, Openverse va Wikimedia Commons'dan takrorlanmagan vizual qidiradi."""
     if not (query or anchor or "").strip():
         return None
@@ -4353,14 +4393,21 @@ def _ppt_find_photo_sync(query: str, anchor: str, used: set):
     q_words = (query or "").split()
     query_words = set(_kw_stems(query))
     topic_overlap = bool(set(an) & query_words)
-    if anchor and q_words:
-        tries.append((anchor + " " + " ".join(q_words[:3])).strip())
-    if anchor:
-        tries.append(anchor)
-    if query and topic_overlap:
-        tries.append(query)
-    elif query and not anchor:
-        tries.append(query)
+    if historical:
+        # Tarixiy slaydlarda model yaratgan erkin photo_query ishlatilmaydi.
+        if query:
+            tries.append(query)
+        if anchor and anchor.lower() not in (query or "").lower():
+            tries.append(anchor + " historical")
+    else:
+        if anchor and q_words:
+            tries.append((anchor + " " + " ".join(q_words[:3])).strip())
+        if anchor:
+            tries.append(anchor)
+        if query and topic_overlap:
+            tries.append(query)
+        elif query and not anchor:
+            tries.append(query)
     seen, all_hits = set(), []
 
     def _download(pick):
@@ -4380,7 +4427,7 @@ def _ppt_find_photo_sync(query: str, anchor: str, used: set):
         return raw, str(pick.get("user") or ""), pick["provider"]
 
     if PIXABAY_API_KEY:
-      for tier in (1, 2):
+      for tier in ((1,) if historical else (1, 2)):
         for qy in tries:
             if not qy:
                 continue
@@ -4403,6 +4450,12 @@ def _ppt_find_photo_sync(query: str, anchor: str, used: set):
                 words = set(re.findall(r"[a-z]+", t))
                 if any(bd in words and bd not in qtext for bd in _PPT_BAD_TAGS):
                     continue
+                if historical and any(bd in words for bd in {
+                    "skyscraper", "office", "offices", "corporate", "business", "manhattan",
+                    "new", "york", "revolving", "door", "lobby", "modern", "contemporary",
+                    "downtown", "cityscape", "glass", "tower"
+                }):
+                    continue
                 qn_ = sum(1 for k in qs if k in t)
                 an_ = sum(1 for k in an if k in t)
                 if tier == 1:
@@ -4421,8 +4474,26 @@ def _ppt_find_photo_sync(query: str, anchor: str, used: set):
                 return got
     # Filtrsiz Pixabay fallback ataylab olib tashlandi: mavzuga aloqasiz rasm qo'yishdan ko'ra
     # keyingi manbani yoki original mahalliy vizualni ishlatamiz.
+    # Tarixiy mavzuda avval Wikimedia va Openverse kabi kolleksiyalarni qidiramiz.
+    if historical:
+        for qy in tries:
+            if not qy:
+                continue
+            try:
+                got = find_commons_photo(qy, used, _ppt_valid_image)
+            except Exception as exc:
+                logger.warning("Wikimedia tarixiy qidiruv xatosi: %s", exc)
+                got = None
+            if got:
+                return got
+        for qy in tries:
+            if not qy:
+                continue
+            got = _openverse_photo_sync(qy, used)
+            if got:
+                return got
     # Pixabay natija bermasa yoki yuklanmasa, Unsplash zaxira manba bo'ladi.
-    if UNSPLASH_ACCESS_KEY:
+    if UNSPLASH_ACCESS_KEY and not historical:
         for qy in tries:
             if not qy:
                 continue
@@ -4430,23 +4501,24 @@ def _ppt_find_photo_sync(query: str, anchor: str, used: set):
             if got:
                 return got
     # 3-manba: Openverse — tijoriy foydalanishga mos ochiq litsenziyali rasmlar.
-    for qy in tries:
-        if not qy:
-            continue
-        got = _openverse_photo_sync(qy, used)
-        if got:
-            return got
-    # 4-manba: Wikimedia Commons — Public Domain, CC0 va attribution litsenziyalari.
-    for qy in tries:
-        if not qy:
-            continue
-        try:
-            got = find_commons_photo(qy, used, _ppt_valid_image)
-        except Exception as exc:
-            logger.warning("Wikimedia Commons fallback xatosi: %s", exc)
-            got = None
-        if got:
-            return got
+    if not historical:
+        for qy in tries:
+            if not qy:
+                continue
+            got = _openverse_photo_sync(qy, used)
+            if got:
+                return got
+        # Wikimedia Commons — tarixiy va ochiq litsenziyali manba.
+        for qy in tries:
+            if not qy:
+                continue
+            try:
+                got = find_commons_photo(qy, used, _ppt_valid_image)
+            except Exception as exc:
+                logger.warning("Wikimedia Commons fallback xatosi: %s", exc)
+                got = None
+            if got:
+                return got
     logger.warning("Stok rasm topilmadi (Pixabay/Unsplash/Openverse/Wikimedia Commons): query=%r anchor=%r", query, anchor)
     return None
 
@@ -4465,12 +4537,12 @@ async def _ppt_attach_images(outline: dict, owner_ai: bool = False):
             anchor = ""
     outline["topic_en"] = anchor
 
-    async def stock(q):
+    async def stock(q, historical=False):
         search_query = (q or outline.get("title") or "").strip()
         if not search_query:
             return None
         try:
-            return await asyncio.to_thread(_ppt_find_photo_sync, search_query, anchor, used)
+            return await asyncio.to_thread(_ppt_find_photo_sync, search_query, anchor, used, historical)
         except Exception as exc:
             logger.warning("Stok rasm qidiruv xatosi: %s", exc)
             return None
@@ -4492,8 +4564,12 @@ async def _ppt_attach_images(outline: dict, owner_ai: bool = False):
             credits.append(f"Original tibbiy sxema: {medical_kind} / Navyblue")
             logger.info("Yurak-qon tomir vizuali yaratildi: title=%r kind=%s", sl.get("title"), medical_kind)
             return
-        query = sl.get("map_query") if sl.get("layout") == "map" else (sl.get("photo_query") or sl.get("title"))
-        got = await stock(query)
+        historical_query = _ppt_historical_visual_query(outline, sl)
+        if historical_query:
+            got = await stock(historical_query, historical=True)
+        else:
+            query = sl.get("map_query") if sl.get("layout") == "map" else (sl.get("photo_query") or sl.get("title"))
+            got = await stock(query)
         if got:
             sl["_img"] = got[0]
             credits.append(f"Rasm: {got[1] or got[2]} / {got[2]}")
@@ -4504,7 +4580,8 @@ async def _ppt_attach_images(outline: dict, owner_ai: bool = False):
     async def many(sl):
         imgs = []
         for qy in sl.get("collage_queries") or []:
-            got = await stock(qy)
+            historical_query = _ppt_historical_visual_query(outline, sl)
+            got = await stock(historical_query or qy, historical=bool(historical_query))
             if got:
                 imgs.append(got[0])
                 credits.append(f"Rasm: {got[1] or got[2]} / {got[2]}")
