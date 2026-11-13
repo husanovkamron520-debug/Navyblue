@@ -4346,14 +4346,21 @@ def _ppt_find_photo_sync(query: str, anchor: str, used: set):
         return None
     an = _kw_stems(anchor)
     qtext = ((query or "") + " " + (anchor or "")).lower()
-    tries = [query] if query else []
-    if anchor:
-        if not (set(an) & set(_kw_stems(query))):
-            tries.append((anchor + " " + " ".join((query or "").split()[:2])).strip())
-        tries.append(anchor)
+    # Topic anchor always leads. A generated slide-level photo_query can be wrong
+    # (e.g. a modern office for an Ottoman history slide), so never search it alone
+    # when it has no meaningful overlap with the presentation topic.
+    tries = []
     q_words = (query or "").split()
-    if len(q_words) > 2:
-        tries.append(" ".join(q_words[:2]))
+    query_words = set(_kw_stems(query))
+    topic_overlap = bool(set(an) & query_words)
+    if anchor and q_words:
+        tries.append((anchor + " " + " ".join(q_words[:3])).strip())
+    if anchor:
+        tries.append(anchor)
+    if query and topic_overlap:
+        tries.append(query)
+    elif query and not anchor:
+        tries.append(query)
     seen, all_hits = set(), []
 
     def _download(pick):
