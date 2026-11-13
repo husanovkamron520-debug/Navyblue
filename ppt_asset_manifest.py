@@ -25,6 +25,7 @@ def build_asset_manifest(slides):
         single = slide.get("_img")
         multiple = slide.get("_imgs") if isinstance(slide.get("_imgs"), list) else []
         assets = [x for x in ([single] if single is not None else []) + multiple if x is not None]
+        assets_meta = slide.get("_assets") if isinstance(slide.get("_assets"), list) else []
         if not assets:
             continue
         per_slide = []
@@ -33,8 +34,8 @@ def build_asset_manifest(slides):
             meta = {}
             if asset_index == 0 and asset_meta:
                 meta.update(asset_meta)
-            elif asset_index < len(slide.get("_assets", [])):
-                raw_meta = slide["_assets"][asset_index]
+            elif asset_index < len(assets_meta):
+                raw_meta = assets_meta[asset_index]
                 if isinstance(raw_meta, dict):
                     meta.update(raw_meta)
             source = str(meta.get("source_type") or "unattributed")
