@@ -4511,10 +4511,6 @@ def _ppt_find_photo_sync(query: str, anchor: str, used: set, historical: bool = 
             scored.sort(key=_candidate_quality, reverse=True)
             top = [h for sc, h in scored if sc >= scored[0][0] - 1][:3]
             # Deterministic best-of-three selection makes QA reproducible.
-            top.sort(key=lambda h: _candidate_quality((sum(
-                2 if term in set(re.findall(r"[a-z]+", (h.get("tags") or "").lower())) else 1
-                for term in set(qs)
-            ), h)), reverse=True)
             got = _download(top[0])
             if got:
                 return got
