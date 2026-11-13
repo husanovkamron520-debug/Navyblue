@@ -198,3 +198,56 @@ def sanitize_remus_lupin_slide(slide: dict) -> bool:
             "ko'rsatgan yordami orqali ochib beriladi."
         )
     return True
+
+
+def apply_remus_lupin_visual_coverage(slides) -> int:
+    """Promote remaining text-only character slides to scene-specific image layouts."""
+    text_only = {
+        "editorial", "statement", "section", "agenda", "plain_text", "text",
+        "bignumber", "quote", "executive", "stats", "kpi",
+    }
+    excluded = {"closing", "references", "chart", "table", "collage"}
+    skip = {
+        "title", "notes", "story_role", "story_beat", "design", "photo_query",
+        "map_query", "collage_queries", "motion", "layout", "composition",
+        "visual_focus", "visual_type", "hierarchy", "density", "motion_reason",
+    }
+
+    def collect(node, key=""):
+        values = []
+        if key in skip or key.startswith("_"):
+            return values
+        if isinstance(node, dict):
+            for child_key, child in node.items():
+                values.extend(collect(child, str(child_key)))
+        elif isinstance(node, (list, tuple)):
+            for child in node:
+                values.extend(collect(child, key))
+        elif isinstance(node, (str, int, float)) and str(node).strip():
+            values.append(str(node).strip())
+        return values
+
+    changed = 0
+    for index, slide in enumerate(slides or []):
+        if not isinstance(slide, dict):
+            continue
+        sanitize_remus_lupin_slide(slide)
+        layout = str(slide.get("layout") or "").casefold()
+        if layout in excluded or layout not in text_only:
+            continue
+        body = str(slide.get("text") or slide.get("body") or "").strip()
+        if not body:
+            body = re.sub(r"\\s+", " ", " · ".join(collect(slide))).strip()
+        if not body:
+            continue
+        slide["text"] = body[:1800]
+        slide["layout"] = "image_text" if index % 2 == 0 else "text_image"
+        design = dict(slide.get("design") or {})
+        design.update({
+            "visual_type": "photo",
+            "visual_focus": str(slide.get("title") or "Remus Lupin"),
+            "composition": ("editorial_split", "asym_grid", "cinematic_frame")[index % 3],
+        })
+        slide["design"] = design
+        changed += 1
+    return changed
