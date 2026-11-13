@@ -15,6 +15,8 @@ _NON_PHOTO_TERMS = {
     "drawings", "painting", "paintings", "flat", "sticker", "storybook",
     "2d", "watercolor", "sketch", "lineart", "miniature", "engraving", "etching",
     "lithograph", "fresco", "woodcut", "manuscript", "illumination",
+    "digital art", "concept art", "oil painting", "watercolor painting", "pencil drawing",
+    "vector art", "graphic illustration", "3d cartoon", "animated", "cgi cartoon",
 }
 
 
@@ -25,9 +27,20 @@ def _fold(value: str) -> str:
 
 
 def is_nonphotographic_metadata(metadata: str) -> bool:
-    """Reject explicitly illustrated/cartoon-style search results."""
-    tokens = set(_fold(metadata).split())
-    return bool(tokens & _NON_PHOTO_TERMS)
+    """Reject explicitly illustrated/cartoon-style results in photographic slots.
+
+    Phrase checks catch common stock labels; token checks catch variants such as
+    'vector artwork' and 'anime portrait'. Photorealistic 3D renders remain allowed.
+    """
+    folded = _fold(metadata)
+    tokens = set(folded.split())
+    if tokens & _NON_PHOTO_TERMS:
+        return True
+    return any(phrase in folded for phrase in (
+        "digital art", "concept art", "oil painting", "watercolor painting",
+        "pencil drawing", "vector art", "graphic illustration", "3d cartoon",
+        "animated character",
+    ))
 
 
 def build_photorealistic_query(domain: str, topic: str, title: str, body: str = "") -> str:
