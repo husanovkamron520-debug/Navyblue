@@ -39,6 +39,7 @@ from ppt_remus_lupin_visuals import (remus_lupin_topic, remus_lupin_visual_kind,
                                      apply_remus_lupin_visual_coverage)
 from ppt_visual_relevance import metadata_relevant, contextually_irrelevant
 from ppt_visual_qa import visual_integrity_issues, package_qa_blockers, VisualIntegrityError
+from ppt_visual_director import prepare_deck_visuals
 
 from telegram import (
     Update,
@@ -3385,6 +3386,14 @@ def _sanitize_outline(data, topic: str, n: int, with_images: bool) -> dict:
                 d["composition"] = current = alternative
                 composition_repairs += 1
         composition_history.append(current)
+    # Universal slide-level visual planning: per-slide focus, asset query and composition.
+    visual_plan_result = prepare_deck_visuals(topic, slides)
+    visual_plan = visual_plan_result["manifest"]
+    visual_qa = visual_plan_result["qa"]
+    if visual_qa.get("issues"):
+        logger.warning("Visual Director critic: %s", json.dumps(visual_qa, ensure_ascii=False))
+    else:
+        logger.info("Visual Director passed: %s ta slayd uchun alohida vizual reja", len(visual_plan.get("slides", [])))
     # AI art-direction ma'lumotlari: faqat xavfsiz HEX ranglar va ruxsat etilgan effektlar qabul qilinadi.
     ad = data.get("art_direction") if isinstance(data.get("art_direction"), dict) else {}
     raw_palette = ad.get("palette") if isinstance(ad.get("palette"), dict) else {}
@@ -3414,6 +3423,7 @@ def _sanitize_outline(data, topic: str, n: int, with_images: bool) -> dict:
             "topic_en": _ppt_s(data.get("topic_en"), 60), "story_architecture": _ppt_s(data.get("story_architecture"), 60),
             "story_rationale": _ppt_s(data.get("story_rationale"), 220), "stepper": _ppt_stepper_labels(data),
             "_expanded": expanded, "_composition_repairs": composition_repairs,
+            "_visual_plan": visual_plan, "_visual_qa": visual_qa,
             "story_arc": [x.get("story_role", "") for x in slides[:target_count]],
             "slides": _ppt_with_executive(slides[:target_count], data, _ppt_s(data.get("title") or topic, 100), topic)}
 
@@ -4615,7 +4625,7 @@ async def _ppt_attach_images(outline: dict, owner_ai: bool = False):
         if historical_query:
             got = await stock(historical_query, historical=True)
         else:
-            query = sl.get("map_query") if sl.get("layout") == "map" else (sl.get("photo_query") or sl.get("title"))
+            query = sl.get("map_query") if sl.get("layout") == "map" else (sl.get("photo_query") or (sl.get("_visual_plan") or {}).get("search_query") or sl.get("title"))
             got = await stock(query)
         if got:
             sl["_img"] = got[0]
