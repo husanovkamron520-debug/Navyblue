@@ -32,6 +32,7 @@ from ppt_story_engine import STORY_ROLES, build_story_guidance, infer_story_role
 from ppt_visual_director import build_visual_direction_guidance, apply_visual_direction
 from ppt_content_critic import critique_content
 from ppt_asset_manifest import build_asset_manifest
+from ppt_render_qa import render_and_inspect_pptx
 from pptx_package_qa import inspect_pptx_bytes
 from ppt_template_library import choose_design_reference, download_design_reference, inspect_pptx as inspect_template_pptx
 from ppt_semantic_visuals import fantasy_visual_kind, render_fantasy_visual
@@ -9835,6 +9836,16 @@ async def _ppt_generate_and_send(msg, context, topic, n, with_images, author, mo
         if package_qa.get("warnings"):
             outline["_qa"].setdefault("warnings", []).extend(package_qa["warnings"])
         logger.info("PPTX package QA: %s", json.dumps(package_qa, ensure_ascii=False))
+        render_mode = (os.environ.get("PPT_RENDER_QA") or "auto").strip().casefold()
+        if render_mode not in {"0", "false", "off", "disabled"}:
+            render_qa = await asyncio.to_thread(render_and_inspect_pptx, data)
+            outline["_qa"]["render"] = render_qa
+            if render_qa.get("warnings"):
+                outline["_qa"].setdefault("warnings", []).extend(render_qa["warnings"])
+            logger.info("Rendered slide QA: %s", json.dumps(render_qa, ensure_ascii=False))
+            if render_qa.get("status") == "rendered" and render_qa.get("blockers"):
+                raise VisualIntegrityError("VISUAL_RENDER_GATE: " +
+                                           json.dumps(render_qa["blockers"], ensure_ascii=False))
         _t2 = time.monotonic()
     except ImportError:
         logger.exception("python-pptx topilmadi")
