@@ -12,7 +12,8 @@ def sample_deck():
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     box = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(8), Inches(1))
     box.text_frame.text = "QA test title"
-    prs.slides.add_slide(prs.slide_layouts[6])\n    out = io.BytesIO()
+    prs.slides.add_slide(prs.slide_layouts[6])
+    out = io.BytesIO()
     prs.save(out)
     return out.getvalue()
 
