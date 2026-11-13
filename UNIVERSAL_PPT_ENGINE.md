@@ -63,3 +63,8 @@ Generate high-quality, topic-faithful, visually varied and structurally valid de
 ## Safety and deployment
 
 Changes are developed on a feature branch and reviewed through a pull request. Secrets and production service settings are not modified by this architecture work. A passing Python test suite is not equivalent to visual acceptance of generated decks; rendered end-to-end checks remain mandatory.
+
+
+## Asset provenance
+
+`ppt_asset_manifest.py` records the image hash, slide index, source type, provider/generator, credit, query and license-status metadata for each attached visual. It flags missing provenance and repeated assets. This is a diagnostic manifest: it does not claim a provider license has been independently re-verified beyond the source adapter's recorded checks.
