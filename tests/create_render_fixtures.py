@@ -67,10 +67,14 @@ for slug, (title, subtitle, labels, descriptions) in DOMAINS.items():
     slide = deck.slides.add_slide(deck.slide_layouts[6])
     slide.background.fill.solid()
     slide.background.fill.fore_color.rgb = RGBColor(239, 244, 250)
-    accent_bar = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0), Inches(0), Inches(0.28), Inches(7.5))\n    accent_bar.fill.solid()\n    accent_bar.fill.fore_color.rgb = RGBColor(36, 90, 145)
+    accent_bar = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0), Inches(0), Inches(0.28), Inches(7.5))
+    accent_bar.fill.solid()
+    accent_bar.fill.fore_color.rgb = RGBColor(36, 90, 145)
     add_text(slide, 0.9, 2.0, 10.8, 1.1, title, 34, (22, 49, 82), True)
     add_text(slide, 0.95, 3.2, 10.5, 0.8, subtitle, 20, (95, 110, 128))
-    cover_mark = slide.shapes.add_shape(MSO_SHAPE.OVAL, Inches(10.9), Inches(4.8), Inches(1.15), Inches(1.15))\n    cover_mark.fill.solid()\n    cover_mark.fill.fore_color.rgb = RGBColor(36, 90, 145)
+    cover_mark = slide.shapes.add_shape(MSO_SHAPE.OVAL, Inches(10.9), Inches(4.8), Inches(1.15), Inches(1.15))
+    cover_mark.fill.solid()
+    cover_mark.fill.fore_color.rgb = RGBColor(36, 90, 145)
 
     # 2. Four-step process, deliberately varied across subject families.
     slide = deck.slides.add_slide(deck.slide_layouts[6])
@@ -114,7 +118,9 @@ for slug, (title, subtitle, labels, descriptions) in DOMAINS.items():
     slide.background.fill.fore_color.rgb = RGBColor(22, 49, 82)
     add_text(slide, 0.9, 1.25, 11.3, 0.9, "Asosiy xulosa", 32, (255, 255, 255), True)
     add_text(slide, 0.95, 2.45, 9.7, 1.5, f"{title}: mavzuni tizimli tushunish uchun sabab, jarayon va natijani birgalikda ko'rish kerak.", 22, (235, 241, 248))
-    summary_mark = slide.shapes.add_shape(MSO_SHAPE.DIAMOND, Inches(10.7), Inches(4.3), Inches(1.1), Inches(1.1))\n    summary_mark.fill.solid()\n    summary_mark.fill.fore_color.rgb = RGBColor(190, 150, 80)
+    summary_mark = slide.shapes.add_shape(MSO_SHAPE.DIAMOND, Inches(10.7), Inches(4.3), Inches(1.1), Inches(1.1))
+    summary_mark.fill.solid()
+    summary_mark.fill.fore_color.rgb = RGBColor(190, 150, 80)
 
     deck.save(OUT / f"{slug}.pptx")
 
