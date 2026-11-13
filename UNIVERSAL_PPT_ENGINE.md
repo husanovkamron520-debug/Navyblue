@@ -28,7 +28,8 @@ Generate high-quality, topic-faithful, visually varied and structurally valid de
 ## Current implementation
 
 - Existing story engine remains responsible for broad narrative archetypes and story roles.
-- `ppt_visual_director.py` adds deterministic domain classification, per-slide visual manifests, composition diversification and a critic report.
+- `ppt_visual_director.py` adds deterministic domain classification, per-slide visual manifests, renderer-safe composition diversification and a visual critic report.
+- `ppt_content_critic.py` adds an independent non-mutating pass for thin content, repeated slides, generic titles, unsourced numeric claims and fiction/genre KPI drift.
 - `bot.py` attaches that manifest before asset retrieval and uses its query as a fallback when a slide has no explicit photo query.
 - Visual Director only selects composition profiles registered by the current renderer.
 - Unit tests cover medical, historical, fantasy, scientific, finance and logistics topic families, per-slide plans, content preservation, composition diversity and duplicate-focus detection.
