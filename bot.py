@@ -9752,9 +9752,14 @@ async def _ppt_generate_and_send(msg, context, topic, n, with_images, author, mo
         return
     except Exception as exc:
         logger.exception("Taqdimot yaratish xatosi")
-        reason = _ai_err_reason(exc)
-        answer = "Taqdimot yaratilmadi." + (f" Sabab: {reason}." if reason else "") + \
-                 " Mavzuni biroz boshqacha yozib yoki slayd sonini kamaytirib qayta urinib ko'ring."
+        if isinstance(exc, VisualIntegrityError):
+            answer = ("Taqdimot yakuniy sifat tekshiruvidan o'tmadi. Bo'sh vizual, bo'sh slayd "
+                      "yoki jiddiy matn sig'ishi muammosi aniqlandi. Noto'g'ri fayl yuborilmadi; "
+                      "xatoni tuzatib qayta urinib ko'ring.")
+        else:
+            reason = _ai_err_reason(exc)
+            answer = "Taqdimot yaratilmadi." + (f" Sabab: {reason}." if reason else "") + \
+                     " Mavzuni biroz boshqacha yozib yoki slayd sonini kamaytirib qayta urinib ko'ring."
         try:
             await status.edit_text("⚠️ " + answer)
         except Exception:
