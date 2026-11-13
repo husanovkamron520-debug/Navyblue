@@ -63,6 +63,11 @@ def _font(size: int, bold: bool = False):
     return ImageFont.load_default()
 
 
+def pts(values):
+    """Convert polygon coordinates to Pillow-safe integer points."""
+    return [(int(x), int(y)) for x, y in values]
+
+
 def _base(kind):
     im = Image.new("RGB", (W, H), _BG)
     d = ImageDraw.Draw(im, "RGBA")
