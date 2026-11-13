@@ -13,7 +13,8 @@ _NON_PHOTO_TERMS = {
     "cartoon", "cartoons", "vector", "vectors", "illustration", "illustrations",
     "clipart", "icon", "icons", "anime", "manga", "comic", "comics", "drawing",
     "drawings", "painting", "paintings", "flat", "sticker", "storybook",
-    "2d", "watercolor", "sketch", "lineart",
+    "2d", "watercolor", "sketch", "lineart", "miniature", "engraving", "etching",
+    "lithograph", "fresco", "woodcut", "manuscript", "illumination",
 }
 
 
@@ -34,7 +35,22 @@ def build_photorealistic_query(domain: str, topic: str, title: str, body: str = 
     text = _fold(" ".join((topic, title, body)))
     domain = _fold(domain)
 
-    if domain in {"medical", "cardiovascular", "biology"}:
+    if domain == "biology":
+        rules = (
+            (("dna", "genome", "genetic", "adn"), "photorealistic scientific 3D render DNA molecular structure laboratory visualization"),
+            (("cell", "hujayra", "membrane", "organelle"), "photorealistic scientific 3D render biological cell membrane organelles"),
+            (("plant", "o simlik", "leaf", "photosynthesis", "barg"), "high detail macro photograph real plant leaf photosynthesis nature"),
+            (("animal", "hayvon", "wildlife", "mammal"), "wildlife documentary photograph animal in natural habitat"),
+            (("bacteria", "bacterium", "virus", "microbe", "mikrob"), "photorealistic scientific microscopic 3D visualization microorganism"),
+            (("ecosystem", "ekosistema", "food chain", "ozuqa zanjiri"), "photorealistic nature documentary photograph ecosystem biodiversity"),
+        )
+        for terms, query in rules:
+            if any(term in text for term in terms):
+                return query
+        subject = " ".join(x for x in (topic, title) if x).strip()[:140]
+        return f"photorealistic scientific biology photograph or accurate 3D render {subject}".strip()
+
+    if domain in {"medical", "cardiovascular"}:
         rules = (
             (("ecg", "electrocardiogram", "heart rhythm", "pulse", "yurak ritm", "puls"),
              "clinical electrocardiogram monitor real hospital photograph"),
@@ -74,6 +90,8 @@ def build_photorealistic_query(domain: str, topic: str, title: str, body: str = 
                 return query
         return "cinematic photorealistic mysterious wizard professor portrait gothic castle moody film still"
 
-    subject = re.sub(r"[^A-Za-z0-9 ]+", " ", str(title or topic or "")).strip()
-    subject = re.sub(r"\s+", " ", subject)[:100]
+    # Keep the presentation topic in every generic query; slide titles like
+    # "Conclusion" or "Introduction" are not meaningful search subjects alone.
+    subject = re.sub(r"[^A-Za-z0-9 ]+", " ", " ".join((str(topic or ""), str(title or "")))).strip()
+    subject = re.sub(r"\s+", " ", subject)[:150]
     return f"photorealistic editorial photograph {subject} natural cinematic lighting".strip()
