@@ -130,7 +130,8 @@ def render_pptx(pptx_path, output_dir, timeout: int = 120, dpi: int = 120) -> di
     if not soffice or not pdftoppm:
         raise RenderQAError("Rendering requires LibreOffice (soffice) and Poppler (pdftoppm).")
 
-    from pptx import Presentation\n    expected_slides = len(Presentation(str(pptx_path)).slides)
+    from pptx import Presentation
+    expected_slides = len(Presentation(str(pptx_path)).slides)
     output_dir.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="navyblue-render-") as temporary:
         temp = Path(temporary)
