@@ -46,8 +46,8 @@ def inspect_pptx_bytes(data: bytes, expected_slides: int | None = None) -> dict:
             if not required.issubset(names):
                 raise PPTXPackageError("PPTX paketining majburiy qismlari topilmadi")
             slide_names = sorted(
-                (n for n in names if re.fullmatch(r"ppt/slides/slide\\d+\\.xml", n)),
-                key=lambda n: int(re.search(r"(\\d+)", n).group(1)),
+                (n for n in names if re.fullmatch(r"ppt/slides/slide\d+\.xml", n)),
+                key=lambda n: int(re.search(r"(\d+)", n).group(1)),
             )
             if not slide_names:
                 raise PPTXPackageError("PPTX ichida slayd topilmadi")
