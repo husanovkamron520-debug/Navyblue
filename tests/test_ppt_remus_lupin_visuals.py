@@ -27,6 +27,7 @@ class RemusLupinVisualTests(unittest.TestCase):
     def test_visual_kind_selection(self):
         self.assertEqual(remus_lupin_visual_kind("Remus Lupin", "Feniks ordenidagi hissasi"), "order_phoenix")
         self.assertEqual(remus_lupin_visual_kind("Remus Lupin", "To'lin oy va bo'ri odam"), "werewolf")
+        self.assertEqual(remus_lupin_visual_kind("Remus Lupin", "Kumush bo'ri Patronusi"), "patronus")
         self.assertEqual(remus_lupin_visual_kind("Remus Lupin", "Hogwarts professori"), "professor")
 
     def test_each_visual_is_valid_png(self):
@@ -40,7 +41,7 @@ class RemusLupinVisualTests(unittest.TestCase):
         slide = {"layout":"stats","title":"Feniks ordenidagi hissasi",
                  "stats":[{"label":"Fidoyilik darajasi","value":"100%"}]}
         self.assertTrue(sanitize_remus_lupin_slide(slide))
-        self.assertEqual(slide["layout"], "editorial")
+        self.assertEqual(slide["layout"], "image_text")
         self.assertNotIn("stats", slide)
         self.assertNotIn("100%", slide["text"])
 
