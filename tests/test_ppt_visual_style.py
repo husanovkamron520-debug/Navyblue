@@ -17,23 +17,35 @@ class PhotographicStyleTests(unittest.TestCase):
     def test_non_photographic_results_are_rejected(self):
         self.assertTrue(is_nonphotographic_metadata("cartoon vector illustration"))
         self.assertTrue(is_nonphotographic_metadata("anime character portrait"))
+        self.assertTrue(is_nonphotographic_metadata("Ottoman historical miniature painting"))
         self.assertFalse(is_nonphotographic_metadata("photorealistic 3D medical render"))
 
     def test_generic_query_has_photographic_style(self):
         query = build_photorealistic_query("logistics", "Warehouse automation", "Robotic picking")
         self.assertIn("photorealistic editorial photograph", query)
 
+    def test_generic_queries_keep_topic_when_slide_title_is_generic(self):
+        query = build_photorealistic_query("history", "Ottoman Empire", "Conclusion")
+        self.assertIn("Ottoman Empire", query)
+        self.assertIn("Conclusion", query)
+        self.assertIn("photorealistic editorial photograph", query)
+
+    def test_biology_does_not_fall_back_to_heart_visuals(self):
+        query = build_photorealistic_query("biology", "Biology", "Cell structure")
+        self.assertIn("biological cell", query)
+        self.assertNotIn("human heart", query)
+
     def test_non_special_subjects_all_get_photo_first_queries(self):
         topics = [
             ("history", "Ottoman Empire", "Architecture of Istanbul"),
             ("finance", "State budget", "Public expenditure"),
             ("logistics", "Supply chain", "Warehouse operations"),
-            ("science", "Biology", "Cell structure"),
         ]
         for domain, topic, title in topics:
             with self.subTest(domain=domain):
                 query = build_photorealistic_query(domain, topic, title)
                 self.assertIn("photorealistic editorial photograph", query)
+                self.assertIn(topic, query)
                 self.assertIn(title, query)
 
 
