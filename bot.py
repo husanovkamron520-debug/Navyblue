@@ -4730,6 +4730,63 @@ def _ppt_apply_cardiovascular_visuals(outline: dict) -> int:
     return sum(1 for sl in slides if sl.get("layout") in _PPT_IMG_LAYOUTS and _ppt_valid_image(sl.get("_img")))
 
 
+def _ppt_apply_general_visual_coverage(outline: dict, target_ratio: float = 0.55) -> int:
+    """Promote suitable text-only slides to image-led layouts when images are enabled.
+
+    Charts, tables and other data structures remain native/editable; only editorial
+    layouts are promoted, and their complete explanatory text is preserved.
+    """
+    topic = str(outline.get("_source_topic") or outline.get("title") or "")
+    if cardiovascular_topic(topic):
+        return 0  # cardiovascular decks use their dedicated scene-aware visual engine
+    slides = [item for item in (outline.get("slides") or []) if isinstance(item, dict)]
+    if not slides:
+        return 0
+    target = max(1, int(math.ceil(len(slides) * max(0.0, min(1.0, target_ratio)))))
+    current = sum(1 for item in slides if item.get("layout") in _PPT_IMG_LAYOUTS)
+    promoted = 0
+    for index, sl in enumerate(slides):
+        if current >= target:
+            break
+        layout = sl.get("layout")
+        if layout in _PPT_IMG_LAYOUTS or layout in ("closing", "references", "chart", "table"):
+            continue
+        if layout == "cards":
+            sl["layout"] = "banner_cards"
+            current += 1
+            promoted += 1
+            continue
+        if layout in ("stats", "kpi"):
+            items = sl.get("stats") or sl.get("kpis") or []
+            cards = [{"head": str(x.get("label") or x.get("name") or "Ko'rsatkich"),
+                      "text": str(x.get("value") or x.get("text") or "")}
+                     for x in items if isinstance(x, dict)]
+            if cards:
+                sl["cards"] = cards
+                sl["layout"] = "banner_cards"
+                current += 1
+                promoted += 1
+                continue
+        if layout not in ("editorial", "statement", "section", "agenda", "plain_text",
+                          "text", "bignumber", "quote", "executive"):
+            continue
+        body = _ppt_visual_body(sl) or str(sl.get("text") or "").strip()
+        if not body:
+            continue
+        sl["text"] = body
+        sl["layout"] = "image_text" if index % 2 == 0 else "text_image"
+        design = dict(sl.get("design") or {})
+        design["visual_type"] = "photo"
+        design["visual_focus"] = str(sl.get("visual_focus") or sl.get("title") or outline.get("title") or "mavzu")
+        design["composition"] = ("asym_grid", "editorial_split", "layered")[index % 3]
+        sl["design"] = design
+        current += 1
+        promoted += 1
+    logger.info("Universal visual coverage: %s ta slayd image-led maketga o'tkazildi; ko'rinadigan vizual maqsadi=%s/%s",
+                promoted, target, len(slides))
+    return promoted
+
+
 def _ppt_finalize_images(outline: dict):
     _ppt_fix_missing_images(outline)
     _ppt_order_images(outline)
@@ -9401,9 +9458,9 @@ async def _ppt_generate_and_send(msg, context, topic, n, with_images, author, mo
             cover_visual_kind = "cardiovascular_heart"
         bg_task = asyncio.create_task(asyncio.to_thread(
             _ppt_make_backgrounds_sync, theme, outline.get("cover_query", ""), cover_visual_kind))
-        if with_images and (is_cardio_topic or any(s.get("photo_query") or s.get("collage_queries") or
-                               fantasy_visual_kind(outline.get("title") or outline.get("topic_en") or "", s.get("title") or "", _ppt_slide_text(s))
-                               for s in outline["slides"])):
+        if with_images and not is_cardio_topic:
+            outline["_general_visual_slides"] = _ppt_apply_general_visual_coverage(outline)
+        if with_images:
             try:
                 await status.edit_text("🖼 Rasmlar tanlanmoqda (bir necha soniya)...")
             except Exception:
