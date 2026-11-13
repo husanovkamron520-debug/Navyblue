@@ -24,7 +24,8 @@ def cardiovascular_topic(topic: str) -> bool:
 def cardiovascular_visual_kind(topic: str, title: str = "", body: str = "") -> str | None:
     if not cardiovascular_topic(topic):
         return None
-    t = _fold(" ".join((topic, title, body)))
+    # Scene selection must follow the individual slide, not broad topic words like "qon tomir".
+    t = _fold(" ".join((title, body)))
     rules = [
         (("ekg", "ecg", "elektrokardi", "yurak ritm", "puls", "urish chastot"), "ecg"),
         (("arteriya", "vena", "kapillyar", "tomir devor", "qon tomir", "aorta"), "vessels"),
