@@ -23,6 +23,19 @@ class PhotographicStyleTests(unittest.TestCase):
         query = build_photorealistic_query("logistics", "Warehouse automation", "Robotic picking")
         self.assertIn("photorealistic editorial photograph", query)
 
+    def test_non_special_subjects_all_get_photo_first_queries(self):
+        topics = [
+            ("history", "Ottoman Empire", "Architecture of Istanbul"),
+            ("finance", "State budget", "Public expenditure"),
+            ("logistics", "Supply chain", "Warehouse operations"),
+            ("science", "Biology", "Cell structure"),
+        ]
+        for domain, topic, title in topics:
+            with self.subTest(domain=domain):
+                query = build_photorealistic_query(domain, topic, title)
+                self.assertIn("photorealistic editorial photograph", query)
+                self.assertIn(title, query)
+
 
 if __name__ == "__main__":
     unittest.main()
