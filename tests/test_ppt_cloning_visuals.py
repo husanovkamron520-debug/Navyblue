@@ -1,10 +1,17 @@
 import io
 import unittest
 
-from PIL import Image
-from ppt_cloning_visuals import cloning_topic, cloning_visual_kind, render_cloning_visual
+try:
+    from PIL import Image
+    from ppt_cloning_visuals import cloning_topic, cloning_visual_kind, render_cloning_visual
+    HAS_PIL = True
+except ImportError:
+    Image = None
+    cloning_topic = cloning_visual_kind = render_cloning_visual = None
+    HAS_PIL = False
 
 
+@unittest.skipUnless(HAS_PIL, "Pillow is installed in the dedicated PPTX QA workflow")
 class CloningVisualTests(unittest.TestCase):
     def test_cloning_topic_detection(self):
         self.assertTrue(cloning_topic("Klonlash: Biologik chegaralar va etika"))
