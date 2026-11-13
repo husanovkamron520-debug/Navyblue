@@ -35,7 +35,8 @@ from ppt_semantic_visuals import fantasy_visual_kind, render_fantasy_visual
 from ppt_medical_visuals import cardiovascular_topic, cardiovascular_visual_kind, render_cardiovascular_visual
 from ppt_cloning_visuals import cloning_topic, cloning_visual_kind, render_cloning_visual
 from ppt_remus_lupin_visuals import (remus_lupin_topic, remus_lupin_visual_kind,
-                                     render_remus_lupin_visual, sanitize_remus_lupin_slide)
+                                     render_remus_lupin_visual, sanitize_remus_lupin_slide,
+                                     apply_remus_lupin_visual_coverage)
 from ppt_visual_relevance import metadata_relevant, contextually_irrelevant
 from ppt_visual_qa import visual_integrity_issues, package_qa_blockers, VisualIntegrityError
 
@@ -9717,6 +9718,8 @@ async def _ppt_generate_and_send(msg, context, topic, n, with_images, author, mo
             _ppt_make_backgrounds_sync, theme, outline.get("cover_query", ""), cover_visual_kind))
         if with_images and not is_cardio_topic:
             outline["_general_visual_slides"] = _ppt_apply_general_visual_coverage(outline)
+        if with_images and remus_lupin_topic(" ".join(str(outline.get(k) or "") for k in ("_source_topic", "title", "topic_en"))):
+            outline["_remus_lupin_visual_slides"] = apply_remus_lupin_visual_coverage(outline.get("slides") or [])
         if with_images:
             try:
                 await status.edit_text("🖼 Rasmlar tanlanmoqda (bir necha soniya)...")
