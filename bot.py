@@ -41,6 +41,7 @@ from ppt_visual_relevance import metadata_relevant, contextually_irrelevant
 from ppt_visual_qa import visual_integrity_issues, package_qa_blockers, VisualIntegrityError
 from ppt_visual_director import prepare_deck_visuals
 from ppt_content_critic import critique_content
+from ppt_asset_manifest import build_asset_manifest
 
 from telegram import (
     Update,
@@ -4606,6 +4607,9 @@ async def _ppt_attach_images(outline: dict, owner_ai: bool = False):
             lupin_kind = remus_lupin_visual_kind(lupin_subject, sl.get("title") or "", _ppt_slide_text(sl))
             sl["_img"] = await asyncio.to_thread(render_remus_lupin_visual, lupin_kind)
             sl["_visual_kind"] = "remus_lupin_" + lupin_kind
+            sl["_asset"] = {"source_type": "original_generated", "generator": "Navyblue",
+                            "visual_kind": sl["_visual_kind"], "query": sl.get("title", ""),
+                            "license_status": "original_project_art"}
             credits.append(f"Original Remus Lupin illustratsiyasi: {lupin_kind} / Navyblue")
             logger.info("Remus Lupin uchun maxsus vizual: title=%r kind=%s", sl.get("title"), lupin_kind)
             return
@@ -4614,6 +4618,9 @@ async def _ppt_attach_images(outline: dict, owner_ai: bool = False):
             clone_kind = cloning_visual_kind(clone_subject, sl.get("title") or "", _ppt_slide_text(sl))
             sl["_img"] = await asyncio.to_thread(render_cloning_visual, clone_kind)
             sl["_visual_kind"] = "cloning_" + clone_kind
+            sl["_asset"] = {"source_type": "original_generated", "generator": "Navyblue",
+                            "visual_kind": sl["_visual_kind"], "query": sl.get("title", ""),
+                            "license_status": "original_project_art"}
             credits.append(f"Original biologik klonlash sxemasi: {clone_kind} / Navyblue")
             logger.info("Klonlash uchun aniq o'quv vizuali ishlatildi: title=%r kind=%s", sl.get("title"), clone_kind)
             return
@@ -4622,6 +4629,9 @@ async def _ppt_attach_images(outline: dict, owner_ai: bool = False):
         if kind:
             sl["_img"] = await asyncio.to_thread(render_fantasy_visual, kind)
             sl["_visual_kind"] = kind
+            sl["_asset"] = {"source_type": "original_generated", "generator": "Navyblue",
+                            "visual_kind": kind, "query": sl.get("title", ""),
+                            "license_status": "original_project_art"}
             credits.append(f"Original vizual: {kind.replace('_', ' ')} / Navyblue")
             logger.info("Aniq fantasy vizual ishlatildi: title=%r kind=%s", sl.get("title"), kind)
             return
@@ -4630,6 +4640,9 @@ async def _ppt_attach_images(outline: dict, owner_ai: bool = False):
                                                        sl.get("title") or "", _ppt_slide_text(sl)) or "heart"
             sl["_img"] = await asyncio.to_thread(render_cardiovascular_visual, medical_kind)
             sl["_visual_kind"] = "cardiovascular_" + medical_kind
+            sl["_asset"] = {"source_type": "original_generated", "generator": "Navyblue",
+                            "visual_kind": sl["_visual_kind"], "query": sl.get("title", ""),
+                            "license_status": "original_project_art"}
             credits.append(f"Original tibbiy sxema: {medical_kind} / Navyblue")
             logger.info("Yurak-qon tomir vizuali yaratildi: title=%r kind=%s", sl.get("title"), medical_kind)
             return
@@ -4641,6 +4654,12 @@ async def _ppt_attach_images(outline: dict, owner_ai: bool = False):
             got = await stock(query)
         if got:
             sl["_img"] = got[0]
+            sl["_asset"] = {
+                "source_type": "retrieved", "provider": got[2], "credit": got[1],
+                "query": historical_query or query,
+                "license_status": ("commons_license_checked" if "wikimedia" in str(got[2]).casefold()
+                                   else "provider_terms_not_individually_recorded"),
+            }
             credits.append(f"Rasm: {got[1] or got[2]} / {got[2]}")
             logger.info("Slayd rasmi topildi: title=%r provider=%s", sl.get("title"), got[2])
         else:
@@ -4648,15 +4667,24 @@ async def _ppt_attach_images(outline: dict, owner_ai: bool = False):
 
     async def many(sl):
         imgs = []
+        asset_records = []
         for qy in sl.get("collage_queries") or []:
             historical_query = _ppt_historical_visual_query(outline, sl)
             got = await stock(historical_query or qy, historical=bool(historical_query))
             if got:
                 imgs.append(got[0])
+                asset_records.append({
+                    "source_type": "retrieved", "provider": got[2], "credit": got[1],
+                    "query": historical_query or qy,
+                    "license_status": ("commons_license_checked" if "wikimedia" in str(got[2]).casefold()
+                                       else "provider_terms_not_individually_recorded"),
+                })
                 credits.append(f"Rasm: {got[1] or got[2]} / {got[2]}")
             else:
                 imgs.append(None)
+                asset_records.append({})
         sl["_imgs"] = imgs
+        sl["_assets"] = asset_records
 
     await asyncio.gather(
         *(one(sl) for sl in outline.get("slides", [])
@@ -4852,10 +4880,19 @@ def _ppt_fix_missing_images(outline: dict) -> int:
                 imgs.append(_ppt_fallback_visual(sl, outline, len(imgs)))
                 fixed += 1
             sl["_imgs"] = imgs[:3]
+            asset_records = list(sl.get("_assets") or [])
+            while len(asset_records) < len(sl["_imgs"]):
+                asset_records.append({"source_type": "local_fallback", "generator": "Navyblue",
+                                      "visual_kind": sl.get("_visual_kind") or "generic_fallback",
+                                      "license_status": "original_project_art"})
+            sl["_assets"] = asset_records[:len(sl["_imgs"])]
             continue
         if _ppt_valid_image(sl.get("_img")):
             continue
         sl["_img"] = _ppt_fallback_visual(sl, outline, fixed)
+        sl["_asset"] = {"source_type": "local_fallback", "generator": "Navyblue",
+                        "visual_kind": sl.get("_visual_kind") or "generic_fallback",
+                        "license_status": "original_project_art"}
         fixed += 1
     if fixed:
         outline["_img_fallback_count"] = fixed
@@ -5046,6 +5083,10 @@ def _ppt_apply_general_visual_coverage(outline: dict, target_ratio: float = 0.55
 def _ppt_finalize_images(outline: dict):
     _ppt_fix_missing_images(outline)
     _ppt_order_images(outline)
+    asset_manifest = build_asset_manifest(outline.get("slides") or [])
+    outline["_asset_manifest"] = asset_manifest
+    if asset_manifest.get("issues"):
+        logger.warning("Asset provenance/reuse critic: %s", json.dumps(asset_manifest, ensure_ascii=False))
     issues = visual_integrity_issues(outline.get("slides") or [], _PPT_IMG_LAYOUTS, _ppt_valid_image)
     if issues:
         raise VisualIntegrityError("VISUAL_INTEGRITY_GATE: " + json.dumps(issues, ensure_ascii=False))
