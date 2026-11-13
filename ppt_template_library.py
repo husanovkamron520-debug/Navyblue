@@ -140,8 +140,8 @@ def inspect_pptx(path: str | Path) -> dict:
     with zipfile.ZipFile(path) as archive:
         checked = _validate_pptx_archive(_zip_bytes(path))\n        checked.close()
         names = archive.namelist()
-        slides = sorted((n for n in names if re.fullmatch(r"ppt/slides/slide\\d+\\.xml", n)),
-                        key=lambda n: int(re.search(r"(\\d+)", n).group(1)))
+        slides = sorted((n for n in names if re.fullmatch(r"ppt/slides/slide\d+\.xml", n)),
+                        key=lambda n: int(re.search(r"(\d+)", n).group(1)))
         morph_slides = []
         image_only = 0
         slide_ns = {"p": "http://schemas.openxmlformats.org/presentationml/2006/main"}
