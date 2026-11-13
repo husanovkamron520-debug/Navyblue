@@ -9113,6 +9113,8 @@ async def _ppt_generate_and_send(msg, context, topic, n, with_images, author, mo
     status = await msg.reply_text(f"{mode_label}: «{topic[:60]}» — {n} slaydli taqdimot tayyorlanmoqda...")
     _t0 = time.monotonic()
     try:
+        # Template qidiruvi Gemini bilan parallel ishlaydi; birinchi so'rovda ham kutish kamayadi.
+        template_task = asyncio.create_task(asyncio.to_thread(_ppt_prepare_template_reference, topic, {}))
         async with ai_gate:
             if mode == "common":
                 outline = await asyncio.to_thread(_gemini_outline_sync_classic, topic, n, with_images)
@@ -9123,7 +9125,7 @@ async def _ppt_generate_and_send(msg, context, topic, n, with_images, author, mo
         _t1 = time.monotonic()
         # Tashqi litsenziyalangan dizayn namunasini mavzuga mos tanlaymiz.
         # Bu faqat dizayn/rang referensi: begona matn, logo va rasmlar ko'chirilmaydi.
-        template_reference = await asyncio.to_thread(_ppt_prepare_template_reference, topic, outline)
+        template_reference = await template_task
         if template_reference:
             outline["_template_reference"] = template_reference
             logger.info("PPT template reference: %s | %s | Morph source=%s",
