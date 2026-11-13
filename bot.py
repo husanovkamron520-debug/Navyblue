@@ -2891,6 +2891,8 @@ def _ppt_s(v, limit):
     if len(value) <= limit:
         return value
     cut = value[:max(1, limit - 1)].rsplit(" ", 1)[0].rstrip(",;:-—")
+    if cut and re.search(r"\d[\d,.]*$", cut):
+        return cut
     return (cut + "…") if cut else value.split(" ", 1)[0]
 
 
@@ -4743,7 +4745,7 @@ def _ppt_clip(text, limit):
     if 12 <= len(first) <= limit:
         return first
     cut = t[:limit].rsplit(" ", 1)[0].rstrip(",;:-—")
-    return cut + "…"
+    return cut if re.search(r"\d[\d,.]*$", cut) else cut + "…"
 
 
 def _ppt_stepper_labels(data):
