@@ -1,0 +1,39 @@
+name: PPTX rendered-slide QA
+
+on:
+  push:
+    branches: ["main", "feature/**"]
+  pull_request:
+    branches: ["main"]
+  workflow_dispatch:
+
+jobs:
+  rendered-slide-qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install headless renderers and fonts
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libreoffice-impress poppler-utils fonts-liberation fonts-noto-core
+      - name: Install Python dependencies
+        run: python -m pip install "python-pptx==1.0.2" "Pillow>=9"
+      - name: Run rendered QA unit tests
+        run: python -m unittest tests.test_pptx_render_qa -v
+      - name: Generate six-domain renderer fixtures
+        run: python tests/create_render_fixtures.py render-fixtures
+      - name: Render every slide to PNG and run visual preflight
+        run: |
+          python pptx_render_qa.py --input render-fixtures/medicine.pptx render-fixtures/history.pptx render-fixtures/biology.pptx render-fixtures/fiction.pptx render-fixtures/economics.pptx render-fixtures/logistics.pptx --output-dir rendered-qa --dpi 120
+      - name: Upload PNG contact sheets and machine-readable reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: navyblue-rendered-slide-qa
+          path: rendered-qa/
+          if-no-files-found: warn
+          retention-days: 14
