@@ -237,7 +237,7 @@ def apply_remus_lupin_visual_coverage(slides) -> int:
             continue
         body = str(slide.get("text") or slide.get("body") or "").strip()
         if not body:
-            body = re.sub(r"\\s+", " ", " · ".join(collect(slide))).strip()
+            body = re.sub(r"\s+", " ", " · ".join(collect(slide))).strip()
         if not body:
             continue
         slide["text"] = body[:1800]
