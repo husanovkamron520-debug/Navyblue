@@ -1,16 +1,26 @@
 import io
 import unittest
 
-from PIL import Image
-
-from ppt_remus_lupin_visuals import (
-    remus_lupin_topic, remus_lupin_visual_kind,
-    render_remus_lupin_visual, sanitize_remus_lupin_slide,
-    apply_remus_lupin_visual_coverage,
-)
+try:
+    from PIL import Image
+except ImportError:
+    Image = None
 
 
+@unittest.skipIf(Image is None, "Pillow is installed in the dedicated PPTX QA workflow")
 class RemusLupinVisualTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        from ppt_remus_lupin_visuals import (
+            remus_lupin_topic, remus_lupin_visual_kind,
+            render_remus_lupin_visual, sanitize_remus_lupin_slide,
+            apply_remus_lupin_visual_coverage,
+        )
+        cls.remus_lupin_topic = staticmethod(remus_lupin_topic)
+        cls.remus_lupin_visual_kind = staticmethod(remus_lupin_visual_kind)
+        cls.render_remus_lupin_visual = staticmethod(render_remus_lupin_visual)
+        cls.sanitize_remus_lupin_slide = staticmethod(sanitize_remus_lupin_slide)
+        cls.apply_remus_lupin_visual_coverage = staticmethod(apply_remus_lupin_visual_coverage)
     def test_topic_detection(self):
         self.assertTrue(remus_lupin_topic("Remus Lupin: O'tmish soyasidagi jasorat"))
         self.assertTrue(remus_lupin_topic("Professor Lupin"))
