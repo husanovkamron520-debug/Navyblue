@@ -24,7 +24,7 @@ def _fold(value):
 
 def _content(slide):
     parts = []
-    for key in ("text", "body", "final", "quote", "context", "notes", "story_beat"):
+    for key in ("text", "body", "final", "quote", "context"):
         value = slide.get(key)
         if isinstance(value, str):
             parts.append(value)
@@ -72,7 +72,7 @@ def critique_content(topic, slides):
             issues.append({"slide": number, "severity": "low", "code": "generic_title",
                            "message": "Sarlavha mavzuga xos emas", "action": "Obyekt, davr, mexanizm yoki topilmani aniq nomla"})
         if _METRIC_RE.search(body) and not any(
-            marker in _fold(" ".join(str(slide.get(k) or "") for k in ("source", "source_note", "citation", "manba", "notes")))
+            marker in _fold(" ".join(str(slide.get(k) or "") for k in ("source", "source_note", "citation", "manba", "references")))
             for marker in ("source", "manba", "citation", "havola", "official", "rasmiy")
         ):
             issues.append({"slide": number, "severity": "medium", "code": "unverified_metric",
