@@ -65,7 +65,11 @@ def render_fantasy_visual(kind, width=1600, height=900):
         cx,apex,base=w//2,int(h*.19),int(h*.82)
         left,right=int(w*.29),int(w*.71)
         gold=(224,194,125,255)
-        d.ellipse((cx-260,int(h*.50)-260,cx+260,int(h*.50)+260),outline=gold,width=10)
+        # Incircle radius from the triangle's actual geometry (not an oversized outer circle).
+        side=((cx-left)**2 + (base-apex)**2) ** 0.5
+        radius=int((0.5*(right-left)*(base-apex)) / (0.5*((right-left)+2*side)))
+        cy=base-radius
+        d.ellipse((cx-radius,cy-radius,cx+radius,cy+radius),outline=gold,width=10)
         d.line((cx,apex,cx,base+18),fill=gold,width=12)
         d.line((cx,apex,left,base),fill=gold,width=12)
         d.line((left,base,right,base),fill=gold,width=12)
