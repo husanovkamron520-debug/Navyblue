@@ -4345,7 +4345,7 @@ def _ppt_find_photo_sync(query: str, anchor: str, used: set):
     if not (query or anchor or "").strip():
         return None
     an = _kw_stems(anchor)
-    qtext = ((query or "") + " " + (anchor or "")).lower()
+    qtext = (anchor or "").lower()  # unrelated generated query terms must not whitelist bad stock-photo tags
     # Topic anchor always leads. A generated slide-level photo_query can be wrong
     # (e.g. a modern office for an Ottoman history slide), so never search it alone
     # when it has no meaningful overlap with the presentation topic.
