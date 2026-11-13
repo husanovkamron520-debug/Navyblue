@@ -29,6 +29,8 @@ import museum
 import supply_chain
 from ppt_media_sources import find_commons_photo
 from ppt_story_engine import STORY_ROLES, build_story_guidance, infer_story_role, story_quality_report, enforce_story_quality
+from pptx_package_qa import inspect_pptx_bytes
+from ppt_template_library import choose_design_reference, download_design_reference, inspect_pptx as inspect_template_pptx
 
 from telegram import (
     Update,
@@ -9178,6 +9180,13 @@ async def _ppt_generate_and_send(msg, context, topic, n, with_images, author, mo
             outline.setdefault("_credits", []).append(bg_credit)
         async with _cpu_gate:   # bir vaqtda 2 tadan ortiq og'ir fayl yig'ilmasin (Render CPU'si kam)
             data = await asyncio.to_thread(_build_pptx_bytes_classic if mode == "common" else _build_pptx_bytes, outline)
+        package_qa = await asyncio.to_thread(
+            inspect_pptx_bytes, data, len(outline.get("slides", [])) + 1
+        )
+        outline.setdefault("_qa", {})["package"] = package_qa
+        if package_qa.get("warnings"):
+            outline["_qa"].setdefault("warnings", []).extend(package_qa["warnings"])
+        logger.info("PPTX package QA: %s", json.dumps(package_qa, ensure_ascii=False))
         _t2 = time.monotonic()
     except ImportError:
         logger.exception("python-pptx topilmadi")
@@ -9219,6 +9228,8 @@ async def _ppt_generate_and_send(msg, context, topic, n, with_images, author, mo
                   if qa and mode != "common" else "")
                + (f"\n📖 Storytelling: {qa.get('story_roles', 0)} xil hikoya bosqichi"
                   if qa and mode != "common" else "")
+               + (f"\n🧪 Paket QA: {qa['package'].get('slides', 0)} slayd, {qa['package'].get('bytes', 0) // 1024} KB, Morph: {qa['package'].get('morph_slides', 0)} slayd"
+                  if qa.get("package") else "")
                + (("\n⚠️ QA: " + "; ".join(qa.get("warnings", [])[:2]))
                   if qa and qa.get("warnings") else ""))
     # Telegram caption chegarasi 1024 belgi — oshsa BadRequest bo'ladi, shuning uchun qisqartiramiz.
