@@ -23,6 +23,7 @@ class PPTXPackageQATests(unittest.TestCase):
         report = inspect_pptx_bytes(sample_deck(), expected_slides=2)
         self.assertTrue(report["valid"])
         self.assertEqual(report["slides"], 2)
+        self.assertEqual(len(report["empty_slides"]), 1)
 
     def test_rejects_invalid_bytes(self):
         with self.assertRaises(PPTXPackageError):
