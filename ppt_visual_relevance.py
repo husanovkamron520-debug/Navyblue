@@ -45,4 +45,5 @@ def contextually_irrelevant(context: str, metadata: str) -> bool:
     context_terms = _tokens(context)
     if not (context_terms & _BIOLOGY_CONTEXT):
         return False
-    return bool(_tokens(metadata) & _BIOLOGY_FALSE_POSITIVES)
+    # Do not block a subject explicitly requested by the slide (e.g. beetle biology).
+    return bool((_tokens(metadata) & _BIOLOGY_FALSE_POSITIVES) - context_terms)
