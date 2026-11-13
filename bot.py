@@ -9143,6 +9143,8 @@ async def _ppt_generate_and_send(msg, context, topic, n, with_images, author, mo
                   if qa and mode != "common" else "")
                + (f"\n📖 Storytelling: {qa.get('story_roles', 0)} xil hikoya bosqichi"
                   if qa and mode != "common" else "")
+               + (f"\n🧪 Paket QA: {qa['package'].get('slides', 0)} slayd, {qa['package'].get('bytes', 0) // 1024} KB, Morph: {qa['package'].get('morph_slides', 0)} slayd"
+                  if qa.get("package") else "")
                + (("\n⚠️ QA: " + "; ".join(qa.get("warnings", [])[:2]))
                   if qa and qa.get("warnings") else ""))
     # Telegram caption chegarasi 1024 belgi — oshsa BadRequest bo'ladi, shuning uchun qisqartiramiz.
