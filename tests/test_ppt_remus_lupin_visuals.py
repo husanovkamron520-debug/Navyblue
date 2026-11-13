@@ -40,7 +40,7 @@ class RemusLupinVisualTests(unittest.TestCase):
         slide = {"layout":"stats","title":"Feniks ordenidagi hissasi",
                  "stats":[{"label":"Fidoyilik darajasi","value":"100%"}]}
         self.assertTrue(sanitize_remus_lupin_slide(slide))
-        self.assertEqual(slide["layout"], "editorial")
+        self.assertEqual(slide["layout"], "image_text")
         self.assertNotIn("stats", slide)
         self.assertNotIn("100%", slide["text"])
 
