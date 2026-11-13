@@ -5090,6 +5090,7 @@ def _ppt_visual_critic_sync(contact_sheets, slides):
     if not ai_client:
         return {"status": "skipped", "reason": "Gemini client is unavailable", "issues": []}
     issues, scores, errors = [], [], []
+    reviewed = 0
     for sheet in (contact_sheets or [])[:2]:
         start = int(sheet.get("start_slide") or 1)
         end = int(sheet.get("end_slide") or start)
@@ -5136,6 +5137,7 @@ def _ppt_visual_critic_sync(contact_sheets, slides):
             parsed = _json_loads_loose(getattr(response, "text", "") or "")
             if not isinstance(parsed, dict):
                 raise ValueError("Visual critic returned invalid JSON")
+            reviewed += 1
             score = parsed.get("overall_score")
             if isinstance(score, (int, float)):
                 scores.append(max(0, min(100, int(score))))
@@ -5163,7 +5165,7 @@ def _ppt_visual_critic_sync(contact_sheets, slides):
             logger.warning("Multimodal visual critic failed for slides %s-%s: %s", start, end, exc)
     return {
         "status": "reviewed" if scores or issues else ("error" if errors else "skipped"),
-        "sheets_reviewed": len(scores) + (1 if issues and not scores else 0),
+        "sheets_reviewed": reviewed,
         "overall_score": round(sum(scores) / len(scores)) if scores else None,
         "issues": issues,
         "errors": errors,
