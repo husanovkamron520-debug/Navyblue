@@ -14,18 +14,16 @@ from collections import Counter
 from ppt_story_engine import classify_archetype, infer_story_role
 
 SUPPORTED_COMPOSITIONS = {
-    "map": ("map_route", "editorial_split", "magazine_spread"),
-    "timeline": ("timeline", "cinematic_frame", "editorial_rows", "magazine_spread"),
-    "data": ("data_dashboard", "data_focus", "metric_wall", "editorial_split"),
-    "comparison": ("comparison_duel", "swiss_modular", "magazine_spread", "asym_grid"),
-    "process": ("process_lane", "isometric_exploded", "funnel_steps", "editorial_split"),
-    "relationship": ("orbit_system", "radial_network", "editorial_split", "card_mosaic"),
-    "formula": ("oversized_numeral", "swiss_column", "editorial_split"),
-    "scientific_illustration": ("image_dominant", "editorial_split", "layered"),
-    "subject_illustration": ("cinematic_frame", "magazine_spread", "photo_triptych"),
-    "place_illustration": ("cinematic_panorama", "image_dominant", "editorial_split"),
-    "typography": ("typographic_poster", "negative_space", "editorial_masthead"),
-    "photo": ("editorial_split", "asym_grid", "magazine_spread", "cinematic_frame"),
+    "editorial_split", "asym_grid", "full_bleed", "modular", "timeline", "radial",
+    "data_focus", "comparison", "typographic", "layered", "swiss_column", "swiss_modular",
+    "editorial_masthead", "editorial_pullquote", "magazine_spread", "split_caption",
+    "asymmetric_caption", "image_dominant", "photo_triptych", "photo_diptych",
+    "cinematic_panorama", "cinematic_frame", "brutalist_type", "oversized_numeral",
+    "metric_wall", "data_dashboard", "data_waterfall", "data_lollipop", "map_route",
+    "typographic_poster", "data_slopegraph", "process_lane", "swimlane", "isometric_stack",
+    "isometric_exploded", "radial_network", "orbit_system", "matrix_priority", "funnel_steps",
+    "comparison_duel", "card_stack", "card_mosaic", "grid_manifesto", "negative_space",
+    "editorial_rows", "asym_cards",
 }
 
 
@@ -128,12 +126,12 @@ def _visual_kind(slide, topic):
 
 
 _COMPOSITIONS = {
-    "map": ("map_caption", "editorial_split", "image_dominant"),
-    "timeline": ("timeline", "editorial_rows", "magazine_spread"),
-    "data": ("data_dashboard", "data_focus", "editorial_split"),
-    "comparison": ("comparison_duel", "swiss_column", "asym_grid"),
-    "process": ("process_lane", "isometric_stack", "swimlane"),
-    "relationship": ("orbit_system", "matrix_priority", "editorial_rows"),
+    "map": ("map_route", "editorial_split", "magazine_spread"),
+    "timeline": ("timeline", "cinematic_frame", "editorial_rows", "magazine_spread"),
+    "data": ("data_dashboard", "data_focus", "metric_wall", "editorial_split"),
+    "comparison": ("comparison_duel", "swiss_modular", "magazine_spread", "asym_grid"),
+    "process": ("process_lane", "isometric_exploded", "funnel_steps", "editorial_split"),
+    "relationship": ("orbit_system", "radial_network", "editorial_split", "card_mosaic"),
     "formula": ("oversized_numeral", "swiss_column", "editorial_split"),
     "scientific_illustration": ("image_dominant", "editorial_split", "layered"),
     "subject_illustration": ("cinematic_frame", "magazine_spread", "photo_triptych"),
