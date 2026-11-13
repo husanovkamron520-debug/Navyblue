@@ -4875,17 +4875,21 @@ def _ppt_fix_missing_images(outline: dict) -> int:
         if lay not in _PPT_IMG_LAYOUTS:
             continue
         if lay == "collage":
-            imgs = [x for x in (sl.get("_imgs") or []) if _ppt_valid_image(x)]
+            raw_imgs = list(sl.get("_imgs") or [])
+            raw_assets = sl.get("_assets") if isinstance(sl.get("_assets"), list) else []
+            imgs, asset_records = [], []
+            for image_index, image in enumerate(raw_imgs):
+                if _ppt_valid_image(image):
+                    imgs.append(image)
+                    asset_records.append(raw_assets[image_index] if image_index < len(raw_assets) else {})
             while len(imgs) < 3:
                 imgs.append(_ppt_fallback_visual(sl, outline, len(imgs)))
-                fixed += 1
-            sl["_imgs"] = imgs[:3]
-            asset_records = list(sl.get("_assets") or [])
-            while len(asset_records) < len(sl["_imgs"]):
                 asset_records.append({"source_type": "local_fallback", "generator": "Navyblue",
                                       "visual_kind": sl.get("_visual_kind") or "generic_fallback",
                                       "license_status": "original_project_art"})
-            sl["_assets"] = asset_records[:len(sl["_imgs"])]
+                fixed += 1
+            sl["_imgs"] = imgs[:3]
+            sl["_assets"] = asset_records[:3]
             continue
         if _ppt_valid_image(sl.get("_img")):
             continue
