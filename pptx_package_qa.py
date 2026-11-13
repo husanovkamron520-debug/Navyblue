@@ -107,13 +107,13 @@ def inspect_pptx_bytes(data: bytes, expected_slides: int | None = None) -> dict:
                         # This is a warning-only heuristic: it must never reject a deck.
                         if len(paragraph_text) >= 28:
                             trimmed = paragraph_text.rstrip()
-                            if re.search(r"(?:…|\\.{3,})\\s*$", trimmed):
+                            if re.search(r"(?:…|\.{3,})\s*$", trimmed):
                                 truncated_text_blocks.append({
                                     "slide": slide_name, "reason": "ellipsis", "text": trimmed[:160]
                                 })
                             elif re.search(
-                                r"\\b(?:va|hamda|yoki|ammo|lekin|bilan|uchun|orqali|"
-                                r"and|or|but|with|for|of|to)\\s*[,:;]?\\s*$",
+                                r"\b(?:va|hamda|yoki|ammo|lekin|bilan|uchun|orqali|"
+                                r"and|or|but|with|for|of|to)\s*[,:;]?\s*$",
                                 trimmed, re.IGNORECASE
                             ):
                                 truncated_text_blocks.append({
