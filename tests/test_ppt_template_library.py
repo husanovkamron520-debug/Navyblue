@@ -13,6 +13,24 @@ class TemplateLibraryTests(unittest.TestCase):
         self.assertEqual(selected["use"], "design_reference_only")
         self.assertTrue(selected["license_verified_from_source_license"])
 
+    def test_selects_medical_reference_from_category_tags(self):
+        catalog = [
+            {"slug": "general", "title": "Clean General Slides", "tags": ["General Purpose"], "pptx_url": "https://cdn.ppttemplate.ai/a.pptx"},
+            {"slug": "clinical", "title": "Clinical Anatomy Education", "tags": ["Medical & Health", "Biology"], "pptx_url": "https://cdn.ppttemplate.ai/b.pptx"},
+        ]
+        selected = choose_design_reference("Cardiovascular anatomy", "medical_education", catalog)
+        self.assertEqual(selected["slug"], "clinical")
+        self.assertEqual(selected["use"], "design_reference_only")
+
+    def test_template_choice_is_stable_for_same_topic(self):
+        catalog = [
+            {"slug": "blue", "title": "Blue Business Strategy", "tags": ["Business"], "pptx_url": "https://cdn.ppttemplate.ai/a.pptx"},
+            {"slug": "green", "title": "Green Business Strategy", "tags": ["Business"], "pptx_url": "https://cdn.ppttemplate.ai/b.pptx"},
+        ]
+        first = choose_design_reference("Supply chain", "process_system", catalog)
+        second = choose_design_reference("Supply chain", "process_system", catalog)
+        self.assertEqual(first["slug"], second["slug"])
+
     def test_guidance_does_not_claim_morph_without_inspection(self):
         item = {"title": "Academic Theme"}
         guidance = build_template_guidance("Research", "research_evidence", item, {"has_morph": False})
