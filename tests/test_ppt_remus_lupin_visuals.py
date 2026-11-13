@@ -6,6 +6,7 @@ from PIL import Image
 from ppt_remus_lupin_visuals import (
     remus_lupin_topic, remus_lupin_visual_kind,
     render_remus_lupin_visual, sanitize_remus_lupin_slide,
+    apply_remus_lupin_visual_coverage,
 )
 
 
@@ -34,6 +35,21 @@ class RemusLupinVisualTests(unittest.TestCase):
         self.assertEqual(slide["layout"], "editorial")
         self.assertNotIn("stats", slide)
         self.assertNotIn("100%", slide["text"])
+
+
+    def test_visual_coverage_promotes_text_only_slides(self):
+        slides = [
+            {"layout":"plain_text","title":"Remusning bolaligi","text":"U yoshligidan likantropiya bilan yashagan."},
+            {"layout":"stats","title":"Feniks ordenidagi hissasi",
+             "stats":[{"label":"Fidoyilik","value":"100%"}]},
+            {"layout":"references","title":"Manbalar","text":"Kitoblar"},
+        ]
+        changed = apply_remus_lupin_visual_coverage(slides)
+        self.assertEqual(changed, 1)
+        self.assertEqual(slides[0]["layout"], "image_text")
+        self.assertEqual(slides[1]["layout"], "image_text")
+        self.assertEqual(slides[2]["layout"], "references")
+        self.assertNotIn("100%", slides[1]["text"])
 
     def test_normal_narrative_preserved(self):
         slide = {"layout":"editorial","title":"Hayoti","text":"U Hogwartsda dars bergan."}
