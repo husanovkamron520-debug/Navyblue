@@ -19,8 +19,12 @@ class VisualIntegrityTests(unittest.TestCase):
         self.assertEqual(visual_integrity_issues(slides, {"image_text", "collage"}, lambda value: isinstance(value, bytes)), [])
 
     def test_empty_serialized_slides_block_delivery(self):
-        self.assertEqual(package_qa_blockers({"empty_slides": ["ppt/slides/slide4.xml"]}), ["ppt/slides/slide4.xml"])
+        self.assertEqual(package_qa_blockers({"empty_slides": ["ppt/slides/slide4.xml"]}), ["empty slide: ppt/slides/slide4.xml"])
         self.assertEqual(package_qa_blockers({"empty_slides": [], "warnings": ["text fit"]}), [])
+        self.assertEqual(package_qa_blockers({"numeric_truncations": [{"slide": "slide2"}]}), ["numeric truncation: slide2"])
+        self.assertEqual(package_qa_blockers({"truncated_text_blocks": [{"slide": "slide3", "reason": "dangling_connector"}]}), ["unfinished sentence: slide3"])
+        self.assertEqual(package_qa_blockers({"text_fit_warnings": [{"slide": "slide1", "estimated_height_pt": 100, "available_height_pt": 50}]}), ["severe text overflow: slide1"])
+        self.assertEqual(package_qa_blockers({"text_fit_warnings": [{"slide": "slide1", "estimated_height_pt": 60, "available_height_pt": 50}]}), [])
 
 
 if __name__ == "__main__":
