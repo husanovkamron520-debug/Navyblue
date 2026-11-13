@@ -4255,6 +4255,7 @@ def _ppt_historical_visual_query(outline: dict, sl: dict):
 _PPT_BAD_TAGS = {
     "portrait", "face", "faces", "makeup", "beauty", "fashion", "model", "selfie", "costume", "mask", "halloween",
     "witch", "fantasy", "cosplay", "doll", "tattoo", "bikini", "lingerie", "cartoon", "painting", "drawing",
+    "vector", "anime", "manga", "comic", "comics", "flat", "sticker", "storybook", "2d", "sketch",
     "abstract", "wallpaper", "texture", "pattern", "background", "architecture", "historic", "historical",
     "facade", "brick", "bricks", "speicherstadt", "hamburg", "castle", "church", "monument", "statue", "vintage",
     "retro", "antique", "illustration", "clipart", "icon", "dragon", "goblin", "elf", "wizard", "magic",
