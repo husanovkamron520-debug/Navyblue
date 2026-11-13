@@ -2,6 +2,7 @@ import unittest
 
 from ppt_visual_director import (
     apply_visual_direction,
+    SUPPORTED_COMPOSITIONS,
     build_visual_direction_guidance,
     build_visual_manifest,
     critique_visual_manifest,
@@ -44,6 +45,24 @@ class UniversalVisualDirectorTests(unittest.TestCase):
         manifest = build_visual_manifest("Umumiy mavzu", slides)
         warnings = critique_visual_manifest(manifest)
         self.assertTrue(any(x["code"] == "visual_type_overuse" for x in warnings))
+
+    def test_all_selected_compositions_are_renderer_supported(self):
+        slides = [
+            {"title": "Map of regions", "text": "Geographic distribution", "layout": "map"},
+            {"title": "Chronology", "text": "Timeline of events", "layout": "timeline"},
+            {"title": "Process flow", "text": "Stages of the process", "layout": "chain"},
+            {"title": "Comparison", "text": "Compare two models", "layout": "compare"},
+            {"title": "Quote", "text": "A key statement", "layout": "quote"},
+            {"title": "Text explanation", "text": "A concise definition", "layout": "plain_text"},
+        ]
+        manifest = build_visual_manifest("Universal topic", slides)
+        self.assertTrue(all(x["composition"] in SUPPORTED_COMPOSITIONS for x in manifest["slides"]))
+
+    def test_plain_text_slide_is_not_automatically_assigned_a_stock_photo(self):
+        slides = [{"title": "Definition", "text": "A short definition", "layout": "plain_text"}]
+        manifest = build_visual_manifest("General topic", slides)
+        self.assertEqual(manifest["slides"][0]["visual_type"], "typography")
+        self.assertFalse(manifest["slides"][0]["requires_external_asset"])
 
     def test_apply_returns_manifest_and_warnings_without_losing_slides(self):
         slides = [{"title": "Supply chain", "text": "Process flow", "layout": "chain"}]
