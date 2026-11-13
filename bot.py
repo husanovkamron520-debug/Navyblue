@@ -27,6 +27,7 @@ from difflib import SequenceMatcher
 from http.server import BaseHTTPRequestHandler, HTTPServer, ThreadingHTTPServer
 import museum
 import supply_chain
+from ppt_media_sources import find_commons_photo
 from ppt_story_engine import STORY_ROLES, build_story_guidance, infer_story_role, story_quality_report, enforce_story_quality
 
 from telegram import (
@@ -2750,6 +2751,31 @@ PIXABAY_API_KEY = (os.environ.get("PIXABAY_API_KEY") or "").strip()
 UNSPLASH_ACCESS_KEY = (os.environ.get("UNSPLASH_ACCESS_KEY") or "").strip()
 PPT_BODY_FONT = "Arial"
 
+# Mavzu kayfiyatiga mos, keng tarqalgan PowerPoint shrift juftliklari.
+# Mavjud temadagi tfont/bfont aniq berilgan bo'lsa, u ustun turadi.
+PPT_FONT_PAIRS = {
+    "neon": ("Bahnschrift", "Arial"),
+    "aurora": ("Aptos Display", "Aptos"),
+    "light": ("Arial", "Arial"),
+    "corporate": ("Aptos Display", "Aptos"),
+    "sunset": ("Georgia", "Arial"),
+    "forest": ("Georgia", "Calibri"),
+    "swiss": ("Arial", "Arial"),
+    "editorial": ("Georgia", "Arial"),
+    "brutal": ("Bahnschrift", "Arial"),
+    "luxury": ("Georgia", "Arial"),
+    "navy": ("Bahnschrift", "Calibri"),
+    "glass": ("Aptos Display", "Arial"),
+    "retro": ("Courier New", "Arial"),
+    "organic": ("Georgia", "Calibri"),
+    "lux_gold": ("Georgia", "Aptos"),
+    "tech_emerald": ("Bahnschrift", "Aptos"),
+    "white_glass": ("Aptos Display", "Aptos"),
+    "coral_energy": ("Trebuchet MS", "Arial"),
+    "royal_violet": ("Aptos Display", "Calibri"),
+    "ruby_rose": ("Georgia", "Aptos"),
+}
+
 
 def _parse_ppt_request(raw: str):
     """'mavzu | 8 slayd' -> (mavzu, 8). Son yozilmasa (mavzu, None)."""
@@ -2784,7 +2810,7 @@ def _ppt_outline_prompt(topic: str, n: int, with_images: bool) -> str:
         "STORYTELLING: qat'iy bitta ketma-ketlikka yopishma; har slaydga mavzuga mos story_role va story_beat yoz. Sarlavhalar konkret bo'lsin, umumiy qolipni takrorlama.\n"
         "PROFESSIONAL COMPOSITION CATALOG: kengaytirilgan profil katalogidan mavzuga mosini tanla: editorial_split, asym_grid, full_bleed, modular, timeline, radial, data_focus, comparison, typographic, layered, swiss_column, swiss_modular, editorial_masthead, editorial_pullquote, magazine_spread, split_caption, asymmetric_caption, image_dominant, photo_triptych, photo_diptych, cinematic_panorama, cinematic_frame, brutalist_type, oversized_numeral, metric_wall, data_dashboard, data_waterfall, data_lollipop, data_slopegraph, process_lane, swimlane, isometric_stack, isometric_exploded, radial_network, map_route, typographic_poster, network_graph, waterfall, quote_stage, editorial_rows, asym_cards. Bir slaydda bitta asosiy fokus; ketma-ket profilni takrorlama.\n"
         "YANGI VIZUAL TURLAR: waterfall {steps:[4-7 ta {label,value,kind:delta|total}]} — qiymatlar bosqichma-bosqich o'zgarishi va yakuniy jami; swimlane {lanes:[2-4 ta {label,steps:[2-4 ta {label,detail}]}]} — bo'limlar kesimida jarayon; network {nodes:[4-7 ta {label,detail}],links:[{from:index,to:index,label}]} — faqat asoslangan aloqalarni chiz; quote {quote,attribution,source,context} — faqat tekshiriladigan, manbasi ko'rsatilgan iqtibos. Uydirma iqtibos yoki bog'lanish yasama. Chart chart_type: donut|bar|line|area|bar_horizontal|radar|stacked_bar. Multi-series uchun series:[{name,values}] va data_note maydonlarini qo'sh; values uzunligi data kategoriyalari bilan bir xil bo'lsin.\n"
-        "MAP va ISOMETRIC: geografik ma'lumot aniq bo'lmasa haqiqiy xarita da'vo qilma; 'map' faqat konseptual marshrut sxemasi, 4-6 ta node va ketma-ket bog'lanishlar uchun. 'isometric' 3-5 bosqichli tizim/ta'minot/ishlab chiqarish oqimi uchun.\n"
+        "MAP va 3D: geografik ma'lumot aniq bo'lmasa haqiqiy xarita da'vo qilma; 'map' faqat tekshirilgan xarita yoki konseptual marshrut sxemasi uchun. 'isometric' 3-5 bosqichli tizim, ombor, ishlab chiqarish, logistika yoki ta'minot oqimida mos bo'lsa tanla; kub shaklli obyektlar, qatlamlar, chuqurlik va izometrik joylashuvdan foydalan. Isometric composition uchun isometric_stack yoki isometric_exploded tanla. 3D ni bezak uchun emas, mazmunni fazoviy tushuntirish uchun ishlat.\n"
         "MULTI-SERIES CHART: faqat bir nechta guruhni qiyoslash kerak bo'lsa series[{name,values}] ishlat; har bir values massivida data label sonicha raqam bo'lsin. data_note da aniq manba yoki 'namunaviy ma'lumot' deb yoz. Diagrammani manbasiz haqiqiy statistika sifatida ko'rsatma.\n"
          "MULTI-SERIES CHART: faqat bir nechta guruhni qiyoslash kerak bo'lsa series[{name,values}] ishlat; har bir values massivida data label sonicha raqam bo'lsin. data_note da aniq manba yoki 'namunaviy ma'lumot' deb yoz. Diagrammani manbasiz haqiqiy statistika sifatida ko'rsatma.\n"
          "SLIDE DESIGN BLUEPRINT (har bir slaydga alohida): layout bilan birga 'visual_focus' (2-8 so'z), 'visual_type' (photo|diagram|chart|timeline|map|table|typography|cards|matrix|none), 'composition' (36-profile catalog above), 'hierarchy' ({'primary':'asosiy sarlavha/vizual','secondary':'ikkinchi darajali izoh','support':'yordamchi ma'lumot'}), 'density' (low|medium|high), 'motion_reason' (qisqa sabab) maydonlarini qaytar. Bu maydonlar mazmunga mos bo'lsin; xarita yoki aniq geografik ma'lumot bo'lmasa map tanlama; haqiqiy statistika bo'lmasa chartni fakt sifatida ko'rsatma. Har slaydda bitta asosiy vizual fokus bo'lsin.\n"
@@ -2818,7 +2844,7 @@ def _ppt_outline_prompt(topic: str, n: int, with_images: bool) -> str:
         '21) "closing": {"title":"asosiy xulosa (qisqa)","text":"2-3 gap","takeaways":[3 ta {"head":"2-5 so\'z","text":"8-16 so\'z"}],"final":"yakuniy fikr yoki savol (1 gap)"} — oxirgi slayd.\n\n'
         '22) "editorial": {"title","kicker","text":"40-70 so\'z","side_note","pull_quote"} — jurnal uslubidagi asimmetrik tipografik kompozitsiya.\n'
         '23) "image_story": {"title","text":"25-45 so\'z","kicker","photo_query":"INGLIZCHA 1 gap","photo_query":"INGLIZCHA 2-4 so\'z"} — katta foto va qatlamli editorial panel.\n\n'
-        '24) "map": {"title","nodes":[4-6 ta {"label":"marshrut nuqtasi","detail":"qisqa izoh"}],"text":"izoh"} — konseptual marshrut sxemasi; aniq koordinata bo\'lmasa geografik xarita deb ko\'rsatma.\n'
+        '24) "map": {"title","map_query":"ENGLISH place or region map search","nodes":[4-6 ta {"label":"marshrut nuqtasi","detail":"qisqa izoh"}],"text":"izoh"} — Joy nomlari berilganida xarita rasmini qidir; koordinata yoki xarita tekshirilmagan holatda marshrutni geografik jihatdan aniq deb talqin qilma.\n'
         '25) "isometric": {"title","stages":[3-5 ta {"label":"jarayon bosqichi","text":"qisqa izoh"}],"text":"izoh"} — izometrik tizim yoki ta\'minot zanjiri diagrammasi.\n\n'
         'PREMIUM V8 YANGI MAKETLAR (mazmunga mos kelsagina ishlat):\n'
         '26) "bento": {"title","hero":{"value":"ixtiyoriy katta raqam","head":"2-5 so\'z","text":"15-30 so\'z"},"cards":[3-4 ta {"head":"2-4 so\'z","text":"10-22 so\'z","icon"}]} — Bento Grid: bitta katta Hero blok + kichik kartochkalar.\n'
@@ -2969,6 +2995,7 @@ def _sanitize_outline(data, topic: str, n: int, with_images: bool) -> dict:
         out["story_role"] = story_role if story_role in story_roles else ""
         out["story_beat"] = _ppt_s(s.get("story_beat"), 180)
         pquery = _ppt_s(s.get("photo_query"), 80)
+        map_query = _ppt_s(s.get("map_query"), 80)
         if lay == "collage":
             qs = [_ppt_s(x, 80) for x in (s.get("collage_queries") or []) if _ppt_s(x, 80)][:3]
             if with_images and len(qs) == 3 and img_count + 3 <= img_cap:
@@ -2982,6 +3009,9 @@ def _sanitize_outline(data, topic: str, n: int, with_images: bool) -> dict:
             if with_images and pquery and img_count < img_cap:
                 out["photo_query"] = pquery
                 img_count += 1
+        elif lay == "map" and with_images and map_query and img_count < img_cap:
+            out["map_query"] = map_query
+            img_count += 1
         if lay == "agenda":
             items = [_ppt_s(x, 90) for x in (s.get("items") or []) if _ppt_s(x, 90)][:4]
             if len(items) < 2:
@@ -4144,7 +4174,7 @@ def _ppt_stage_of(spec: dict, idx: int, total: int, n_stages: int = 4) -> int:
 
 
 # ---------------------------- Rasm tanlash: mavzuga aniq mos ----------------------------
-_PPT_IMG_LAYOUTS = {"image_text", "text_image", "split", "image_story", "hero", "banner_cards", "collage"}
+_PPT_IMG_LAYOUTS = {"image_text", "text_image", "split", "image_story", "hero", "banner_cards", "collage", "map"}
 
 
 
@@ -4269,8 +4299,7 @@ _PPT_STOCK_USED_LOCK = threading.Lock()
 
 
 def _ppt_find_photo_sync(query: str, anchor: str, used: set):
-    """Pixabay'dan slayd uchun foto topadi. 3 bosqich: (1) qattiq moslik, (2) yumshoq moslik,
-    (3) faqat mavzu so'zi bo'yicha eng mashhur foto. Har slaydga takrorlanmagan rasm tanlaydi."""
+    """Pixabay, Unsplash, Openverse va Wikimedia Commons'dan takrorlanmagan vizual qidiradi."""
     if not (query or anchor or "").strip():
         return None
     an = _kw_stems(anchor)
@@ -4362,12 +4391,23 @@ def _ppt_find_photo_sync(query: str, anchor: str, used: set):
         got = _openverse_photo_sync(qy, used)
         if got:
             return got
-    logger.warning("Stok rasm topilmadi (Pixabay/Unsplash/Openverse): query=%r anchor=%r", query, anchor)
+    # 4-manba: Wikimedia Commons — Public Domain, CC0 va attribution litsenziyalari.
+    for qy in tries:
+        if not qy:
+            continue
+        try:
+            got = find_commons_photo(qy, used, _ppt_valid_image)
+        except Exception as exc:
+            logger.warning("Wikimedia Commons fallback xatosi: %s", exc)
+            got = None
+        if got:
+            return got
+    logger.warning("Stok rasm topilmadi (Pixabay/Unsplash/Openverse/Wikimedia Commons): query=%r anchor=%r", query, anchor)
     return None
 
 
 async def _ppt_attach_images(outline: dict, owner_ai: bool = False):
-    """Faqat Pixabay -> Unsplash -> Openverse manbalaridan foto qidiradi.
+    """Pixabay, Unsplash, Openverse va Wikimedia Commons'dan foto yoki xarita qidiradi.
     Gemini image generation ishlatilmaydi; topilmasa mahalliy vektor vizual qo'llanadi."""
     used, credits = set(), []
     anchor = " ".join(re.findall(r"[A-Za-z]+", str(outline.get("topic_en") or ""))[:4])
@@ -4390,7 +4430,8 @@ async def _ppt_attach_images(outline: dict, owner_ai: bool = False):
             return None
 
     async def one(sl):
-        got = await stock(sl.get("photo_query") or sl.get("title"))
+        query = sl.get("map_query") if sl.get("layout") == "map" else (sl.get("photo_query") or sl.get("title"))
+        got = await stock(query)
         if got:
             sl["_img"] = got[0]
             credits.append(f"Rasm: {got[1] or got[2]} / {got[2]}")
@@ -4411,7 +4452,7 @@ async def _ppt_attach_images(outline: dict, owner_ai: bool = False):
 
     await asyncio.gather(
         *(one(sl) for sl in outline.get("slides", [])
-          if sl.get("photo_query") or sl.get("layout") in ("hero", "image_text", "text_image", "banner_cards", "split", "image_story")),
+          if sl.get("photo_query") or sl.get("map_query") or sl.get("layout") in ("hero", "image_text", "text_image", "banner_cards", "split", "image_story", "map")),
         *(many(sl) for sl in outline.get("slides", []) if sl.get("collage_queries"))
     )
     outline["_credits"] = credits
@@ -4748,8 +4789,9 @@ class _PptBuilder:
         self.author = author
         self.theme = theme or _ppt_pick_theme()
         self.pal = self.theme
-        self.tf = self.pal.get("tfont", PPT_TITLE_FONT)
-        self.bf = self.pal.get("bfont", PPT_BODY_FONT)
+        _font_pair = PPT_FONT_PAIRS.get(self.pal.get("key"), (PPT_TITLE_FONT, PPT_BODY_FONT))
+        self.tf = self.pal.get("tfont") or _font_pair[0]
+        self.bf = self.pal.get("bfont") or _font_pair[1]
         self.left = self.pal.get("align") == "l"
         self.sec_n = 0
         self.qa_fixes = 0
@@ -5538,30 +5580,67 @@ class _PptBuilder:
         self.notes(s, sl.get("notes"))
 
     def map_diagram(self, sl):
-        """Konseptual marshrut xaritasi: geografik koordinatasiz, tahrirlanadigan vektor sxema."""
-        s = self.new_slide(); self.title(s, sl["title"])
+        """Xarita rasmi mavjud bo'lsa editorial map + marshrut ro'yxati; aks holda konseptual sxema."""
+        s = self.new_slide()
         nodes = sl["nodes"]
-        # Yumshoq yo'nalish chizig'i va stansiyalar — bu geografik xarita emas.
-        x0, x1, y = 1.25, 12.05, 4.0
-        ln = s.shapes.add_connector(1, self.Inches(x0), self.Inches(y), self.Inches(x1), self.Inches(y))
-        ln.line.color.rgb = self.col("soft"); ln.line.width = self.Pt(3)
-        step = (x1 - x0) / max(1, len(nodes) - 1)
-        for i, node in enumerate(nodes):
-            cx = x0 + i * step
-            cy = y + (-0.55 if i % 2 else 0.55)
-            connector = s.shapes.add_connector(1, self.Inches(cx), self.Inches(y), self.Inches(cx), self.Inches(cy))
-            connector.line.color.rgb = self.col("brown" if i == 0 or i == len(nodes)-1 else "soft")
-            connector.line.width = self.Pt(1.8)
-            dot = s.shapes.add_shape(self.SHAPE.OVAL, self.Inches(cx-0.16), self.Inches(y-0.16), self.Inches(0.32), self.Inches(0.32))
-            dot.fill.solid(); dot.fill.fore_color.rgb = self.col("brown" if i in (0, len(nodes)-1) else "b2")
-            dot.line.color.rgb = self.col("white"); dot.line.width = self.Pt(1.2)
-            by = cy - 1.0 if i % 2 else cy + 0.32
-            self.box(s, max(0.65, cx-0.92), by, 1.84, 0.82, fill="card", line="line")
-            self.text(s, max(0.72, cx-0.85), by+0.06, 1.7, 0.30, node["label"], self.fit(node["label"], 1.65, 0.3, 15, 9, 0.58, 1.0), "dark", True, "c", "m", self.tf)
-            if node.get("detail"):
-                self.text(s, max(0.72, cx-0.85), by+0.38, 1.7, 0.36, node["detail"], self.fit(node["detail"], 1.65, 0.34, 10, 8), "text", False, "c", "m")
-        if sl.get("text"):
-            self.text(s, 1.0, 6.35, 11.3, 0.55, sl["text"], self.fit(sl["text"], 11.2, 0.55, 15, 10), "text", False, "c", "m")
+        if sl.get("_img"):
+            self.title(s, sl["title"])
+            self.image_or_placeholder(s, sl, 0.95, 1.85, 7.25, 4.55)
+            self._img_caption(s, sl, 0.98, 6.43, 7.1)
+            self.box(s, 8.48, 1.85, 3.9, 4.85, fill="card", line="line", rounded=True, radius=0.06)
+            self._kicker(s, "MARSHRUT NUQTALARI", 8.78, 2.05)
+            row_h = 4.15 / max(1, len(nodes))
+            for i, node in enumerate(nodes):
+                y = 2.45 + i * row_h
+                if i < len(nodes) - 1:
+                    connector = s.shapes.add_connector(
+                        1, self.Inches(9.02), self.Inches(y + 0.36),
+                        self.Inches(9.02), self.Inches(y + row_h + 0.02)
+                    )
+                    connector.line.color.rgb = self.col("soft")
+                    connector.line.width = self.Pt(1.4)
+                dot = s.shapes.add_shape(
+                    self.SHAPE.OVAL, self.Inches(8.82), self.Inches(y + 0.08),
+                    self.Inches(0.4), self.Inches(0.4)
+                )
+                dot.fill.solid()
+                dot.fill.fore_color.rgb = self.col("brown" if i in (0, len(nodes) - 1) else "b2")
+                dot.line.fill.background()
+                self.text(s, 8.82, y + 0.08, 0.4, 0.4, str(i + 1), 11, "white", True, "c", "m", self.tf)
+                self.text(s, 9.38, y + 0.02, 2.65, 0.36, node["label"],
+                          self.fit(node["label"], 2.55, 0.34, 15, 9, 0.58, 1.0), "dark", True, "l", "m", self.tf)
+                if node.get("detail"):
+                    self.text(s, 9.38, y + 0.39, 2.65, max(0.22, row_h - 0.42), node["detail"],
+                              self.fit(node["detail"], 2.55, max(0.22, row_h - 0.44), 11, 8), "text", False, "l", "t")
+            if sl.get("text"):
+                self.text(s, 1.0, 6.78, 11.3, 0.25, sl["text"],
+                          self.fit(sl["text"], 11.2, 0.25, 10, 7), "text", False, "c", "m")
+        else:
+            self.title(s, sl["title"])
+            # Koordinata yoki tekshirilgan xarita bo'lmasa, faqat konseptual yo'nalish sxemasi.
+            x0, x1, y = 1.25, 12.05, 4.0
+            ln = s.shapes.add_connector(1, self.Inches(x0), self.Inches(y), self.Inches(x1), self.Inches(y))
+            ln.line.color.rgb = self.col("soft")
+            ln.line.width = self.Pt(3)
+            step = (x1 - x0) / max(1, len(nodes) - 1)
+            for i, node in enumerate(nodes):
+                cx = x0 + i * step
+                cy = y + (-0.55 if i % 2 else 0.55)
+                connector = s.shapes.add_connector(1, self.Inches(cx), self.Inches(y), self.Inches(cx), self.Inches(cy))
+                connector.line.color.rgb = self.col("brown" if i == 0 or i == len(nodes)-1 else "soft")
+                connector.line.width = self.Pt(1.8)
+                dot = s.shapes.add_shape(self.SHAPE.OVAL, self.Inches(cx-0.16), self.Inches(y-0.16), self.Inches(0.32), self.Inches(0.32))
+                dot.fill.solid()
+                dot.fill.fore_color.rgb = self.col("brown" if i in (0, len(nodes)-1) else "b2")
+                dot.line.color.rgb = self.col("white")
+                dot.line.width = self.Pt(1.2)
+                by = cy - 1.0 if i % 2 else cy + 0.32
+                self.box(s, max(0.65, cx-0.92), by, 1.84, 0.82, fill="card", line="line")
+                self.text(s, max(0.72, cx-0.85), by+0.06, 1.7, 0.30, node["label"], self.fit(node["label"], 1.65, 0.3, 15, 9, 0.58, 1.0), "dark", True, "c", "m", self.tf)
+                if node.get("detail"):
+                    self.text(s, max(0.72, cx-0.85), by+0.38, 1.7, 0.36, node["detail"], self.fit(node["detail"], 1.65, 0.34, 10, 8), "text", False, "c", "m")
+            if sl.get("text"):
+                self.text(s, 1.0, 6.35, 11.3, 0.55, sl["text"], self.fit(sl["text"], 11.2, 0.55, 15, 10), "text", False, "c", "m")
         self.notes(s, sl.get("notes"))
 
     def isometric(self, sl):
@@ -5579,6 +5658,9 @@ class _PptBuilder:
             front = s.shapes.add_shape(self.SHAPE.CUBE, self.Inches(x), self.Inches(y), self.Inches(1.55), self.Inches(1.35))
             front.fill.solid(); front.fill.fore_color.rgb = self.col(palette[i % len(palette)])
             front.line.color.rgb = self.col("white"); front.line.width = self.Pt(0.8)
+            # Native PowerPoint 3D extrusion/bevel; remains editable as a shape.
+            if hasattr(self, "_pptx_native_3d"):
+                self._pptx_native_3d(front, 145000)
             self.text(s, x-0.08, y+1.42, 1.72, 0.55, stage["label"], self.fit(stage["label"], 1.65, 0.55, 14, 9, 0.58, 1.0), "dark", True, "c", "m", self.tf)
             if stage.get("text"):
                 self.text(s, x-0.22, y+2.0, 2.0, 0.8, stage["text"], self.fit(stage["text"], 1.9, 0.8, 11, 8), "text", False, "c", "t")
@@ -8554,28 +8636,14 @@ def _ppt_bg_variants_sync(theme: dict, main: bytes):
 
 
 
-PPT_TOPIC_POOL = [
-    "Bojxona qiymatini aniqlash usullari", "Tovarlarni bojxona rasmiylashtiruvi tartibi",
-    "Ombor logistikasida WMS tizimi", "Ta'minot zanjirini boshqarish", "Tovar ekspertizasi va sifat nazorati",
-    "Xalqaro savdo va Incoterms shartlari", "Import va eksport operatsiyalari", "Inventarizatsiya va zaxiralarni boshqarish",
-    "Transport logistikasi va yetkazib berish", "Savdo siyosati va bojxona tariflari", "Marketingda raqamli texnologiyalar",
-    "Sun'iy intellektning ta'limdagi o'rni", "Raqamli iqtisodiyot asoslari", "Kichik biznesni rivojlantirish",
-    "Moliyaviy savodxonlik", "Elektron tijorat va onlayn savdo", "Ekologiya va barqaror rivojlanish",
-    "Menejmentda qaror qabul qilish", "Soliq tizimi va soliqqa tortish", "Korxonada xodimlarni boshqarish",
-]
-
-
-def _ppt_topic_keyboard():
-    ids = random.sample(range(len(PPT_TOPIC_POOL)), 8)
-    rows = [[InlineKeyboardButton(PPT_TOPIC_POOL[i], callback_data=f"ppt:tp:{i}")] for i in ids]   # har biri uzun, alohida qator
-    rows.append([InlineKeyboardButton("🔄 Boshqa mavzular", callback_data="ppt:tp:r")])
-    rows.append([InlineKeyboardButton("✍️ O'zim yozaman", callback_data="ppt:tp:own")])
-    return InlineKeyboardMarkup(rows)
-
-
 async def _ppt_topic_prompt(msg, context):
-    context.user_data["_ppt_wait"] = time.time()   # mavzuni yozib yuborsa ham bo'ladi
-    await msg.reply_text("📊 Mavzuni tanlang yoki o'zingiz yozing:", reply_markup=_ppt_topic_keyboard())
+    # Tayyor mavzular menyusi yo'q: foydalanuvchi istalgan mavzuni o'zi kiritadi.
+    context.user_data["_ppt_wait"] = time.time()
+    await msg.reply_text(
+        "📊 Prezentatsiya mavzusini yozing.\n\n"
+        "Istalgan fan, kasb, loyiha yoki muammoni kiriting — mavzuni o'zingiz tanlaysiz.\n"
+        "Masalan: «O'zbekiston logistikasida sun'iy intellekt» yoki «Ombor WMS tizimining samaradorligi»."
+    )
 
 
 # ============================================================
@@ -9185,28 +9253,9 @@ async def ppt_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await _ppt_ask_count(q.message, context, topic)
         return
-    if action == "tp" and len(parts) > 2:
-        if parts[2] == "r":
-            await q.answer()
-            try:
-                await q.message.edit_reply_markup(_ppt_topic_keyboard())
-            except Exception:
-                pass
-            return
-        if parts[2] == "own":
-            await q.answer()
-            context.user_data["_ppt_wait"] = time.time()
-            await q.message.reply_text("✍️ Mavzuni o'zingiz yozing.")
-            return
-        if parts[2].isdigit() and int(parts[2]) < len(PPT_TOPIC_POOL):
-            await q.answer()
-            context.user_data.pop("_ppt_wait", None)
-            try:
-                await q.message.edit_reply_markup(None)
-            except Exception:
-                pass
-            await _ppt_ask_count(q.message, context, PPT_TOPIC_POOL[int(parts[2])])
-            return
+    if action == "tp":
+        await q.answer("Mavzu menyusi olib tashlandi. Mavzuni matn ko'rinishida yuboring.", show_alert=True)
+        return
     if action == "img":
         context.user_data["_ppt_img"] = not context.user_data.get("_ppt_img", True)
         await q.answer("Rasmlar yoqildi" if context.user_data["_ppt_img"] else "Rasmlar o'chirildi")
