@@ -33,7 +33,7 @@ def _allowed_license(name):
     )
 
 
-def find_commons_photo(query, used, valid_image):
+def find_commons_photo(query, used, valid_image, relevance=None):
     """Search Commons and return (bytes, credit, provider), or None."""
     query = str(query or "").strip()[:160]
     if not query:
@@ -95,6 +95,13 @@ def find_commons_photo(query, used, valid_image):
 
         title = str(page.get("title") or "Untitled").removeprefix("File:")
         creator = _metadata_value(metadata, "Artist") or "Creator not listed"
+        if relevance is not None:
+            try:
+                if not relevance(" ".join((title, creator))):
+                    continue
+            except Exception:
+                logger.exception("Wikimedia relevance callback failed; candidate rejected")
+                continue
         license_url = _metadata_value(metadata, "LicenseUrl")
         source_url = "https://commons.wikimedia.org/wiki/" + urllib.parse.quote(
             str(page.get("title") or "").replace(" ", "_"), safe="()"
