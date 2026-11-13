@@ -40,6 +40,7 @@ from ppt_remus_lupin_visuals import (remus_lupin_topic, remus_lupin_visual_kind,
 from ppt_visual_relevance import metadata_relevant, contextually_irrelevant
 from ppt_visual_qa import visual_integrity_issues, package_qa_blockers, VisualIntegrityError
 from ppt_visual_director import prepare_deck_visuals
+from ppt_content_critic import critique_content
 
 from telegram import (
     Update,
@@ -3396,6 +3397,11 @@ def _sanitize_outline(data, topic: str, n: int, with_images: bool) -> dict:
     )
     visual_plan = visual_plan_result["manifest"]
     visual_qa = visual_plan_result["qa"]
+    content_qa = critique_content(topic, final_slides)
+    if content_qa.get("issues"):
+        logger.warning("Content Critic: %s", json.dumps(content_qa, ensure_ascii=False))
+    else:
+        logger.info("Content Critic passed: score=%s/100", content_qa.get("score"))
     if visual_qa.get("issues"):
         logger.warning("Visual Director critic: %s", json.dumps(visual_qa, ensure_ascii=False))
     else:
@@ -3429,7 +3435,7 @@ def _sanitize_outline(data, topic: str, n: int, with_images: bool) -> dict:
             "topic_en": _ppt_s(data.get("topic_en"), 60), "story_architecture": _ppt_s(data.get("story_architecture"), 60),
             "story_rationale": _ppt_s(data.get("story_rationale"), 220), "stepper": _ppt_stepper_labels(data),
             "_expanded": expanded, "_composition_repairs": composition_repairs,
-            "_visual_plan": visual_plan, "_visual_qa": visual_qa,
+            "_visual_plan": visual_plan, "_visual_qa": visual_qa, "_content_qa": content_qa,
             "story_arc": [x.get("story_role", "") for x in final_slides],
             "slides": final_slides}
 
