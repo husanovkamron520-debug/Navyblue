@@ -46,10 +46,20 @@ def _safe_url(url: str, allowed_hosts: set[str]) -> str:
         raise ValueError("Credentials in template URLs are not allowed")
     return url
 
+class _AllowlistedRedirect(urllib.request.HTTPRedirectHandler):
+    def __init__(self, allowed_hosts: set[str]):
+        super().__init__()
+        self.allowed_hosts = allowed_hosts
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        _safe_url(newurl, self.allowed_hosts)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
 def _read_url(url: str, allowed_hosts: set[str], limit: int) -> bytes:
     request = urllib.request.Request(url, headers={"User-Agent": "Navyblue-PPT-Template-Library/1.0"})
-    with urllib.request.urlopen(request, timeout=18) as response:
-        final_url = _safe_url(response.geturl(), allowed_hosts)
+    opener = urllib.request.build_opener(_AllowlistedRedirect(allowed_hosts))
+    with opener.open(request, timeout=18) as response:
+        _safe_url(response.geturl(), allowed_hosts)
         length = response.headers.get("Content-Length")
         if length and int(length) > limit:
             raise ValueError("Remote template exceeds size limit")
