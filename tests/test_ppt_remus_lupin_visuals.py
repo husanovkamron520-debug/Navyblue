@@ -45,7 +45,7 @@ class RemusLupinVisualTests(unittest.TestCase):
             {"layout":"references","title":"Manbalar","text":"Kitoblar"},
         ]
         changed = apply_remus_lupin_visual_coverage(slides)
-        self.assertEqual(changed, 1)
+        self.assertEqual(changed, 2)
         self.assertEqual(slides[0]["layout"], "image_text")
         self.assertEqual(slides[1]["layout"], "image_text")
         self.assertEqual(slides[2]["layout"], "references")
