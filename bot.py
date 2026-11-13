@@ -32,6 +32,7 @@ from ppt_story_engine import STORY_ROLES, build_story_guidance, infer_story_role
 from pptx_package_qa import inspect_pptx_bytes
 from ppt_template_library import choose_design_reference, download_design_reference, inspect_pptx as inspect_template_pptx
 from ppt_semantic_visuals import fantasy_visual_kind, render_fantasy_visual
+from ppt_medical_visuals import cardiovascular_topic, cardiovascular_visual_kind, render_cardiovascular_visual
 
 from telegram import (
     Update,
@@ -3751,6 +3752,9 @@ def _ppt_make_backgrounds_sync(theme: dict, cover_query: str = "", cover_visual_
     if cover_visual_kind == "hogwarts_castle":
         title = render_fantasy_visual("hogwarts_castle")
         credit = credit or "Navyblue original illustration: gothic wizarding castle"
+    elif cover_visual_kind == "cardiovascular_heart":
+        title = render_cardiovascular_visual("heart")
+        credit = credit or "Navyblue original cardiovascular educational illustration"
     elif (PIXABAY_API_KEY) and (cover_query or "").strip():
         try:
             got = _pixabay_photo_sync(cover_query, used, min_width=1920)
@@ -4440,6 +4444,7 @@ async def _ppt_attach_images(outline: dict, owner_ai: bool = False):
     """Pixabay, Unsplash, Openverse va Wikimedia Commons'dan foto yoki xarita qidiradi.
     Gemini image generation ishlatilmaydi; topilmasa mahalliy vektor vizual qo'llanadi."""
     used, credits = set(), []
+    cardio_topic = cardiovascular_topic(outline.get("title") or outline.get("topic_en") or "")
     anchor = " ".join(re.findall(r"[A-Za-z]+", str(outline.get("topic_en") or ""))[:4])
     if not anchor:
         try:
@@ -4468,6 +4473,14 @@ async def _ppt_attach_images(outline: dict, owner_ai: bool = False):
             credits.append(f"Original vizual: {kind.replace('_', ' ')} / Navyblue")
             logger.info("Aniq fantasy vizual ishlatildi: title=%r kind=%s", sl.get("title"), kind)
             return
+        if cardio_topic:
+            medical_kind = cardiovascular_visual_kind(outline.get("title") or outline.get("topic_en") or "",
+                                                       sl.get("title") or "", _ppt_slide_text(sl)) or "heart"
+            sl["_img"] = await asyncio.to_thread(render_cardiovascular_visual, medical_kind)
+            sl["_visual_kind"] = "cardiovascular_" + medical_kind
+            credits.append(f"Original tibbiy sxema: {medical_kind} / Navyblue")
+            logger.info("Yurak-qon tomir vizuali yaratildi: title=%r kind=%s", sl.get("title"), medical_kind)
+            return
         query = sl.get("map_query") if sl.get("layout") == "map" else (sl.get("photo_query") or sl.get("title"))
         got = await stock(query)
         if got:
@@ -4491,7 +4504,8 @@ async def _ppt_attach_images(outline: dict, owner_ai: bool = False):
     await asyncio.gather(
         *(one(sl) for sl in outline.get("slides", [])
           if sl.get("photo_query") or sl.get("map_query") or sl.get("layout") in ("hero", "image_text", "text_image", "banner_cards", "split", "image_story", "map")
-          or fantasy_visual_kind(outline.get("title") or outline.get("topic_en") or "", sl.get("title") or "", _ppt_slide_text(sl))),
+          or fantasy_visual_kind(outline.get("title") or outline.get("topic_en") or "", sl.get("title") or "", _ppt_slide_text(sl))
+          or cardio_topic),
         *(many(sl) for sl in outline.get("slides", []) if sl.get("collage_queries"))
     )
     outline["_credits"] = credits
@@ -4597,6 +4611,92 @@ def _ppt_order_images(outline: dict):
             if last == lay:
                 sl["layout"] = lay = "text_image" if lay == "image_text" else "image_text"
             last = lay
+
+
+def _ppt_visual_body(sl):
+    """Yig'ma mazmun: strukturali slaydni rasmli editorial maketga o'tkazishda ma'lumot yo'qolmasin."""
+    parts = []
+    skip = {"title", "notes", "story_role", "story_beat", "design", "photo_query", "map_query",
+            "collage_queries", "motion", "layout", "composition", "visual_focus", "visual_type",
+            "hierarchy", "density", "motion_reason"}
+    def walk(value, key=""):
+        if key in skip or key.startswith("_"):
+            return
+        if isinstance(value, dict):
+            for k, v in value.items():
+                walk(v, str(k))
+        elif isinstance(value, (list, tuple)):
+            for item in value:
+                walk(item, key)
+        elif isinstance(value, (str, int, float)) and str(value).strip():
+            parts.append(str(value).strip())
+    walk(sl)
+    text = re.sub(r"\\s+", " ", " · ".join(parts)).strip()
+    if len(text) > 620:
+        cut = text[:620]
+        sentence = re.search(r"^(.{120,620}[.!?])(?:\\s|$)", cut)
+        text = sentence.group(1) if sentence else cut.rsplit(" ", 1)[0].rstrip(" ,;:-") + "."
+    return text
+
+
+def _ppt_apply_cardiovascular_visuals(outline: dict) -> int:
+    """Heart-topic deck: replace generic stock with custom medical scenes and require visible art."""
+    topic = str(outline.get("title") or outline.get("topic_en") or "")
+    if not cardiovascular_topic(topic):
+        return 0
+    slides = [s for s in outline.get("slides", []) if isinstance(s, dict)]
+    if not slides:
+        return 0
+    # Every content slide gets a scene-specific original illustration; no skull/portrait stock fallback.
+    for index, sl in enumerate(slides):
+        kind = cardiovascular_visual_kind(topic, sl.get("title") or "", _ppt_slide_text(sl)) or "heart"
+        sl["_img"] = render_cardiovascular_visual(kind, index)
+        sl["_visual_kind"] = "cardiovascular_" + kind
+    target = max(1, int(math.ceil(len(slides) * 0.65)))
+    current = sum(1 for sl in slides if sl.get("layout") in _PPT_IMG_LAYOUTS)
+    # Card/stat blocks become a photo-led banner while retaining their structured information.
+    for sl in slides:
+        if current >= target:
+            break
+        lay = sl.get("layout")
+        if lay == "cards":
+            sl["layout"] = "banner_cards"
+            current += 1
+        elif lay in ("stats", "kpi") and isinstance(sl.get("stats") or sl.get("kpis"), list):
+            items = sl.get("stats") or sl.get("kpis") or []
+            sl["cards"] = [{"head": str(x.get("label") or x.get("name") or "Ko'rsatkich"),
+                            "text": str(x.get("value") or x.get("text") or "")}
+                           for x in items if isinstance(x, dict)]
+            if sl["cards"]:
+                sl["layout"] = "banner_cards"
+                current += 1
+    # Then convert text-only/editorial layouts. Structural charts remain intact unless needed.
+    convertible = ("editorial", "statement", "section", "agenda", "plain_text", "text",
+                   "bignumber", "stats", "kpi", "bento", "executive", "compare",
+                   "timeline", "matrix", "funnel", "hub", "chain", "isometric",
+                   "venn", "pyramid", "orbit", "before_after", "table", "chart")
+    for index, sl in enumerate(slides):
+        if current >= target:
+            break
+        if sl.get("layout") in _PPT_IMG_LAYOUTS or sl.get("layout") in ("closing", "references"):
+            continue
+        if sl.get("layout") not in convertible:
+            continue
+        body = _ppt_visual_body(sl) or str(sl.get("text") or "").strip()
+        if not body:
+            continue
+        sl["text"] = body
+        sl["layout"] = "image_text" if index % 2 == 0 else "text_image"
+        design = sl.get("design") if isinstance(sl.get("design"), dict) else {}
+        design = dict(design)
+        design["visual_type"] = "photo"
+        design["visual_focus"] = sl.get("_visual_kind", "yurak anatomiyasi").replace("cardiovascular_", "").replace("_", " ")
+        design["composition"] = ("asym_grid", "editorial_split", "full_bleed")[index % 3]
+        sl["design"] = design
+        current += 1
+    logger.info("Cardiovascular visual QA: %s/%s kontent slaydida ko'rinadigan rasm; maqsad=%s",
+                current, len(slides), target)
+    return sum(1 for sl in slides if sl.get("layout") in _PPT_IMG_LAYOUTS and _ppt_valid_image(sl.get("_img")))
 
 
 def _ppt_finalize_images(outline: dict):
@@ -5996,6 +6096,7 @@ class _PptBuilder:
             self.pal["brown"] = _cand if self._readable(_cand) else previous_accent
             try:
                 self._build_one(sl)
+                self.qa_duplicate_text_removed += self._dedupe_repeated_text(self.prs.slides[-1])
                 self.prs.slides[-1]._jarvis_layout = sl.get("layout", "")
                 self.prs.slides[-1]._jarvis_composition = composition
                 self._apply_blueprint_accessibility(self.prs.slides[-1], sl)
@@ -8141,6 +8242,28 @@ class _PptBuilderClassic:
             total += lines * pt * 1.2 / 72
         return total + 0.06
 
+    def _dedupe_repeated_text(self, slide):
+        """Bir slayd ichida uzun matn bloklari aynan takrorlansa, ikkinchi nusxani olib tashlaydi."""
+        seen = set()
+        removed = 0
+        for shape in list(slide.shapes):
+            if not getattr(shape, "has_text_frame", False):
+                continue
+            raw = str(shape.text_frame.text or "")
+            norm = re.sub(r"\\s+", " ", raw).strip().casefold()
+            norm = re.sub(r"[^\\w ]+", "", norm, flags=re.UNICODE).strip()
+            if len(norm) < 42:
+                continue
+            if norm in seen:
+                try:
+                    shape._element.getparent().remove(shape._element)
+                    removed += 1
+                except Exception:
+                    pass
+            else:
+                seen.add(norm)
+        return removed
+
     def _qa_slide(self, slide):
         """Matn sig'ishi va ustma-ust tushishni tekshiradi; sig'maganini kichraytiradi. Qolgan muammolar ro'yxatini qaytaradi."""
         E = 0.02 * 914400
@@ -8222,6 +8345,7 @@ class _PptBuilderClassic:
         self.slide_title(outline)
         self._qa_slide(self.prs.slides[-1])
         self.repaired = 0
+        self.qa_duplicate_text_removed = 0
         for sl in outline["slides"]:
             n0 = len(self.prs.slides)
             texts, issues = [], []
@@ -9214,11 +9338,14 @@ async def _ppt_generate_and_send(msg, context, topic, n, with_images, author, mo
         cover_context = " ".join((str(topic), str(outline.get("title") or ""), str(outline.get("cover_query") or ""))).casefold()
         cover_visual_kind = ("hogwarts_castle" if any(x in cover_context for x in
             ("harry potter", "hogwarts", "xogvarts", "hogvarts")) else None)
+        is_cardio_topic = cardiovascular_topic(topic + " " + str(outline.get("title") or ""))
+        if is_cardio_topic:
+            cover_visual_kind = "cardiovascular_heart"
         bg_task = asyncio.create_task(asyncio.to_thread(
             _ppt_make_backgrounds_sync, theme, outline.get("cover_query", ""), cover_visual_kind))
-        if with_images and any(s.get("photo_query") or s.get("collage_queries") or
+        if with_images and (is_cardio_topic or any(s.get("photo_query") or s.get("collage_queries") or
                                fantasy_visual_kind(outline.get("title") or outline.get("topic_en") or "", s.get("title") or "", _ppt_slide_text(s))
-                               for s in outline["slides"]):
+                               for s in outline["slides"])):
             try:
                 await status.edit_text("🖼 Rasmlar tanlanmoqda (bir necha soniya)...")
             except Exception:
@@ -9229,6 +9356,8 @@ async def _ppt_generate_and_send(msg, context, topic, n, with_images, author, mo
             except Exception:
                 logger.exception("Slayd rasmlari olinmadi — topilgan rasmlar va mahalliy vizuallar bilan davom etamiz")
         try:
+            if with_images and is_cardio_topic:
+                outline["_cardiovascular_visual_slides"] = _ppt_apply_cardiovascular_visuals(outline)
             _ppt_finalize_images(outline)   # bo'sh/begona rasm joylari qolmasin, chap-o'ng almashsin
         except Exception:
             logger.exception("Rasm joylashuvini tartiblashda xato")
