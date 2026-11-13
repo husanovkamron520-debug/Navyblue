@@ -1,10 +1,17 @@
 import io
 import unittest
 
-from pptx import Presentation
-from pptx.util import Inches
-
-from pptx_package_qa import PPTXPackageError, inspect_pptx_bytes
+try:
+    from pptx import Presentation
+    from pptx.util import Inches
+    from pptx_package_qa import PPTXPackageError, inspect_pptx_bytes
+    HAS_PPTX = True
+except ImportError:
+    HAS_PPTX = False
+    Presentation = None
+    Inches = None
+    PPTXPackageError = ValueError
+    inspect_pptx_bytes = None
 
 
 def sample_deck():
@@ -18,6 +25,7 @@ def sample_deck():
     return out.getvalue()
 
 
+@unittest.skipUnless(HAS_PPTX, "python-pptx is installed in the dedicated PPTX QA workflow")
 class PPTXPackageQATests(unittest.TestCase):
     def test_valid_deck(self):
         report = inspect_pptx_bytes(sample_deck(), expected_slides=2)
