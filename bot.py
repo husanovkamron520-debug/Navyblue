@@ -31,6 +31,7 @@ from ppt_media_sources import find_commons_photo
 from ppt_story_engine import STORY_ROLES, build_story_guidance, infer_story_role, story_quality_report, enforce_story_quality
 from pptx_package_qa import inspect_pptx_bytes
 from ppt_template_library import choose_design_reference, download_design_reference, inspect_pptx as inspect_template_pptx
+from ppt_semantic_visuals import fantasy_visual_kind, render_fantasy_visual
 
 from telegram import (
     Update,
@@ -3736,7 +3737,7 @@ def _bg_make_sync(theme: dict, strength=None, used=None):
     return _bg_procedural(theme), ""
 
 
-def _ppt_make_backgrounds_sync(theme: dict, cover_query: str = ""):
+def _ppt_make_backgrounds_sync(theme: dict, cover_query: str = "", cover_visual_kind: str | None = None):
     """Taqdimot uchun ikkita fon: asosiy slaydlar va sarlavha slaydi."""
     if theme.get("file"):
         with open(PPT_BG_PATH, "rb") as f:
@@ -3745,7 +3746,10 @@ def _ppt_make_backgrounds_sync(theme: dict, cover_query: str = ""):
     used = set()
     main, credit = _bg_make_sync(theme, None, used)
     title, _ = _bg_make_sync(theme, max(0.5, theme.get("wash", 0.8) - 0.18), used)
-    if (PIXABAY_API_KEY) and (cover_query or "").strip():
+    if cover_visual_kind == "hogwarts_castle":
+        title = render_fantasy_visual("hogwarts_castle")
+        credit = credit or "Navyblue original illustration: gothic wizarding castle"
+    elif (PIXABAY_API_KEY) and (cover_query or "").strip():
         try:
             got = _pixabay_photo_sync(cover_query, used, min_width=1920)
             if got:
@@ -4432,6 +4436,14 @@ async def _ppt_attach_images(outline: dict, owner_ai: bool = False):
             return None
 
     async def one(sl):
+        kind = fantasy_visual_kind(outline.get("title") or outline.get("topic_en") or "",
+                                   sl.get("title") or "", _ppt_slide_text(sl))
+        if kind:
+            sl["_img"] = await asyncio.to_thread(render_fantasy_visual, kind)
+            sl["_visual_kind"] = kind
+            credits.append(f"Original vizual: {kind.replace('_', ' ')} / Navyblue")
+            logger.info("Aniq fantasy vizual ishlatildi: title=%r kind=%s", sl.get("title"), kind)
+            return
         query = sl.get("map_query") if sl.get("layout") == "map" else (sl.get("photo_query") or sl.get("title"))
         got = await stock(query)
         if got:
@@ -4454,7 +4466,8 @@ async def _ppt_attach_images(outline: dict, owner_ai: bool = False):
 
     await asyncio.gather(
         *(one(sl) for sl in outline.get("slides", [])
-          if sl.get("photo_query") or sl.get("map_query") or sl.get("layout") in ("hero", "image_text", "text_image", "banner_cards", "split", "image_story", "map")),
+          if sl.get("photo_query") or sl.get("map_query") or sl.get("layout") in ("hero", "image_text", "text_image", "banner_cards", "split", "image_story", "map")
+          or fantasy_visual_kind(outline.get("title") or outline.get("topic_en") or "", sl.get("title") or "", _ppt_slide_text(sl))),
         *(many(sl) for sl in outline.get("slides", []) if sl.get("collage_queries"))
     )
     outline["_credits"] = credits
@@ -4811,9 +4824,11 @@ class _PptBuilder:
         s = self.prs.slides.add_slide(self.prs.slide_layouts[6])
         _bg = self.bg_title if title_slide else self.bg_main
         _cyc = getattr(self, "bg_cycle", None)
-        if _cyc and not title_slide:
-            _bg = _cyc[getattr(self, "_bg_i", 0) % len(_cyc)]
-            self._bg_i = getattr(self, "_bg_i", 0) + 1
+        if not title_slide:
+            slide_index = getattr(self, "_bg_i", 0)
+            if _cyc:
+                _bg = _cyc[slide_index % len(_cyc)]
+            self._bg_i = slide_index + 1
         s.shapes.add_picture(io.BytesIO(_bg), 0, 0, self.prs.slide_width, self.prs.slide_height)
         try:
             self._decorate(s, title_slide)
@@ -4944,6 +4959,9 @@ class _PptBuilder:
         D = self._deco
         if comp == "full_bleed":
             return
+        slide_index = max(0, getattr(self, "_bg_i", 1) - 1)
+        if not title_slide and slide_index % 3 == 1:
+            return
         if comp == "editorial_split":
             D(s, "ring", 9.2, -2.4, 6.2, 6.2, "brown", 14); D(s, "oval", -1.4, 5.4, 3.4, 3.4, "b2", 7)
         elif comp == "asym_grid":
@@ -4951,8 +4969,9 @@ class _PptBuilder:
         elif comp == "timeline":
             D(s, "oval", -1.6, -1.6, 3.6, 3.6, "brown", 8); D(s, "ring", 10.6, 5.2, 3.6, 3.6, "b2", 12)
         elif comp == "radial":
-            D(s, "ring", 8.6, -2.8, 7.2, 7.2, "brown", 10); D(s, "ring", 9.9, -1.5, 4.6, 4.6, "b2", 12)
-            D(s, "oval", -1.2, 5.6, 2.6, 2.6, "brown", 7)
+            D(s, "bar", 10.2, 0.72, 1.9, 0.045, "brown", 30, -18)
+            D(s, "oval", 11.9, 1.15, 0.13, 0.13, "b2", 48)
+            D(s, "oval", 0.9, 6.15, 0.18, 0.18, "brown", 32)
         elif comp == "data_focus":
             D(s, "round", 10.6, -1.2, 3.2, 3.2, "brown", 9, 18); D(s, "round", -1.0, 5.9, 2.4, 2.4, "b2", 7, -14)
         elif comp == "comparison":
@@ -5821,6 +5840,21 @@ class _PptBuilder:
         )
         if not texts and not has_nontext_content:
             issues.append("mazmun bo'sh")
+        layout_name = getattr(slide, "_jarvis_layout", "")
+        if layout_name:
+            visible_chars = sum(len(str(getattr(shp, "text", "")).strip()) for shp in slide.shapes
+                                if getattr(shp, "has_text_frame", False))
+            meaningful_visuals = sum(1 for shp in slide.shapes
+                                     if not str(getattr(shp, "name", "")).startswith("deco")
+                                     and not (getattr(shp, "shape_type", None) == 13
+                                              and shp.width >= W * 0.96 and shp.height >= H * 0.96)
+                                     and (getattr(shp, "shape_type", None) == 13
+                                          or getattr(shp, "has_chart", False)
+                                          or getattr(shp, "has_table", False)))
+            if visible_chars < 48 and meaningful_visuals == 0 and layout_name not in ("section", "statement"):
+                issues.append("mazmun kam")
+            elif visible_chars < 28 and meaningful_visuals == 0 and layout_name in ("section", "statement"):
+                issues.append("mazmun kam")
         for i in range(len(texts)):
             for j in range(i + 1, len(texts)):
                 a, b = texts[i], texts[j]
@@ -5858,7 +5892,8 @@ class _PptBuilder:
 
     def _fallback_text(self, sl, slide_texts):
         """Zaif slaydni oddiy matnga emas, mazmun hajmiga mos editorial kompozitsiyaga tiklaydi."""
-        body = " ".join(t for t in slide_texts if t and t != sl.get("title"))[:700] or sl.get("text") or sl.get("title", "")
+        body = (" ".join(t for t in slide_texts if t and t != sl.get("title"))[:700]
+                or _ppt_slide_text(sl)[:700] or sl.get("text") or sl.get("title", ""))
         compact = len(body) <= 185
         return {"layout": "statement" if compact else "editorial",
                 "title": sl.get("title", ""), "text": body,
@@ -9146,9 +9181,14 @@ async def _ppt_generate_and_send(msg, context, topic, n, with_images, author, mo
             theme = _ppt_apply_template_palette(theme, template_reference)
         theme = _ppt_fix_contrast(theme)
         context.user_data["_ppt_last_theme"] = theme.get("key", theme.get("name", "adaptive"))
+        cover_context = " ".join((str(topic), str(outline.get("title") or ""), str(outline.get("cover_query") or ""))).casefold()
+        cover_visual_kind = ("hogwarts_castle" if any(x in cover_context for x in
+            ("harry potter", "hogwarts", "xogvarts", "hogvarts")) else None)
         bg_task = asyncio.create_task(asyncio.to_thread(
-            _ppt_make_backgrounds_sync, theme, outline.get("cover_query", "")))
-        if with_images and any(s.get("photo_query") or s.get("collage_queries") for s in outline["slides"]):
+            _ppt_make_backgrounds_sync, theme, outline.get("cover_query", ""), cover_visual_kind))
+        if with_images and any(s.get("photo_query") or s.get("collage_queries") or
+                               fantasy_visual_kind(outline.get("title") or outline.get("topic_en") or "", s.get("title") or "", _ppt_slide_text(s))
+                               for s in outline["slides"]):
             try:
                 await status.edit_text("🖼 Rasmlar tanlanmoqda (bir necha soniya)...")
             except Exception:
