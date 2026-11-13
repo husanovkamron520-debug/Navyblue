@@ -8633,28 +8633,14 @@ def _ppt_bg_variants_sync(theme: dict, main: bytes):
 
 
 
-PPT_TOPIC_POOL = [
-    "Bojxona qiymatini aniqlash usullari", "Tovarlarni bojxona rasmiylashtiruvi tartibi",
-    "Ombor logistikasida WMS tizimi", "Ta'minot zanjirini boshqarish", "Tovar ekspertizasi va sifat nazorati",
-    "Xalqaro savdo va Incoterms shartlari", "Import va eksport operatsiyalari", "Inventarizatsiya va zaxiralarni boshqarish",
-    "Transport logistikasi va yetkazib berish", "Savdo siyosati va bojxona tariflari", "Marketingda raqamli texnologiyalar",
-    "Sun'iy intellektning ta'limdagi o'rni", "Raqamli iqtisodiyot asoslari", "Kichik biznesni rivojlantirish",
-    "Moliyaviy savodxonlik", "Elektron tijorat va onlayn savdo", "Ekologiya va barqaror rivojlanish",
-    "Menejmentda qaror qabul qilish", "Soliq tizimi va soliqqa tortish", "Korxonada xodimlarni boshqarish",
-]
-
-
-def _ppt_topic_keyboard():
-    ids = random.sample(range(len(PPT_TOPIC_POOL)), 8)
-    rows = [[InlineKeyboardButton(PPT_TOPIC_POOL[i], callback_data=f"ppt:tp:{i}")] for i in ids]   # har biri uzun, alohida qator
-    rows.append([InlineKeyboardButton("🔄 Boshqa mavzular", callback_data="ppt:tp:r")])
-    rows.append([InlineKeyboardButton("✍️ O'zim yozaman", callback_data="ppt:tp:own")])
-    return InlineKeyboardMarkup(rows)
-
-
 async def _ppt_topic_prompt(msg, context):
-    context.user_data["_ppt_wait"] = time.time()   # mavzuni yozib yuborsa ham bo'ladi
-    await msg.reply_text("📊 Mavzuni tanlang yoki o'zingiz yozing:", reply_markup=_ppt_topic_keyboard())
+    # Tayyor mavzular menyusi yo'q: foydalanuvchi istalgan mavzuni o'zi kiritadi.
+    context.user_data["_ppt_wait"] = time.time()
+    await msg.reply_text(
+        "📊 Prezentatsiya mavzusini yozing.\n\n"
+        "Istalgan fan, kasb, loyiha yoki muammoni kiriting — mavzuni o'zingiz tanlaysiz.\n"
+        "Masalan: «O'zbekiston logistikasida sun'iy intellekt» yoki «Ombor WMS tizimining samaradorligi»."
+    )
 
 
 # ============================================================
