@@ -4240,13 +4240,13 @@ def _ppt_historical_visual_query(outline: dict, sl: dict):
         return "Ottoman historical mosque architecture"
     if military:
         if re.search(r"janissar|yenicheri", slide):
-            return "Ottoman Janissary soldiers historical miniature"
+            return "photorealistic historical reenactment photograph Ottoman Janissary soldiers period accurate costumes"
         if re.search(r"akinci|akinji|g'azo|ghazi", slide):
-            return "Ottoman Akıncı cavalry historical miniature"
-        return "Ottoman army soldiers historical miniature"
+            return "photorealistic historical reenactment photograph Ottoman Akıncı cavalry horses period accurate equipment"
+        return "photorealistic historical reenactment photograph Ottoman army soldiers period accurate uniforms and equipment"
     if map_geo:
         return "Ottoman Empire 16th century historical map"
-    return "Ottoman Empire historical miniature 16th century"
+    return "photorealistic documentary photograph Ottoman historical artifacts museum collection 16th century"
 
 
 _PPT_BAD_TAGS = {
