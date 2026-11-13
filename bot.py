@@ -34,6 +34,7 @@ from ppt_template_library import choose_design_reference, download_design_refere
 from ppt_semantic_visuals import fantasy_visual_kind, render_fantasy_visual
 from ppt_medical_visuals import cardiovascular_topic, cardiovascular_visual_kind, render_cardiovascular_visual
 from ppt_cloning_visuals import cloning_topic, cloning_visual_kind, render_cloning_visual
+from ppt_visual_relevance import metadata_relevant, contextually_irrelevant
 
 from telegram import (
     Update,
@@ -3847,8 +3848,9 @@ _STOCK_STOP = {"the", "and", "with", "for", "from", "view", "video", "videos", "
 
 
 def _kw_stems(q: str):
+    # Keep full words: five-character truncation caused unrelated substring matches.
     words = [w for w in re.findall(r"[a-z]{3,}", (q or "").lower()) if w not in _STOCK_STOP]
-    return list(dict.fromkeys(w[:5] if len(w) > 5 else w for w in words))
+    return list(dict.fromkeys(words))
 
 
 def _rel_filter(hits, q: str, strict: bool = True):
@@ -3863,7 +3865,8 @@ def _rel_filter(hits, q: str, strict: bool = True):
         if not t:                      # tegi yo'q (masalan Pixabay video) — manba o'z reytingiga ishonamiz
             scored.append((0, i, h))
             continue
-        sc = sum(1 for k in ks if k in t)
+        # Whole-token overlap only; e.g. "art" must not match "artificial".
+        sc = len(set(ks) & set(re.findall(r"[a-z0-9]+", t)))
         if sc >= need:
             scored.append((-sc, i, h))
     scored.sort(key=lambda x: (x[0], x[1]))
@@ -4249,15 +4252,10 @@ _PPT_BAD_TAGS = {
 
 
 def _ppt_semantic_metadata_match(query: str, metadata: str, minimum: int = 2) -> bool:
-    """Stock natijasining sarlavha/taglari qidiruvning asosiy obyektiga mosligini tekshiradi."""
-    stop = {"with", "from", "that", "this", "over", "under", "into", "near", "dark", "light",
-            "mysterious", "dramatic", "beautiful", "photo", "image", "scene", "and", "the"}
-    terms = {x for x in re.findall(r"[a-z]{4,}", str(query or "").casefold()) if x not in stop}
-    if not terms:
-        return True
-    haystack = str(metadata or "").casefold()
-    hits = sum(1 for term in terms if term in haystack)
-    return hits >= min(minimum, len(terms))
+    """Require exact semantic tokens and reject known cross-domain stock-photo traps."""
+    if contextually_irrelevant(query, metadata):
+        return False
+    return metadata_relevant(query, metadata, minimum=minimum)
 
 
 def _unsplash_photo_sync(query: str, used: set):
@@ -4452,6 +4450,8 @@ def _ppt_find_photo_sync(query: str, anchor: str, used: set, historical: bool = 
                     continue
                 t = (h.get("tags") or "").lower().strip()
                 words = set(re.findall(r"[a-z]+", t))
+                if contextually_irrelevant(anchor or query, t):
+                    continue
                 # Tarixiy tasvirlarda painting/illustration/castle/architecture kabi
                 # teglar mavzuga mos bo'lishi mumkin; umumiy stock blacklistni qo'llamaymiz.
                 if historical:
@@ -4464,15 +4464,15 @@ def _ppt_find_photo_sync(query: str, anchor: str, used: set, historical: bool = 
                         continue
                 elif any(bd in words and bd not in qtext for bd in _PPT_BAD_TAGS):
                     continue
-                qn_ = sum(1 for k in qs if k in t)
-                an_ = sum(1 for k in an if k in t)
+                qn_ = len(set(qs) & words)
+                an_ = len(set(an) & words)
                 if tier == 1:
                     if historical:
                         # Qadimgi rasm kataloglarida "Ottoman" so'zi har doim tegda bo'lmaydi;
                         # slaydning aniq qidiruv iborasidan kamida ikki mazmunli so'z mos bo'lsin.
                         if not t or (qs and qn_ < min(2, len(qs))):
                             continue
-                    elif not t or (an and an[0] not in t) or (qs and qn_ < min(2, len(qs))):
+                    elif not t or (an and an[0] not in words) or (qs and qn_ < min(2, len(qs))):
                         continue
                 else:                      # yumshoq: kamida bitta so'z mos kelsa yetadi
                     if t and (qs or an) and (qn_ + an_) == 0:
