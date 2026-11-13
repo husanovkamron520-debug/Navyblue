@@ -17,8 +17,8 @@ jobs:
       - name: Install PPTX parser
         run: python -m pip install "python-pptx==1.0.2"
       - name: Compile project modules
-        run: python -m compileall -q bot.py ppt_visual_engine.py ppt_story_engine.py ppt_visual_director.py pptx_package_qa.py ppt_template_library.py ppt_semantic_visuals.py ppt_medical_visuals.py
+        run: python -m compileall -q bot.py ppt_visual_engine.py ppt_story_engine.py ppt_visual_director.py ppt_content_critic.py pptx_package_qa.py ppt_template_library.py ppt_semantic_visuals.py ppt_medical_visuals.py
       - name: Install test dependencies
         run: python -m pip install "python-pptx==1.0.2" "Pillow>=9"
       - name: Run package, template-library and semantic-visual tests
-        run: python -m unittest discover -s tests -p "test_*qa.py" -v && python -m unittest discover -s tests -p "test_ppt_template_library.py" -v && python -m unittest discover -s tests -p "test_ppt_semantic_visuals.py" -v && python -m unittest discover -s tests -p "test_ppt_medical_visuals.py" -v && python -m unittest discover -s tests -p "test_ppt_visual_director.py" -v
+        run: python -m unittest discover -s tests -p "test_*qa.py" -v && python -m unittest discover -s tests -p "test_ppt_template_library.py" -v && python -m unittest discover -s tests -p "test_ppt_semantic_visuals.py" -v && python -m unittest discover -s tests -p "test_ppt_medical_visuals.py" -v && python -m unittest discover -s tests -p "test_ppt_visual_director.py" -v && python -m unittest discover -s tests -p "test_ppt_content_critic.py" -v
