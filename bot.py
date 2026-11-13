@@ -8372,17 +8372,42 @@ _PPT_REFS_RULE = (
     "XULOSA: oxirgi 'closing' slaydida mavzuning asosiy xulosasi aniq va mazmunli bo'lsin.\n"
 )
 _PPT_PHOTO_RULE = (
-    "RASM SO'ROVI QOIDASI: 'photo_query' — stok fotoda haqiqatan uchraydigan KONKRET jismlar va sahna (INGLIZCHA 2-4 so'z), "
-    "mavzuning o'ziga bog'liq: masalan 'customs officer inspecting container', 'warehouse worker scanning barcode', "
-    "'cargo port cranes', 'business documents signing'. Mavhum tushuncha (huquqiy asos, tizim, jarayon, strategiya) uchun "
-    "uning KONKRET ramzini ber (hujjat, muhr, konteyner, planshet). Tarixiy bino, portret/yuz, niqob, san'at, fantaziya "
-    "va dekorativ fon so'rama.\n"
+    "RASM SO'ROVI QOIDASI: 'photo_query' — ingliz tilida 2-5 so'zli, aynan shu slayd mazmunidagi obyekt yoki sahna. "
+    "Har bir rasm sarlavha va matndagi konkret obyektni ko'rsatsin; mavzuga aloqasiz umumiy tabiat, kapalak, qush, o'simlik, "
+    "o'rmon yoki generik biznes fotosuratini ishlatma. Mavhum tushuncha uchun mavzuning o'ziga xos ramzi yoki artefaktini tanla. "
+    "Fantastika, afsona, kitob, kino yoki o'yin mavzularida fantaziya tasvirlari, mavjudotlar, sehrli buyumlar va muhitni "
+    "bemalol so'ra; ularni real biologiya, ekologiya yoki iqtisodiy hisobotga aylantirma.\n"
 )
+
+
+def _ppt_genre_rule(topic):
+    folded = re.sub(r"[^a-z0-9]+", " ", str(topic or "").casefold())
+    fantasy_terms = ("harry potter", "hogwarts", "wizarding", "sehrli olam", "sehrgar", "sehrgarlik",
+                     "fantastika", "fantasy", "afsona", "afsonaviy", "mythical", "mythology",
+                     "magic", "magical creatures", "fantastik")
+    if any(term in folded for term in fantasy_terms):
+        return (
+            "\nJANR VA OLAMGA SODIQLIK — USTUVOR QOIDA: bu fantastika/sehrli olam mavzusi. "
+            "Uni biologiya, ekologiya, iqtisod, statistika yoki davlat idorasi hisobotiga aylantirma. "
+            "Haqiqiy ilmiy tahlil foydalanuvchi alohida so'ramagan bo'lsa, populyatsiya dinamikasi, iqlim o'zgarishi, "
+            "xavflilik indeksi, foizlar, KPI, bozor, xarajat yoki soxta protokollarni kiritma. "
+            "Sehrli olamning lore'i, mavjudotlar, qobiliyatlar, kelib chiqish afsonalari, xarakterlar, sehrli buyumlar, "
+            "joylar, sirlar va hikoyadagi rolini och. Har slayd bir xil ro'yxat bo'lmasin: mavjudot portreti, "
+            "afsonaviy kelib chiqish, sehr/jodu namoyishi, Hogwarts yoki boshqa joy sahnasi, sirli topilma, "
+            "qahramonlar bilan munosabat va vizual hikoya kabi turli usullarni tanla. "
+            "Rasm qidiruvlari aynan nomlangan mavjudot yoki buyumga yo'nalsin: masalan 'hippogriff fantasy illustration', "
+            "'fantasy dragon illustration', 'phoenix magical bird illustration', 'house elf fantasy illustration', "
+            "'thestral winged horse illustration', 'basilisk fantasy serpent'. Oddiy fern, butterfly, ray fish, "
+            "generic bird yoki tumanli o'rmonni sehrli mavjudot o'rniga qo'yma. "
+            "Kanonik fakt bilan talqinni ajrat; bilmagan detallarni to'qima. "
+            "Foiz, statistik ko'rsatkich va rasmiy protokol faqat asl manbada mavjud bo'lsa ishlatiladi.\n"
+        )
+    return ""
 
 
 def _ppt_wrap_prompt(fn):
     def wrapper(topic, n, with_images):
-        return fn(topic, n, with_images) + _PPT_REFS_RULE + (_PPT_PHOTO_RULE if with_images else "")
+        return fn(topic, n, with_images) + _PPT_REFS_RULE + _ppt_genre_rule(topic) + (_PPT_PHOTO_RULE if with_images else "")
     wrapper.__name__ = fn.__name__
     return wrapper
 

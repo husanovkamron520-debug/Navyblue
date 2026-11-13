@@ -17,12 +17,22 @@ STORY_ROLES = {
     "decision", "recommendation", "scenario", "future", "implication",
     "reflection", "conclusion", "problem", "analysis", "solution",
     "hook", "synthesis", "method", "experiment", "finding", "geography",
-    "debate", "policy", "model", "principle", "lesson", "implementation",
+    "debate", "policy", "model", "lesson", "implementation",
+    "lore", "creature_profile", "ability", "character", "artifact",
+    "setting", "mystery", "legend",
 }
 
 # Topic archetypes are deliberately broad. The model may override the first match
 # after reading the actual topic; these are narrative starting points, not templates.
 _ARCHETYPES = {
+    "fantasy_fiction": {
+        "match": ("harry potter", "hogwarts", "wizarding", "sehrli olam", "sehrgar", "sehrgarlik",
+                  "fantastika", "fantastik", "fantasy", "afsona", "afsonaviy", "mythology",
+                  "magical creatures", "magic", "dragon", "ajdarho", "gippogrif", "hippogriff",
+                  "phoenix", "feniks", "house elf", "dementor", "basilisk", "wizard"),
+        "flow": "sirli savol yoki sehrli kadr → olam qoidalari va kontekst → afsonaviy kelib chiqish → mavjudot/qahramon portreti → qobiliyat yoki sehrli buyum → hikoyadagi munosabat va sir → esda qoladigan yakun",
+        "roles": "opening_question, lore, legend, creature_profile, ability, artifact, mystery, relationship, conclusion",
+    },
     "concept_explainer": {
         "match": ("nazariya", "tushuncha", "mohiyat", "ta'rif", "definition", "concept", "theory", "principle"),
         "flow": "kuchli savol yoki paradoks → ta'rif → tarkibiy qismlar → ishlash prinsipi → o'zaro bog'lanish → real misol → qo'llanish va cheklov",
@@ -162,6 +172,15 @@ def build_story_guidance(topic, slide_count):
         f"Rejalashtirilgan kontent slaydlari: {int(slide_count)}. Kerakli slayd sonini mazmun sifatidan ustun qo'yma; yetishmasa mazmunli yangi bo'limlar bilan davom ettir.",
         "Taqdimot yakunida mavzuning eng muhim g'oyasi va auditoriya nimani eslab qolishi aniq bo'lsin.",
     ]
+    if selected == "fantasy_fiction":
+        lines.extend([
+            "JANRGA SODIQLIK: sehrli/fantastik olamni real biologiya, ekologiya, iqtisod yoki korxona hisobotiga aylantirma.",
+            "Populyatsiya dinamikasi, iqlim o'zgarishi, xavflilik indekslari, foizlar, KPI va rasmiy protokollarni faqat foydalanuvchi so'rasa yoki kanonda aniq bo'lsa ishlat.",
+            "Mavzuga mos lore, afsonalar, mavjudotlar, qobiliyatlar, sehrli buyumlar, joylar, sirlar va personajlar o'rtasidagi aloqalarni yorit.",
+            "Har slaydni bir xil ro'yxatga aylantirma: portret, afsona, sahna, sehr namoyishi, artefakt, sir, munosabat yoki qisqa hikoya kabi turli narrativ shakllarni tanla.",
+            "Rasm va vizual fokuslar aynan nomlangan mavjudot/buyum/sahnaga tegishli bo'lsin; oddiy o'simlik, kapalak, baliq, qush yoki umumiy o'rmon rasmini almashtirma.",
+            "Kanonik fakt, talqin va muxlis taxminini bir-biridan ajrat; manbasiz foiz yoki soxta ilmiy atama yaratma.",
+        ])
     return "\n".join(lines)
 
 def infer_story_role(slide):
