@@ -58,6 +58,7 @@ def inspect_pptx_bytes(data: bytes, expected_slides: int | None = None) -> dict:
             slides_without_images = []
             duplicate_text_blocks = []
             numeric_truncations = []
+            truncated_text_blocks = []
             presentation_root = ET.fromstring(archive.read("ppt/presentation.xml"))
             slide_size = presentation_root.find("p:sldSz", NS)
             slide_w = int(slide_size.get("cx", "12192000")) if slide_size is not None else 12192000
@@ -102,6 +103,22 @@ def inspect_pptx_bytes(data: bytes, expected_slides: int | None = None) -> dict:
                         paragraph_text = " ".join(
                             (node.text or "").strip() for node in paragraph.findall(".//a:t", NS)
                         ).strip()
+                        # Catch sentence fragments left at the end of a text block.
+                        # This is a warning-only heuristic: it must never reject a deck.
+                        if len(paragraph_text) >= 28:
+                            trimmed = paragraph_text.rstrip()
+                            if re.search(r"(?:…|\\.{3,})\\s*$", trimmed):
+                                truncated_text_blocks.append({
+                                    "slide": slide_name, "reason": "ellipsis", "text": trimmed[:160]
+                                })
+                            elif re.search(
+                                r"\\b(?:va|hamda|yoki|ammo|lekin|bilan|uchun|orqali|"
+                                r"and|or|but|with|for|of|to)\\s*[,:;]?\\s*$",
+                                trimmed, re.IGNORECASE
+                            ):
+                                truncated_text_blocks.append({
+                                    "slide": slide_name, "reason": "dangling_connector", "text": trimmed[:160]
+                                })
                         normalized = re.sub(r"\W+", " ", paragraph_text.casefold()).strip()
                         if len(normalized) >= 32:
                             if normalized in paragraph_seen:
@@ -162,6 +179,7 @@ def inspect_pptx_bytes(data: bytes, expected_slides: int | None = None) -> dict:
         "slides_without_images": slides_without_images[:40],
         "duplicate_text_blocks": duplicate_text_blocks[:40],
         "numeric_truncations": numeric_truncations[:20],
+        "truncated_text_blocks": truncated_text_blocks[:40],
         "empty_slides": empty_slides,
         "out_of_bounds_shapes": out_of_bounds[:30],
         "warnings": [],
@@ -178,6 +196,10 @@ def inspect_pptx_bytes(data: bytes, expected_slides: int | None = None) -> dict:
         report["warnings"].append(f"{len(duplicate_text_blocks)} ta slaydda takrorlangan matn bloki")
     if numeric_truncations:
         report["warnings"].append(f"{len(numeric_truncations)} ta raqamli matn uch nuqta bilan kesilgan")
+    if truncated_text_blocks:
+        report["warnings"].append(
+            f"{len(truncated_text_blocks)} ta matn bloki tugallanmagan jumla yoki ellipsis bilan tugaydi"
+        )
     if out_of_bounds:
         report["warnings"].append(f"{len(out_of_bounds)} ta obyekt slayd chegarasidan chiqishi mumkin")
     return report
