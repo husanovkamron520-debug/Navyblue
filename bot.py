@@ -2639,7 +2639,11 @@ PPT_COMPOSITIONS = {
     "asymmetric_caption", "image_dominant", "photo_triptych", "photo_diptych", "cinematic_panorama", "cinematic_frame",
     "brutalist_type", "oversized_numeral", "metric_wall", "data_dashboard", "data_waterfall", "data_lollipop",
     "map_route", "typographic_poster", "data_slopegraph", "process_lane", "swimlane",
-    "isometric_stack", "isometric_exploded", "radial_network"
+    "isometric_stack", "isometric_exploded", "radial_network",
+    # Additional named archetypes mapped to reusable native rendering families.
+    "orbit_system", "matrix_priority", "funnel_steps", "comparison_duel",
+    "card_stack", "card_mosaic", "grid_manifesto", "negative_space",
+    "editorial_rows", "asym_cards"
 }
 PPT_COMPOSITION_FAMILIES = {
     "swiss_column":"editorial_split", "swiss_modular":"modular", "editorial_masthead":"editorial_split",
