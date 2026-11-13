@@ -8387,7 +8387,7 @@ def _ppt_genre_rule(topic):
                      "magic", "magical creatures", "fantastik")
     if any(term in folded for term in fantasy_terms):
         return (
-            "\\nJANR VA OLAMGA SODIQLIK — USTUVOR QOIDA: bu fantastika/sehrli olam mavzusi. "
+            "\nJANR VA OLAMGA SODIQLIK — USTUVOR QOIDA: bu fantastika/sehrli olam mavzusi. "
             "Uni biologiya, ekologiya, iqtisod, statistika yoki davlat idorasi hisobotiga aylantirma. "
             "Haqiqiy ilmiy tahlil foydalanuvchi alohida so'ramagan bo'lsa, populyatsiya dinamikasi, iqlim o'zgarishi, "
             "xavflilik indeksi, foizlar, KPI, bozor, xarajat yoki soxta protokollarni kiritma. "
