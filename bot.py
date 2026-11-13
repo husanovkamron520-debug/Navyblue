@@ -4196,6 +4196,18 @@ _PPT_BAD_TAGS = {
 }
 
 
+def _ppt_semantic_metadata_match(query: str, metadata: str, minimum: int = 2) -> bool:
+    """Stock natijasining sarlavha/taglari qidiruvning asosiy obyektiga mosligini tekshiradi."""
+    stop = {"with", "from", "that", "this", "over", "under", "into", "near", "dark", "light",
+            "mysterious", "dramatic", "beautiful", "photo", "image", "scene", "and", "the"}
+    terms = {x for x in re.findall(r"[a-z]{4,}", str(query or "").casefold()) if x not in stop}
+    if not terms:
+        return True
+    haystack = str(metadata or "").casefold()
+    hits = sum(1 for term in terms if term in haystack)
+    return hits >= min(minimum, len(terms))
+
+
 def _unsplash_photo_sync(query: str, used: set):
     """Unsplash API'dan landscape foto topadi; API download-tracking talabini bajaradi."""
     if not UNSPLASH_ACCESS_KEY or not (query or "").strip():
@@ -4219,7 +4231,14 @@ def _unsplash_photo_sync(query: str, used: set):
     except Exception as exc:
         logger.warning("Unsplash qidiruv xatosi: %s", exc)
         return None
-    results = [p for p in (payload.get("results") or []) if p.get("id") and ("us" + str(p.get("id"))) not in used]
+    results = []
+    for p in (payload.get("results") or []):
+        if not p.get("id") or ("us" + str(p.get("id"))) in used:
+            continue
+        tags = " ".join(str(t.get("title") or "") for t in (p.get("tags") or []) if isinstance(t, dict))
+        metadata = " ".join((str(p.get("description") or ""), str(p.get("alt_description") or ""), tags))
+        if _ppt_semantic_metadata_match(query, metadata, minimum=2):
+            results.append(p)
     if not results:
         logger.info("Unsplash: mos rasm topilmadi (query=%r)", query)
         return None
@@ -4272,7 +4291,14 @@ def _openverse_photo_sync(query: str, used: set):
     except Exception as exc:
         logger.warning('Openverse qidiruv xatosi: %s', exc)
         return None
-    results = [x for x in (payload.get('results') or []) if x.get('id') and ('ov' + str(x.get('id'))) not in used]
+    results = []
+    for x in (payload.get('results') or []):
+        if not x.get('id') or ('ov' + str(x.get('id'))) in used:
+            continue
+        tags = " ".join(str(t.get('name') or t.get('title') or "") for t in (x.get('tags') or []) if isinstance(t, dict))
+        metadata = " ".join((str(x.get('title') or ""), str(x.get('description') or ""), tags))
+        if _ppt_semantic_metadata_match(query, metadata, minimum=2):
+            results.append(x)
     random.shuffle(results)
     for item in results[:8]:
         try:
@@ -4378,12 +4404,8 @@ def _ppt_find_photo_sync(query: str, anchor: str, used: set):
             got = _download(random.choice(top))
             if got:
                 return got
-    # 3-bosqich: filtrsiz — qidiruv natijasi o'zi mavzuga yaqin, eng mashhurini olamiz
-    for h in all_hits:
-        if h.get("id") not in used:
-            got = _download(h)
-            if got:
-                return got
+    # Filtrsiz Pixabay fallback ataylab olib tashlandi: mavzuga aloqasiz rasm qo'yishdan ko'ra
+    # keyingi manbani yoki original mahalliy vizualni ishlatamiz.
     # Pixabay natija bermasa yoki yuklanmasa, Unsplash zaxira manba bo'ladi.
     if UNSPLASH_ACCESS_KEY:
         for qy in tries:
