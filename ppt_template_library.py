@@ -100,7 +100,9 @@ def choose_design_reference(topic: str, archetype: str = "concept_explainer",
         return None
     ranked.sort(key=lambda row: (-row[0], row[1]))
     chosen = dict(ranked[0][2])
-    # The source repository LICENSE explicitly covers every listed PPTX and preview image.\n    chosen["license"] = "CC BY 4.0"\n    chosen["license_verified_from_source_license"] = True
+    # The source repository LICENSE explicitly covers every listed PPTX and preview image.
+    chosen["license"] = "CC BY 4.0"
+    chosen["license_verified_from_source_license"] = True
     chosen["license_url"] = LICENSE_URL
     chosen["attribution"] = "Template design reference by ppttemplate.ai (CC BY 4.0); adapted for Navyblue."
     chosen["use"] = "design_reference_only"
