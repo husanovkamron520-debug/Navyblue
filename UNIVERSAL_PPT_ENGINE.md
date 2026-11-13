@@ -31,24 +31,27 @@ Generate high-quality, topic-faithful, visually varied and structurally valid de
 - `ppt_visual_director.py` adds deterministic domain classification, per-slide visual manifests, renderer-safe composition diversification and a visual critic report.
 - `ppt_content_critic.py` adds an independent non-mutating pass for thin content, repeated slides, generic titles, unsourced numeric claims and fiction/genre KPI drift.
 - `bot.py` attaches that manifest before asset retrieval and uses its query as a fallback when a slide has no explicit photo query.
-- Visual Director only selects composition profiles registered by the current renderer.
-- Unit tests cover medical, historical, fantasy, scientific, finance and logistics topic families, per-slide plans, content preservation, composition diversity and duplicate-focus detection.
+- `ppt_asset_manifest.py` records per-slide original/retrieved/fallback assets, provider, available credit, query and image hash; it warns about missing provenance and duplicate media.
+- Visual Director only selects composition profiles registered by the current renderer and does not force plain text slides to use stock photos.
+- The asset manifest records provider/license metadata only to the extent returned by the provider; it does not claim that every provider exposes a direct source URL or item-level license record.
+- Unit tests cover medical, historical, fantasy, scientific, finance and logistics topic families, content preservation, renderer-supported composition diversity, content critique and asset provenance.
 
 ## Rollout gates
 
-### Stage 1 — planning foundation
+### Stage 1 — planning foundation (implemented)
 - Visual Director integrated into outline generation.
-- Unit tests and CI compile checks pass.
-- No production deploy until full regression checks are green.
+- Renderer-safe composition selection, per-slide visual focus and domain-aware prompts.
+- Unit tests and CI compile checks.
 
-### Stage 2 — asset intelligence
-- Build a source-aware asset manifest with licensing/provenance.
-- Add per-slide relevance scoring, duplicate detection and a deliberate fallback ladder.
-- Prefer specific subject assets over generic decorative imagery.
+### Stage 2 — asset intelligence (partially implemented)
+- Per-slide asset provenance manifest, image hashes and duplicate-media warnings.
+- Existing stock relevance filters and local fallback ladder remain in place.
+- Remaining: provider-specific source URLs/license metadata normalization and stricter asset replacement when relevance is uncertain.
 
-### Stage 3 — independent critic
-- Add separate content and visual critique passes.
-- Reject unsupported claims and topic drift; request targeted revisions rather than regenerating the whole deck.
+### Stage 3 — independent critic (partially implemented)
+- Non-mutating content critic and visual-plan critic run on generated outlines.
+- Unsupported metrics, thin content, repeated slides, generic titles and repeated visual focus are reported.
+- Remaining: targeted model-assisted repair and a second critic pass; current warnings do not constitute external fact verification.
 
 ### Stage 4 — rendered review and repair
 - Render each slide to an image.
