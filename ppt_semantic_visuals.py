@@ -34,13 +34,13 @@ def fantasy_photo_query(topic, title, body=""):
 def _gradient(size, top, bottom):
     w, h = size
     image = Image.new("RGB", size)
-    px = image.load()
+    draw = ImageDraw.Draw(image)
     a = tuple(int(top[i:i+2], 16) for i in (0,2,4))
     b = tuple(int(bottom[i:i+2], 16) for i in (0,2,4))
     for y in range(h):
         t = y / max(1, h-1)
-        c = tuple(round(a[i]*(1-t)+b[i]*t) for i in range(3))
-        for x in range(w): px[x,y] = c
+        color = tuple(round(a[i]*(1-t)+b[i]*t) for i in range(3))
+        draw.line((0, y, w, y), fill=color)
     return image
 
 def _save(im):
