@@ -31,6 +31,7 @@ from ppt_media_sources import find_commons_photo
 from ppt_story_engine import STORY_ROLES, build_story_guidance, infer_story_role, story_quality_report, enforce_story_quality
 from ppt_visual_director import build_visual_direction_guidance, apply_visual_direction
 from ppt_content_critic import critique_content
+from ppt_asset_manifest import build_asset_manifest
 from pptx_package_qa import inspect_pptx_bytes
 from ppt_template_library import choose_design_reference, download_design_reference, inspect_pptx as inspect_template_pptx
 from ppt_semantic_visuals import fantasy_visual_kind, render_fantasy_visual
@@ -4587,6 +4588,8 @@ async def _ppt_attach_images(outline: dict, owner_ai: bool = False):
             lupin_kind = remus_lupin_visual_kind(lupin_subject, sl.get("title") or "", _ppt_slide_text(sl))
             sl["_img"] = await asyncio.to_thread(render_remus_lupin_visual, lupin_kind)
             sl["_visual_kind"] = "remus_lupin_" + lupin_kind
+            sl["_asset"] = {"source_type": "original", "provider": "Navyblue",
+                            "license_status": "original_project_art", "visual_kind": sl["_visual_kind"]}
             credits.append(f"Original Remus Lupin illustratsiyasi: {lupin_kind} / Navyblue")
             logger.info("Remus Lupin uchun maxsus vizual: title=%r kind=%s", sl.get("title"), lupin_kind)
             return
@@ -4595,6 +4598,8 @@ async def _ppt_attach_images(outline: dict, owner_ai: bool = False):
             clone_kind = cloning_visual_kind(clone_subject, sl.get("title") or "", _ppt_slide_text(sl))
             sl["_img"] = await asyncio.to_thread(render_cloning_visual, clone_kind)
             sl["_visual_kind"] = "cloning_" + clone_kind
+            sl["_asset"] = {"source_type": "original", "provider": "Navyblue",
+                            "license_status": "original_project_art", "visual_kind": sl["_visual_kind"]}
             credits.append(f"Original biologik klonlash sxemasi: {clone_kind} / Navyblue")
             logger.info("Klonlash uchun aniq o'quv vizuali ishlatildi: title=%r kind=%s", sl.get("title"), clone_kind)
             return
@@ -4603,6 +4608,8 @@ async def _ppt_attach_images(outline: dict, owner_ai: bool = False):
         if kind:
             sl["_img"] = await asyncio.to_thread(render_fantasy_visual, kind)
             sl["_visual_kind"] = kind
+            sl["_asset"] = {"source_type": "original", "provider": "Navyblue",
+                            "license_status": "original_project_art", "visual_kind": kind}
             credits.append(f"Original vizual: {kind.replace('_', ' ')} / Navyblue")
             logger.info("Aniq fantasy vizual ishlatildi: title=%r kind=%s", sl.get("title"), kind)
             return
@@ -4611,6 +4618,8 @@ async def _ppt_attach_images(outline: dict, owner_ai: bool = False):
                                                        sl.get("title") or "", _ppt_slide_text(sl)) or "heart"
             sl["_img"] = await asyncio.to_thread(render_cardiovascular_visual, medical_kind)
             sl["_visual_kind"] = "cardiovascular_" + medical_kind
+            sl["_asset"] = {"source_type": "original", "provider": "Navyblue",
+                            "license_status": "original_project_art", "visual_kind": sl["_visual_kind"]}
             credits.append(f"Original tibbiy sxema: {medical_kind} / Navyblue")
             logger.info("Yurak-qon tomir vizuali yaratildi: title=%r kind=%s", sl.get("title"), medical_kind)
             return
@@ -4624,22 +4633,39 @@ async def _ppt_attach_images(outline: dict, owner_ai: bool = False):
             got = await stock(query)
         if got:
             sl["_img"] = got[0]
+            credit = str(got[1] or "")
+            provider = str(got[2] or "unknown")
+            license_status = ("license_and_source_in_credit" if any(
+                marker in credit.casefold() for marker in ("cc by", "cc0", "public domain", "pdm")
+            ) else "provider_license_not_individually_recorded")
+            sl["_asset"] = {"source_type": "retrieved", "provider": provider, "credit": credit,
+                            "license_status": license_status, "query": query,
+                            "visual_kind": (sl.get("_visual_plan") or {}).get("visual_type", "photo")}
             credits.append(f"Rasm: {got[1] or got[2]} / {got[2]}")
             logger.info("Slayd rasmi topildi: title=%r provider=%s", sl.get("title"), got[2])
         else:
             logger.info("Slayd rasmi topilmadi; mahalliy vizual ishlatiladi: title=%r", sl.get("title"))
 
     async def many(sl):
-        imgs = []
+        imgs, assets = [], []
         for qy in sl.get("collage_queries") or []:
             historical_query = _ppt_historical_visual_query(outline, sl)
-            got = await stock(historical_query or qy, historical=bool(historical_query))
+            query = historical_query or qy
+            got = await stock(query, historical=bool(historical_query))
             if got:
                 imgs.append(got[0])
+                credit, provider = str(got[1] or ""), str(got[2] or "unknown")
+                license_status = ("license_and_source_in_credit" if any(
+                    marker in credit.casefold() for marker in ("cc by", "cc0", "public domain", "pdm")
+                ) else "provider_license_not_individually_recorded")
+                assets.append({"source_type": "retrieved", "provider": provider, "credit": credit,
+                               "license_status": license_status, "query": query, "visual_kind": "collage"})
                 credits.append(f"Rasm: {got[1] or got[2]} / {got[2]}")
             else:
                 imgs.append(None)
+                assets.append({})
         sl["_imgs"] = imgs
+        sl["_assets"] = assets
 
     await asyncio.gather(
         *(one(sl) for sl in outline.get("slides", [])
@@ -4831,15 +4857,27 @@ def _ppt_fix_missing_images(outline: dict) -> int:
         if lay not in _PPT_IMG_LAYOUTS:
             continue
         if lay == "collage":
-            imgs = [x for x in (sl.get("_imgs") or []) if _ppt_valid_image(x)]
+            raw_imgs = sl.get("_imgs") or []
+            raw_meta = sl.get("_assets") or []
+            imgs, assets = [], []
+            for i, image in enumerate(raw_imgs):
+                if _ppt_valid_image(image):
+                    imgs.append(image)
+                    assets.append(raw_meta[i] if i < len(raw_meta) and isinstance(raw_meta[i], dict) else {})
             while len(imgs) < 3:
-                imgs.append(_ppt_fallback_visual(sl, outline, len(imgs)))
+                fallback = _ppt_fallback_visual(sl, outline, len(imgs))
+                imgs.append(fallback)
+                assets.append({"source_type": "original_fallback", "provider": "Navyblue",
+                               "license_status": "original_project_art", "visual_kind": "fallback"})
                 fixed += 1
             sl["_imgs"] = imgs[:3]
+            sl["_assets"] = assets[:3]
             continue
         if _ppt_valid_image(sl.get("_img")):
             continue
         sl["_img"] = _ppt_fallback_visual(sl, outline, fixed)
+        sl["_asset"] = {"source_type": "original_fallback", "provider": "Navyblue",
+                        "license_status": "original_project_art", "visual_kind": "fallback"}
         fixed += 1
     if fixed:
         outline["_img_fallback_count"] = fixed
@@ -5036,6 +5074,13 @@ def _ppt_finalize_images(outline: dict):
     outline["_visual_integrity"] = {"required_visual_slots": sum(
         1 for sl in (outline.get("slides") or []) if isinstance(sl, dict) and sl.get("layout") in _PPT_IMG_LAYOUTS
     ), "issues": 0}
+    asset_report = build_asset_manifest(outline.get("slides") or [])
+    outline["_asset_manifest"] = asset_report
+    if asset_report.get("issues"):
+        logger.warning("Asset provenance critic: %s", json.dumps(asset_report.get("issues"), ensure_ascii=False))
+    logger.info("Asset manifest: assets=%s slides=%s sources=%s",
+                asset_report.get("asset_count"), asset_report.get("slide_count_with_assets"),
+                asset_report.get("source_counts"))
 
 
 # ---------------------------- V8: Executive Summary, Stepper, A4 poster ----------------------------
