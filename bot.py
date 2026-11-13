@@ -4560,7 +4560,7 @@ def _ppt_find_photo_sync(query: str, anchor: str, used: set, historical: bool = 
 
 async def _ppt_attach_images(outline: dict, owner_ai: bool = False):
     """Pixabay, Unsplash, Openverse va Wikimedia Commons'dan foto yoki xarita qidiradi.
-    Gemini image generation ishlatilmaydi; topilmasa mahalliy vektor vizual qo'llanadi."""
+    Mos foto topilmasa, slayd editorial/card maketiga o'tadi; multfilm fallback ishlatilmaydi."""
     used, credits = set(), []
     lupin_subject = " ".join(str(outline.get(k) or "") for k in ("_source_topic", "title", "topic_en"))
     lupin_topic = remus_lupin_topic(lupin_subject)
@@ -5643,20 +5643,17 @@ class _PptBuilder:
 
     def image_or_placeholder(self, slide, sl, x, y, w, h):
         raw = sl.get("_img")
-        if not _ppt_valid_image(raw):
-            raw = _ppt_fallback_visual(sl, {"art_direction": {"palette": self.pal}})
-        try:
-            return self.picture_cover(slide, raw, x, y, w, h)
-        except Exception:
-            logger.exception("Asosiy rasm joylanmadi; zaxira vizual ishlatiladi")
+        if _ppt_valid_image(raw):
             try:
-                fallback = _ppt_fallback_visual(sl, {"art_direction": {"palette": self.pal}}, 1)
-                return self.picture_cover(slide, fallback, x, y, w, h)
+                return self.picture_cover(slide, raw, x, y, w, h)
             except Exception:
-                logger.exception("Zaxira vizual ham joylanmadi")
-                self.box(slide, x, y, w, h, fill="card", line="line", rounded=False)
-                self.text(slide, x + 0.2, y + h * 0.42, w - 0.4, 0.5,
-                          str(sl.get("title") or "Vizual"), 16, "dark", True, "c", "m")
+                logger.exception("Tasdiqlangan rasmni joylashda xato")
+        # No synthetic vector/cartoon fallback: the surrounding slide remains clean and readable.
+        self.box(slide, x, y, w, h, fill="card", line="line", rounded=False)
+        focus = str((sl.get("design") or {}).get("visual_focus") or sl.get("title") or "").strip()
+        if focus:
+            self.text(slide, x + 0.25, y + h * 0.40, w - 0.5, 0.55,
+                      focus[:70], 15, "dark", True, "c", "m")
 
     def icon(self, slide, name, x, y, d, color="white"):
         I = self.Inches
