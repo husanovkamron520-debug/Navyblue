@@ -29,6 +29,7 @@ import museum
 import supply_chain
 from ppt_media_sources import find_commons_photo
 from ppt_story_engine import STORY_ROLES, build_story_guidance, infer_story_role, story_quality_report, enforce_story_quality
+from pptx_package_qa import inspect_pptx_bytes
 
 from telegram import (
     Update,
@@ -9094,6 +9095,13 @@ async def _ppt_generate_and_send(msg, context, topic, n, with_images, author, mo
             outline.setdefault("_credits", []).append(bg_credit)
         async with _cpu_gate:   # bir vaqtda 2 tadan ortiq og'ir fayl yig'ilmasin (Render CPU'si kam)
             data = await asyncio.to_thread(_build_pptx_bytes_classic if mode == "common" else _build_pptx_bytes, outline)
+        package_qa = await asyncio.to_thread(
+            inspect_pptx_bytes, data, len(outline.get("slides", [])) + 1
+        )
+        outline.setdefault("_qa", {})["package"] = package_qa
+        if package_qa.get("warnings"):
+            outline["_qa"].setdefault("warnings", []).extend(package_qa["warnings"])
+        logger.info("PPTX package QA: %s", json.dumps(package_qa, ensure_ascii=False))
         _t2 = time.monotonic()
     except ImportError:
         logger.exception("python-pptx topilmadi")
