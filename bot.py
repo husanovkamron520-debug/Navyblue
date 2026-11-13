@@ -4696,7 +4696,7 @@ def _ppt_historical_fallback_visual(sl: dict, outline: dict, variant: int = 0):
         font = small = ImageFont.load_default()
     d.rounded_rectangle((150,710,1450,815), radius=18, fill=(248,239,218), outline=gold, width=3)
     d.text((190,730), scene, font=font, fill=red)
-    label = re.sub(r"\\s+"," ",str(sl.get("title") or outline.get("title") or "Tarixiy mavzu")).strip()[:90]
+    label = re.sub(r"\s+", " ", str(sl.get("title") or outline.get("title") or "Tarixiy mavzu")).strip()[:90]
     d.text((190,775), label, font=small, fill=ink)
     out=io.BytesIO()
     im.save(out, format="PNG", optimize=True)
