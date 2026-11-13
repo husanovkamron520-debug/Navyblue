@@ -14,7 +14,6 @@ import tempfile
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageStat
-from pptx import Presentation
 
 
 class RenderQAError(RuntimeError):
