@@ -19,7 +19,11 @@ class PhotographicStyleTests(unittest.TestCase):
         self.assertTrue(is_nonphotographic_metadata("cartoon vector illustration"))
         self.assertTrue(is_nonphotographic_metadata("anime character portrait"))
         self.assertTrue(is_nonphotographic_metadata("Ottoman historical miniature painting"))
+        self.assertTrue(is_nonphotographic_metadata("digital art concept art"))
+        self.assertTrue(is_nonphotographic_metadata("vector artwork"))
+        self.assertTrue(is_nonphotographic_metadata("animated character portrait"))
         self.assertFalse(is_nonphotographic_metadata("photorealistic 3D medical render"))
+        self.assertFalse(is_nonphotographic_metadata("real documentary photograph of an Ottoman mosque"))
 
     def test_generic_query_has_photographic_style(self):
         query = build_photorealistic_query("logistics", "Warehouse automation", "Robotic picking")
