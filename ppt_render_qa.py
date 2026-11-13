@@ -65,7 +65,43 @@ def inspect_rendered_images(image_paths):
     }
 
 
-def render_and_inspect_pptx(data: bytes, timeout: int = 60, dpi: int = 96):
+def build_contact_sheets(image_paths, slides_per_sheet: int = 16, columns: int = 4):
+    """Build labeled slide thumbnails for a separate multimodal visual critic."""
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+    except ImportError:
+        return []
+    paths = [Path(x) for x in image_paths if Path(x).is_file()]
+    if not paths:
+        return []
+    thumb_w, thumb_h, label_h = 480, 270, 34
+    sheets = []
+    for start in range(0, len(paths), max(1, slides_per_sheet)):
+        chunk = paths[start:start + max(1, slides_per_sheet)]
+        rows = (len(chunk) + columns - 1) // columns
+        sheet = Image.new("RGB", (columns * thumb_w, rows * (thumb_h + label_h)), (18, 24, 34))
+        draw = ImageDraw.Draw(sheet)
+        try:
+            font = ImageFont.truetype("DejaVuSans.ttf", 18)
+        except Exception:
+            font = ImageFont.load_default()
+        for offset, path in enumerate(chunk):
+            with Image.open(path) as source:
+                thumb = source.convert("RGB")
+                thumb.thumbnail((thumb_w, thumb_h), Image.Resampling.LANCZOS)
+            x = (offset % columns) * thumb_w
+            y = (offset // columns) * (thumb_h + label_h)
+            draw.rectangle((x, y, x + thumb_w, y + label_h), fill=(35, 48, 66))
+            draw.text((x + 12, y + 7), f"SLIDE {start + offset + 1}", font=font, fill=(245, 245, 245))
+            sheet.paste(thumb, (x, y + label_h))
+        import io
+        buffer = io.BytesIO()
+        sheet.save(buffer, format="PNG", optimize=True)
+        sheets.append({"start_slide": start + 1, "end_slide": start + len(chunk), "png": buffer.getvalue()})
+    return sheets
+
+
+def render_and_inspect_pptx(data: bytes, timeout: int = 60, dpi: int = 96, include_contact_sheets: bool = False):
     """Render PPTX pages to PNG and inspect them; return skipped if renderer is absent."""
     if not isinstance(data, (bytes, bytearray)) or not data:
         return {"status": "error", "slides_rendered": 0, "blockers": [],
@@ -134,4 +170,6 @@ def render_and_inspect_pptx(data: bytes, timeout: int = 60, dpi: int = 96):
         report = inspect_rendered_images(image_paths)
         report["renderer"] = Path(office).name
         report["rasterizer"] = "pdftoppm" if pdftoppm else "pymupdf"
+        if include_contact_sheets:
+            report["contact_sheets"] = build_contact_sheets(image_paths)
         return report
