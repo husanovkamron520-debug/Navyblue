@@ -31,6 +31,7 @@ from ppt_media_sources import find_commons_photo
 from ppt_story_engine import STORY_ROLES, build_story_guidance, infer_story_role, story_quality_report, enforce_story_quality
 from pptx_package_qa import inspect_pptx_bytes
 from ppt_template_library import choose_design_reference, download_design_reference, inspect_pptx as inspect_template_pptx
+from ppt_semantic_visuals import fantasy_visual_kind, render_fantasy_visual
 
 from telegram import (
     Update,
@@ -2810,6 +2811,7 @@ def _ppt_outline_prompt(topic: str, n: int, with_images: bool) -> str:
         "SPEAKER NOTES: har slaydning notes maydoniga taqdimotchi uchun 2-4 tabiiy gap yoz: slayddagi asosiy fikrni izohla, zarur kontekst yoki hayotiy misol ber, keyingi slaydga tabiiy ko'prik yarat. Slayddagi matnni aynan takrorlama; yangi raqam yoki manbasiz fakt qo'shma. Notes tomoshabinga ko'rinmaydi, PowerPoint Presenter View uchun.\n"
         f"{build_story_guidance(topic, n)}\n"
         "STORYTELLING: qat'iy bitta ketma-ketlikka yopishma; har slaydga mavzuga mos story_role va story_beat yoz. Sarlavhalar konkret bo'lsin, umumiy qolipni takrorlama.\n"
+        "SLIDE DENSITY QA: har bir kontent slaydida sarlavhadan tashqari kamida 2 mazmuniy element yoki 35-60 so'zlik izoh bo'lsin. Faqat bo'sh fon + sarlavha qoldirma. Qisqa bo'lim slaydi ham bitta aniq izoh, obyekt yoki vizual dalilga ega bo'lsin.\n"
         "PROFESSIONAL COMPOSITION CATALOG: kengaytirilgan profil katalogidan mavzuga mosini tanla: editorial_split, asym_grid, full_bleed, modular, timeline, radial, data_focus, comparison, typographic, layered, swiss_column, swiss_modular, editorial_masthead, editorial_pullquote, magazine_spread, split_caption, asymmetric_caption, image_dominant, photo_triptych, photo_diptych, cinematic_panorama, cinematic_frame, brutalist_type, oversized_numeral, metric_wall, data_dashboard, data_waterfall, data_lollipop, data_slopegraph, process_lane, swimlane, isometric_stack, isometric_exploded, radial_network, map_route, typographic_poster, network_graph, waterfall, quote_stage, editorial_rows, asym_cards. Bir slaydda bitta asosiy fokus; ketma-ket profilni takrorlama.\n"
         "YANGI VIZUAL TURLAR: waterfall {steps:[4-7 ta {label,value,kind:delta|total}]} — qiymatlar bosqichma-bosqich o'zgarishi va yakuniy jami; swimlane {lanes:[2-4 ta {label,steps:[2-4 ta {label,detail}]}]} — bo'limlar kesimida jarayon; network {nodes:[4-7 ta {label,detail}],links:[{from:index,to:index,label}]} — faqat asoslangan aloqalarni chiz; quote {quote,attribution,source,context} — faqat tekshiriladigan, manbasi ko'rsatilgan iqtibos. Uydirma iqtibos yoki bog'lanish yasama. Chart chart_type: donut|bar|line|area|bar_horizontal|radar|stacked_bar. Multi-series uchun series:[{name,values}] va data_note maydonlarini qo'sh; values uzunligi data kategoriyalari bilan bir xil bo'lsin.\n"
         "MAP va 3D: geografik ma'lumot aniq bo'lmasa haqiqiy xarita da'vo qilma; 'map' faqat tekshirilgan xarita yoki konseptual marshrut sxemasi uchun. 'isometric' 3-5 bosqichli tizim, ombor, ishlab chiqarish, logistika yoki ta'minot oqimida mos bo'lsa tanla; kub shaklli obyektlar, qatlamlar, chuqurlik va izometrik joylashuvdan foydalan. Isometric composition uchun isometric_stack yoki isometric_exploded tanla. 3D ni bezak uchun emas, mazmunni fazoviy tushuntirish uchun ishlat.\n"
@@ -3421,6 +3423,7 @@ def _ppt_outline_prompt_compact(topic: str, n: int, with_images: bool) -> str:
         "Art director sifatida mavzuga mos mustaqil rang palitrasi, mood, motif va o'tish tanla. Rang/shape/foto/kompozitsiya majburiy shablon emas; faqat mazmunga mosini ishlat. Har slaydning layouti turlicha va vizual jihatdan puxta bo'lsin.\n"
         f"{build_story_guidance(topic, n)}\n"
         "STORYTELLING: bitta muammo-yechim qolipini majburlama; har slayd yangi bilim yoki dalil qo'shsin.\n"
+        "SLIDE DENSITY QA: faqat sarlavha va bo'sh fon bo'lmasin; har slaydda kamida 2 mazmuniy element yoki yetarli izoh bo'lsin.\n"
         "Kompozitsiya katalogi 36 profildan tanlanadi; map va isometric maketlaridan konseptual marshrut yoki bosqichli tizim uchun foydalan.\n"
         "HAR BIR SLAYD UCHUN DESIGN BLUEPRINT: har bir slaydning visual_focus, visual_type, composition, hierarchy, density va motion_reason maydonlarini qaytar. Bir slaydda bitta asosiy fokus; chart uchun tekshirilgan yoki namunaviy deb belgilangan raqamlar. Agenda/closing faqat mazmunga mos bo'lsa.\n"
         'FAQAT JSON: {"title":"","subtitle":"","style":"corporate","topic_en":"warehouse automation","story_architecture":"process_system","story_rationale":"...","executive":{"enabled":false},"cover_query":"","art_direction":{"mood":"","palette":{"bg":"071A35","card":"102544","line":"294466","soft":"456080","dark":"FFFFFF","text":"DCE6F2","brown":"D5B36A","tan":"B99A58","b1":"245A91","b2":"D5B36A","b3":"5C9BCB","hdr1":"173D68","hdr2":"8A6A32","row1":"102544","row2":"0B1B30","white":"FFFFFF"},"motif":"none","transition":"fade"},"slides":[{"layout":"","title":"",...,"notes":""}]}'
@@ -3736,7 +3739,7 @@ def _bg_make_sync(theme: dict, strength=None, used=None):
     return _bg_procedural(theme), ""
 
 
-def _ppt_make_backgrounds_sync(theme: dict, cover_query: str = ""):
+def _ppt_make_backgrounds_sync(theme: dict, cover_query: str = "", cover_visual_kind: str | None = None):
     """Taqdimot uchun ikkita fon: asosiy slaydlar va sarlavha slaydi."""
     if theme.get("file"):
         with open(PPT_BG_PATH, "rb") as f:
@@ -3745,7 +3748,10 @@ def _ppt_make_backgrounds_sync(theme: dict, cover_query: str = ""):
     used = set()
     main, credit = _bg_make_sync(theme, None, used)
     title, _ = _bg_make_sync(theme, max(0.5, theme.get("wash", 0.8) - 0.18), used)
-    if (PIXABAY_API_KEY) and (cover_query or "").strip():
+    if cover_visual_kind == "hogwarts_castle":
+        title = render_fantasy_visual("hogwarts_castle")
+        credit = credit or "Navyblue original illustration: gothic wizarding castle"
+    elif (PIXABAY_API_KEY) and (cover_query or "").strip():
         try:
             got = _pixabay_photo_sync(cover_query, used, min_width=1920)
             if got:
@@ -4190,6 +4196,18 @@ _PPT_BAD_TAGS = {
 }
 
 
+def _ppt_semantic_metadata_match(query: str, metadata: str, minimum: int = 2) -> bool:
+    """Stock natijasining sarlavha/taglari qidiruvning asosiy obyektiga mosligini tekshiradi."""
+    stop = {"with", "from", "that", "this", "over", "under", "into", "near", "dark", "light",
+            "mysterious", "dramatic", "beautiful", "photo", "image", "scene", "and", "the"}
+    terms = {x for x in re.findall(r"[a-z]{4,}", str(query or "").casefold()) if x not in stop}
+    if not terms:
+        return True
+    haystack = str(metadata or "").casefold()
+    hits = sum(1 for term in terms if term in haystack)
+    return hits >= min(minimum, len(terms))
+
+
 def _unsplash_photo_sync(query: str, used: set):
     """Unsplash API'dan landscape foto topadi; API download-tracking talabini bajaradi."""
     if not UNSPLASH_ACCESS_KEY or not (query or "").strip():
@@ -4213,7 +4231,14 @@ def _unsplash_photo_sync(query: str, used: set):
     except Exception as exc:
         logger.warning("Unsplash qidiruv xatosi: %s", exc)
         return None
-    results = [p for p in (payload.get("results") or []) if p.get("id") and ("us" + str(p.get("id"))) not in used]
+    results = []
+    for p in (payload.get("results") or []):
+        if not p.get("id") or ("us" + str(p.get("id"))) in used:
+            continue
+        tags = " ".join(str(t.get("title") or "") for t in (p.get("tags") or []) if isinstance(t, dict))
+        metadata = " ".join((str(p.get("description") or ""), str(p.get("alt_description") or ""), tags))
+        if _ppt_semantic_metadata_match(query, metadata, minimum=2):
+            results.append(p)
     if not results:
         logger.info("Unsplash: mos rasm topilmadi (query=%r)", query)
         return None
@@ -4266,7 +4291,14 @@ def _openverse_photo_sync(query: str, used: set):
     except Exception as exc:
         logger.warning('Openverse qidiruv xatosi: %s', exc)
         return None
-    results = [x for x in (payload.get('results') or []) if x.get('id') and ('ov' + str(x.get('id'))) not in used]
+    results = []
+    for x in (payload.get('results') or []):
+        if not x.get('id') or ('ov' + str(x.get('id'))) in used:
+            continue
+        tags = " ".join(str(t.get('name') or t.get('title') or "") for t in (x.get('tags') or []) if isinstance(t, dict))
+        metadata = " ".join((str(x.get('title') or ""), str(x.get('description') or ""), tags))
+        if _ppt_semantic_metadata_match(query, metadata, minimum=2):
+            results.append(x)
     random.shuffle(results)
     for item in results[:8]:
         try:
@@ -4372,12 +4404,8 @@ def _ppt_find_photo_sync(query: str, anchor: str, used: set):
             got = _download(random.choice(top))
             if got:
                 return got
-    # 3-bosqich: filtrsiz — qidiruv natijasi o'zi mavzuga yaqin, eng mashhurini olamiz
-    for h in all_hits:
-        if h.get("id") not in used:
-            got = _download(h)
-            if got:
-                return got
+    # Filtrsiz Pixabay fallback ataylab olib tashlandi: mavzuga aloqasiz rasm qo'yishdan ko'ra
+    # keyingi manbani yoki original mahalliy vizualni ishlatamiz.
     # Pixabay natija bermasa yoki yuklanmasa, Unsplash zaxira manba bo'ladi.
     if UNSPLASH_ACCESS_KEY:
         for qy in tries:
@@ -4432,6 +4460,14 @@ async def _ppt_attach_images(outline: dict, owner_ai: bool = False):
             return None
 
     async def one(sl):
+        kind = fantasy_visual_kind(outline.get("title") or outline.get("topic_en") or "",
+                                   sl.get("title") or "", _ppt_slide_text(sl))
+        if kind:
+            sl["_img"] = await asyncio.to_thread(render_fantasy_visual, kind)
+            sl["_visual_kind"] = kind
+            credits.append(f"Original vizual: {kind.replace('_', ' ')} / Navyblue")
+            logger.info("Aniq fantasy vizual ishlatildi: title=%r kind=%s", sl.get("title"), kind)
+            return
         query = sl.get("map_query") if sl.get("layout") == "map" else (sl.get("photo_query") or sl.get("title"))
         got = await stock(query)
         if got:
@@ -4454,7 +4490,8 @@ async def _ppt_attach_images(outline: dict, owner_ai: bool = False):
 
     await asyncio.gather(
         *(one(sl) for sl in outline.get("slides", [])
-          if sl.get("photo_query") or sl.get("map_query") or sl.get("layout") in ("hero", "image_text", "text_image", "banner_cards", "split", "image_story", "map")),
+          if sl.get("photo_query") or sl.get("map_query") or sl.get("layout") in ("hero", "image_text", "text_image", "banner_cards", "split", "image_story", "map")
+          or fantasy_visual_kind(outline.get("title") or outline.get("topic_en") or "", sl.get("title") or "", _ppt_slide_text(sl))),
         *(many(sl) for sl in outline.get("slides", []) if sl.get("collage_queries"))
     )
     outline["_credits"] = credits
@@ -4811,9 +4848,11 @@ class _PptBuilder:
         s = self.prs.slides.add_slide(self.prs.slide_layouts[6])
         _bg = self.bg_title if title_slide else self.bg_main
         _cyc = getattr(self, "bg_cycle", None)
-        if _cyc and not title_slide:
-            _bg = _cyc[getattr(self, "_bg_i", 0) % len(_cyc)]
-            self._bg_i = getattr(self, "_bg_i", 0) + 1
+        if not title_slide:
+            slide_index = getattr(self, "_bg_i", 0)
+            if _cyc:
+                _bg = _cyc[slide_index % len(_cyc)]
+            self._bg_i = slide_index + 1
         s.shapes.add_picture(io.BytesIO(_bg), 0, 0, self.prs.slide_width, self.prs.slide_height)
         try:
             self._decorate(s, title_slide)
@@ -4944,6 +4983,9 @@ class _PptBuilder:
         D = self._deco
         if comp == "full_bleed":
             return
+        slide_index = max(0, getattr(self, "_bg_i", 1) - 1)
+        if not title_slide and slide_index % 3 == 1:
+            return
         if comp == "editorial_split":
             D(s, "ring", 9.2, -2.4, 6.2, 6.2, "brown", 14); D(s, "oval", -1.4, 5.4, 3.4, 3.4, "b2", 7)
         elif comp == "asym_grid":
@@ -4951,8 +4993,9 @@ class _PptBuilder:
         elif comp == "timeline":
             D(s, "oval", -1.6, -1.6, 3.6, 3.6, "brown", 8); D(s, "ring", 10.6, 5.2, 3.6, 3.6, "b2", 12)
         elif comp == "radial":
-            D(s, "ring", 8.6, -2.8, 7.2, 7.2, "brown", 10); D(s, "ring", 9.9, -1.5, 4.6, 4.6, "b2", 12)
-            D(s, "oval", -1.2, 5.6, 2.6, 2.6, "brown", 7)
+            D(s, "bar", 10.2, 0.72, 1.9, 0.045, "brown", 30, -18)
+            D(s, "oval", 11.9, 1.15, 0.13, 0.13, "b2", 48)
+            D(s, "oval", 0.9, 6.15, 0.18, 0.18, "brown", 32)
         elif comp == "data_focus":
             D(s, "round", 10.6, -1.2, 3.2, 3.2, "brown", 9, 18); D(s, "round", -1.0, 5.9, 2.4, 2.4, "b2", 7, -14)
         elif comp == "comparison":
@@ -5821,6 +5864,21 @@ class _PptBuilder:
         )
         if not texts and not has_nontext_content:
             issues.append("mazmun bo'sh")
+        layout_name = getattr(slide, "_jarvis_layout", "")
+        if layout_name:
+            visible_chars = sum(len(str(getattr(shp, "text", "")).strip()) for shp in slide.shapes
+                                if getattr(shp, "has_text_frame", False))
+            meaningful_visuals = sum(1 for shp in slide.shapes
+                                     if not str(getattr(shp, "name", "")).startswith("deco")
+                                     and not (getattr(shp, "shape_type", None) == 13
+                                              and shp.width >= W * 0.96 and shp.height >= H * 0.96)
+                                     and (getattr(shp, "shape_type", None) == 13
+                                          or getattr(shp, "has_chart", False)
+                                          or getattr(shp, "has_table", False)))
+            if visible_chars < 48 and meaningful_visuals == 0 and layout_name not in ("section", "statement"):
+                issues.append("mazmun kam")
+            elif visible_chars < 28 and meaningful_visuals == 0 and layout_name in ("section", "statement"):
+                issues.append("mazmun kam")
         for i in range(len(texts)):
             for j in range(i + 1, len(texts)):
                 a, b = texts[i], texts[j]
@@ -5858,7 +5916,8 @@ class _PptBuilder:
 
     def _fallback_text(self, sl, slide_texts):
         """Zaif slaydni oddiy matnga emas, mazmun hajmiga mos editorial kompozitsiyaga tiklaydi."""
-        body = " ".join(t for t in slide_texts if t and t != sl.get("title"))[:700] or sl.get("text") or sl.get("title", "")
+        body = (" ".join(t for t in slide_texts if t and t != sl.get("title"))[:700]
+                or _ppt_slide_text(sl)[:700] or sl.get("text") or sl.get("title", ""))
         compact = len(body) <= 185
         return {"layout": "statement" if compact else "editorial",
                 "title": sl.get("title", ""), "text": body,
@@ -5953,7 +6012,7 @@ class _PptBuilder:
                 self.qa_slide_issues.append({"title": sl.get("title", "")[:80], "issues": unique_issues})
                 # Geometrik xato va sig'magan matn — jiddiy; ataylab qatlamlangan dizayndagi
                 # kesishish esa yumshoq ogohlantirish bo'lib, butun slaydni buzib yubormaydi.
-                hard = [x for x in unique_issues if x in ("xato", "chegaradan chiqdi", "matn sig'madi", "mazmun bo'sh")]
+                hard = [x for x in unique_issues if x in ("xato", "chegaradan chiqdi", "matn sig'madi", "mazmun bo'sh", "mazmun kam")]
                 if hard:
                     logger.warning("Avto-tekshiruv: %s slaydi qayta tiklanadi: %s", sl.get("layout"), hard)
                     try:
@@ -6012,8 +6071,13 @@ class _PptBuilder:
         if len(self.prs.slides) != len(slide_specs) + 1:
             qa_warnings.append("slaydlar soni reja bilan mos kelmadi")
         soft_issue_count = sum(1 for item in self.qa_slide_issues for issue in item.get("issues", [])
-                               if issue not in ("xato", "chegaradan chiqdi", "matn sig'madi", "mazmun bo'sh"))
+                               if issue not in ("xato", "chegaradan chiqdi", "matn sig'madi", "mazmun bo'sh", "mazmun kam"))
         empty_slide_count = sum(1 for item in self.qa_slide_issues if "mazmun bo'sh" in item.get("issues", []))
+        sparse_slide_count = sum(1 for item in self.qa_slide_issues
+                                 if "mazmun kam" in item.get("issues", [])
+                                 or "mazmun kam" in item.get("repair_issues", []))
+        if sparse_slide_count:
+            qa_warnings.append(f"kam mazmunli slaydlar qayta qurildi: {sparse_slide_count}")
         if soft_issue_count:
             qa_warnings.append(f"yumshoq vizual kesishish/qatlam ogohlantirishlari: {soft_issue_count}")
         if self.repaired:
@@ -6031,7 +6095,8 @@ class _PptBuilder:
                           "repeated_focus": repeated_focus, "expanded": outline.get("_expanded", 0),
                           "composition_repairs": outline.get("_composition_repairs", 0),
                           "slide_issues": self.qa_slide_issues, "hard_repairs": self.qa_hard_repairs,
-                          "empty_slides": empty_slide_count, "soft_issue_count": soft_issue_count,
+                          "empty_slides": empty_slide_count, "sparse_slides": sparse_slide_count,
+                          "soft_issue_count": soft_issue_count,
                           "warnings": qa_warnings,
                           "story_order_ok": bool(layouts and layouts[0] == "agenda" and layouts[-1] == "closing"),
                           "slide_count_ok": len(self.prs.slides) == len(slide_specs) + 1}
@@ -9146,9 +9211,14 @@ async def _ppt_generate_and_send(msg, context, topic, n, with_images, author, mo
             theme = _ppt_apply_template_palette(theme, template_reference)
         theme = _ppt_fix_contrast(theme)
         context.user_data["_ppt_last_theme"] = theme.get("key", theme.get("name", "adaptive"))
+        cover_context = " ".join((str(topic), str(outline.get("title") or ""), str(outline.get("cover_query") or ""))).casefold()
+        cover_visual_kind = ("hogwarts_castle" if any(x in cover_context for x in
+            ("harry potter", "hogwarts", "xogvarts", "hogvarts")) else None)
         bg_task = asyncio.create_task(asyncio.to_thread(
-            _ppt_make_backgrounds_sync, theme, outline.get("cover_query", "")))
-        if with_images and any(s.get("photo_query") or s.get("collage_queries") for s in outline["slides"]):
+            _ppt_make_backgrounds_sync, theme, outline.get("cover_query", ""), cover_visual_kind))
+        if with_images and any(s.get("photo_query") or s.get("collage_queries") or
+                               fantasy_visual_kind(outline.get("title") or outline.get("topic_en") or "", s.get("title") or "", _ppt_slide_text(s))
+                               for s in outline["slides"]):
             try:
                 await status.edit_text("🖼 Rasmlar tanlanmoqda (bir necha soniya)...")
             except Exception:
