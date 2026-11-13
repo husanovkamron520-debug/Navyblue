@@ -4476,7 +4476,7 @@ async def _ppt_attach_images(outline: dict, owner_ai: bool = False):
             logger.info("Aniq fantasy vizual ishlatildi: title=%r kind=%s", sl.get("title"), kind)
             return
         if cardio_topic:
-            medical_kind = cardiovascular_visual_kind(outline.get("title") or outline.get("topic_en") or "",
+            medical_kind = cardiovascular_visual_kind(outline.get("_source_topic") or outline.get("title") or outline.get("topic_en") or "",
                                                        sl.get("title") or "", _ppt_slide_text(sl)) or "heart"
             sl["_img"] = await asyncio.to_thread(render_cardiovascular_visual, medical_kind)
             sl["_visual_kind"] = "cardiovascular_" + medical_kind
