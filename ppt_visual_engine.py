@@ -46,6 +46,87 @@ def _title(self, slide, title):
         self.title(slide, title)
 
 
+def _native_3d(self, shape, depth=110000):
+    """Add conservative native DrawingML bevel/extrusion to an editable PPT shape."""
+    try:
+        from pptx.oxml.xmlchemy import OxmlElement
+        from pptx.oxml.ns import qn
+        sp_pr = shape._element.spPr
+        old = sp_pr.find(qn("a:sp3d"))
+        if old is not None:
+            sp_pr.remove(old)
+        effect = OxmlElement("a:sp3d")
+        effect.set("extrusionH", str(int(depth)))
+        effect.set("contourW", "18000")
+        effect.set("prstMaterial", "metal")
+        bevel = OxmlElement("a:bevelT")
+        bevel.set("w", "65000")
+        bevel.set("h", "65000")
+        bevel.set("prst", "relaxedInset")
+        effect.append(bevel)
+        ext_color = OxmlElement("a:extrusionClr")
+        color = OxmlElement("a:srgbClr")
+        color.set("val", str(self.pal.get("b1", "245A91")))
+        ext_color.append(color)
+        effect.append(ext_color)
+        sp_pr.append(effect)
+    except Exception:
+        # Unsupported Office renderer/version: keep the editable flat shape.
+        return False
+    return True
+
+
+def _render_isometric_cards(self, sl, cards, exploded=False):
+    """3D-styled editable cube stages, built from native PowerPoint geometry."""
+    s = self.new_slide()
+    _title(self, s, sl["title"])
+    n = len(cards)
+    palette = ["hdr1", "b1", "b2", "hdr2", "brown", "b3"]
+    span = 10.9 / max(1, n)
+    start = 1.18
+    for i, card in enumerate(cards):
+        x = start + i * span
+        y = 2.45 + ((i % 2) * 0.48 if exploded else 0.0) + (i * 0.08 if exploded else 0.0)
+        size_w = min(1.72, span - 0.18)
+        cube = s.shapes.add_shape(
+            self.SHAPE.CUBE, self.Inches(x), self.Inches(y),
+            self.Inches(size_w), self.Inches(1.48)
+        )
+        cube.fill.solid()
+        cube.fill.fore_color.rgb = self.col(palette[i % len(palette)])
+        cube.line.color.rgb = self.col("white")
+        cube.line.width = self.Pt(1.0)
+        try:
+            cube.shadow.inherit = False
+            cube.shadow.blur_radius = self.Pt(8)
+            cube.shadow.distance = self.Pt(3)
+            cube.shadow.angle = 45
+            cube.shadow.transparency = 35
+        except Exception:
+            pass
+        _native_3d(self, cube, 135000 if exploded else 100000)
+        # Front-facing label and supporting copy stay editable as text boxes.
+        self.text(s, x - 0.12, y + 1.62, size_w + 0.24, 0.55, card["head"],
+                  self.fit(card["head"], size_w + 0.1, 0.55, 15, 9, 0.56, 1.0),
+                  "dark", True, "c", "m", self.tf)
+        if card.get("text"):
+            self.text(s, x - 0.18, y + 2.2, size_w + 0.36, 1.2, card["text"],
+                      self.fit(card["text"], size_w + 0.2, 1.15, 12, 8),
+                      "text", False, "c", "t")
+        if i < n - 1:
+            mid_y = y + 0.72
+            connector = s.shapes.add_connector(
+                1, self.Inches(x + size_w + 0.02), self.Inches(mid_y),
+                self.Inches(start + (i + 1) * span - 0.08), self.Inches(mid_y + (0.35 if exploded else 0.0))
+            )
+            connector.line.color.rgb = self.col("brown")
+            connector.line.width = self.Pt(2.0)
+    if sl.get("text"):
+        self.text(s, 1.0, 6.55, 11.3, 0.35, sl["text"],
+                  self.fit(sl["text"], 11.2, 0.35, 12, 8), "text", False, "c", "m")
+    self.notes(s, sl.get("notes"))
+
+
 def render_cards_varied(self, sl):
     """Turn the same card data into genuinely different compositions."""
     cards = sl.get("cards") or []
@@ -53,7 +134,9 @@ def render_cards_varied(self, sl):
     s = self.new_slide()
     _title(self, s, sl["title"])
     colors = ["b1", "b2", "b3", "brown"]
-    if comp in {"editorial_split", "editorial_rows"} and len(cards) >= 3:
+    if comp in {"isometric_stack", "isometric_exploded"} and len(cards) >= 3:
+        return _render_isometric_cards(self, sl, cards, exploded=(comp == "isometric_exploded"))
+    if comp in {"editorial_split", "editorial_rows", "editorial_masthead", "swiss_column", "editorial_pullquote"} and len(cards) >= 3:
         # Editorial: one dominant idea + compact evidence rail.
         first = cards[0]
         self.box(s, 1.0, 2.05, 5.0, 4.65, fill="hdr1", line=None, rounded=True, radius=0.06)
@@ -74,7 +157,7 @@ def render_cards_varied(self, sl):
                       self.fit(c["text"], 4.8, max(0.42, row_h - 0.62), 14, 9), "text", False, "l", "t")
             if i < len(rest) - 1:
                 self.box(s, 7.25, y + row_h - 0.06, 4.7, 0.015, fill="line", line=None)
-    elif comp in {"asym_grid", "asym_cards"} and len(cards) >= 3:
+    elif comp in {"asym_grid", "asym_cards", "magazine_spread", "photo_triptych", "card_mosaic", "asymmetric_caption"} and len(cards) >= 3:
         # Asymmetric magazine grid: wide lead card, smaller supporting blocks.
         first = cards[0]
         self.box(s, 1.0, 2.05, 6.2, 4.65, fill="card", line="line", rounded=True, radius=0.06)
@@ -93,7 +176,7 @@ def render_cards_varied(self, sl):
                       self.fit(c["head"], 3.4, 0.42, 17, 11, 0.58, 1.08), "dark", True, "l", "m", self.tf)
             self.text(s, 8.52, y + 0.62, 3.48, max(0.35, rh - 0.8), c["text"],
                       self.fit(c["text"], 3.4, max(0.35, rh - 0.8), 13, 9), "text", False, "l", "t")
-    elif comp == "layered":
+    elif comp in {"layered", "card_stack", "photo_diptych", "cinematic_frame"}:
         # Editorial numbered rows instead of repeated equal-size cards.
         row_h = min(1.28, 4.55 / max(1, len(cards)))
         for i, c in enumerate(cards):
@@ -387,7 +470,7 @@ def install(builder_class, layout_set, composition_set):
     old_cards = builder_class.cards
     def cards(self, sl):
         comp = getattr(self, "_cur_comp", "modular")
-        if comp in {"editorial_split", "asym_grid", "layered"}:
+        if comp in composition_set:
             return render_cards_varied(self, sl)
         return old_cards(self, sl)
     builder_class.cards = cards
