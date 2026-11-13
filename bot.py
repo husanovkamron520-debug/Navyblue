@@ -4609,8 +4609,105 @@ async def _ppt_attach_images(outline: dict, owner_ai: bool = False):
     outline["_img_generation_disabled"] = True
 
 
+def _ppt_historical_fallback_visual(sl: dict, outline: dict, variant: int = 0):
+    """Tarixiy slaydlar uchun mavzuga mos, faktik xarita deb ko'rsatilmaydigan original vektor sahna."""
+    from PIL import Image, ImageDraw, ImageFont
+    W, H = 1600, 900
+    title = str(sl.get("title") or "").casefold()
+    body = _ppt_slide_text(sl).casefold()
+    text = title + " " + body
+    architecture = bool(re.search(r"me'mor|masjid|mosque|suleyman|sinan|iznik|koshin|architecture|meros", text))
+    military = bool(re.search(r"harbiy|military|army|askar|qo'shin|qoshin|janissar|yenicheri|akinci|jang|battle|siege|qamal|g'azo|ghazi", text))
+    geography = bool(re.search(r"xarita|map|geosiyosat|geopolit|hudud|territor|kengay|expansion|balkan|bolqon|savdo|trade|ipak yo'li", text))
+    paper = (239, 224, 190)
+    ink = (73, 48, 31)
+    red = (145, 48, 39)
+    gold = (177, 130, 55)
+    im = Image.new("RGB", (W, H), paper)
+    d = ImageDraw.Draw(im)
+    # Subtle parchment grain and restrained double frame.
+    for y in range(0, H, 8):
+        d.line((0, y, W, y), fill=(paper[0]-2, paper[1]-2, paper[2]-3), width=1)
+    d.rounded_rectangle((38, 38, W-38, H-38), radius=26, outline=gold, width=5)
+    d.rounded_rectangle((55, 55, W-55, H-55), radius=20, outline=(190, 166, 119), width=2)
+    # Decorative corner rosettes.
+    for x, y in ((105,105),(W-105,105),(105,H-105),(W-105,H-105)):
+        d.ellipse((x-24,y-24,x+24,y+24), outline=red, width=4)
+        d.line((x-17,y,x+17,y), fill=red, width=3)
+        d.line((x,y-17,x,y+17), fill=red, width=3)
+    if architecture:
+        # Clearly illustrative Ottoman-inspired mosque silhouette, not a specific measured building.
+        d.rectangle((340, 575, 1260, 670), fill=ink)
+        d.rectangle((455, 430, 1145, 585), fill=(116, 75, 48))
+        d.pieslice((455, 290, 1145, 680), 180, 360, fill=red, outline=ink, width=8)
+        d.rectangle((455, 485, 1145, 585), fill=(116, 75, 48))
+        d.pieslice((610, 210, 990, 530), 180, 360, fill=gold, outline=ink, width=8)
+        d.rectangle((610, 390, 990, 540), fill=gold)
+        for x in (390, 1190):
+            d.rectangle((x-24, 280, x+24, 670), fill=ink)
+            d.polygon([(x-38,280),(x,205),(x+38,280)], fill=red, outline=ink)
+            d.ellipse((x-8,185,x+8,215), fill=gold)
+        for x in (550, 700, 900, 1050):
+            d.arc((x-42,480,x+42,600), 180, 360, fill=gold, width=10)
+        scene = "OTTOMAN-INSPIRED ARCHITECTURE"
+    elif military:
+        # Stylised cavalry and banners; intentionally illustrative, not a historical portrait.
+        d.rectangle((160, 650, 1440, 665), fill=ink)
+        d.polygon([(260,330),(390,250),(520,330),(480,350),(300,350)], fill=red, outline=ink)
+        d.line((390,250,390,160), fill=ink, width=12)
+        d.polygon([(390,165),(535,205),(390,245)], fill=red, outline=ink)
+        # horse body, neck, head, legs
+        d.ellipse((560,440,1110,620), fill=ink)
+        d.polygon([(940,480),(1030,350),(1120,330),(1160,370),(1080,410),(1035,545)], fill=ink)
+        d.ellipse((1080,315,1190,390), fill=ink)
+        for x in (660,820,1000):
+            d.line((x,570,x-35,720), fill=ink, width=25)
+            d.line((x+35,570,x+65,710), fill=ink, width=22)
+        d.ellipse((760,245,900,390), fill=ink)
+        d.polygon([(785,370),(920,380),(990,505),(850,535)], fill=red, outline=ink)
+        d.line((855,400,760,565), fill=ink, width=20)
+        d.line((905,400,1040,520), fill=ink, width=18)
+        d.line((760,565,720,660), fill=ink, width=10)
+        scene = "ILLUSTRATIVE HISTORICAL CAVALRY"
+    elif geography:
+        # Decorative parchment map panel without asserting borders or exact geography.
+        d.rounded_rectangle((230,170,1370,700), radius=34, fill=(224,205,165), outline=ink, width=7)
+        d.ellipse((520,240,1110,650), outline=red, width=10)
+        d.arc((420,220,1220,680), 205, 335, fill=gold, width=18)
+        for x,y in ((600,360),(780,290),(960,420),(740,550),(1080,550)):
+            d.ellipse((x-18,y-18,x+18,y+18), fill=red, outline=ink, width=3)
+        d.line((600,360,780,290,960,420,1080,550), fill=ink, width=7)
+        d.line((600,360,740,550), fill=ink, width=7)
+        scene = "SCHEMATIC HISTORICAL ROUTES — NOT TO SCALE"
+    else:
+        # Ottoman-inspired manuscript medallion and architectural motifs.
+        d.ellipse((470,170,1130,830), outline=red, width=18)
+        d.ellipse((510,210,1090,790), outline=gold, width=8)
+        for angle in range(0,360,30):
+            import math as _math
+            x=800+260*_math.cos(_math.radians(angle)); y=500+260*_math.sin(_math.radians(angle))
+            d.ellipse((x-24,y-24,x+24,y+24), fill=red, outline=ink, width=3)
+        d.polygon([(800,280),(900,440),(800,660),(700,440)], outline=ink, fill=(190,151,87))
+        scene = "OTTOMAN-ERA MANUSCRIPT-INSPIRED MOTIF"
+    try:
+        font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 29)
+        small = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 21)
+    except Exception:
+        font = small = ImageFont.load_default()
+    d.rounded_rectangle((150,710,1450,815), radius=18, fill=(248,239,218), outline=gold, width=3)
+    d.text((190,730), scene, font=font, fill=red)
+    label = re.sub(r"\\s+"," ",str(sl.get("title") or outline.get("title") or "Tarixiy mavzu")).strip()[:90]
+    d.text((190,775), label, font=small, fill=ink)
+    out=io.BytesIO()
+    im.save(out, format="PNG", optimize=True)
+    return out.getvalue()
+
+
 def _ppt_fallback_visual(sl: dict, outline: dict, variant: int = 0) -> bytes:
-    """Tashqi rasm topilmasa ham slayd uchun mavzuga nomlangan, sifatli vektor vizual yaratadi."""
+    """Tashqi rasm topilmasa mavzuga mos original vektor vizual yaratadi."""
+    historical_query = _ppt_historical_visual_query(outline, sl)
+    if historical_query:
+        return _ppt_historical_fallback_visual(sl, outline, variant)
     from PIL import Image, ImageDraw, ImageFont
     W, H = 1600, 900
     ad = outline.get("art_direction") if isinstance(outline.get("art_direction"), dict) else {}
