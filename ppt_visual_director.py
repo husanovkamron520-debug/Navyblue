@@ -166,7 +166,7 @@ def build_visual_plan(topic, slides):
         current_design = slide.get("design") if isinstance(slide.get("design"), dict) else {}
         supplied = str(current_design.get("composition") or "").strip()
         composition = supplied or _choose_composition(kind, topic, slide, index, previous_compositions)
-        if len(previous_compositions) >= 2 and composition in previous_compositions[-2:]:
+        if composition in previous_compositions[-2:]:
             composition = _choose_composition(kind, topic, slide, index + 101, previous_compositions)
         previous_compositions.append(composition)
         manifest.append({
