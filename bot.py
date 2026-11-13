@@ -7832,6 +7832,7 @@ def _ppt_outline_prompt_classic(topic: str, n: int, with_images: bool) -> str:
         + "\n"
         "- 'style' maydoni: mavzu va auditoriyaga eng mos BITTA uslub kalitini tanla: neon (texnologiya/AI/startap), aurora (innovatsiya), light (universal toza), corporate (biznes/moliya/logistika), sunset (hikoya/marketing), forest (ekologiya/salomatlik), swiss (ilmiy, Swiss tipografiya), editorial (jurnal: tarix/madaniyat/tahlil), brutal (yoshlar/jasur/bahs), luxury (premium/brend), navy (Dark Luxury Navy: to'q ko'k + oltin; biznes/analitika/logistika/moliya), glass (zamonaviy IT/dizayn), retro (futurizm/texno/o'yin), organic (tabiat/ta'lim/psixologiya).\n"
         'FAQAT JSON: {"title":"...","subtitle":"...","style":"corporate","topic_en":"warehouse automation","cover_query":"...","art_direction":{"mood":"...","palette":{"bg":"071A35","card":"102544","line":"294466","soft":"456080","dark":"FFFFFF","text":"DCE6F2","brown":"D5B36A","tan":"B99A58","b1":"245A91","b2":"D5B36A","b3":"5C9BCB","hdr1":"173D68","hdr2":"8A6A32","row1":"102544","row2":"0B1B30","white":"FFFFFF"},"motif":"none","transition":"fade"},"slides":[{"layout":"...","motion":"fade|wipe|zoom|auto", ...,"notes":"..."}]}'
+        f"\n{build_visual_direction_guidance(topic, n)}\n"
     )
 
 
@@ -8032,6 +8033,7 @@ def _ppt_outline_prompt_compact_classic(topic: str, n: int, with_images: bool) -
         f"{img}Oraliqda kamida 4 xil maket ishlat. Til: mavzu tilida (o'zbekcha bo'lsa lotin). Faktlarni o'ylab topma.\n"
         "Art director sifatida mavzuga mos mustaqil rang palitrasi, mood, motif va o'tish tanla. Rang/shape/foto/kompozitsiya majburiy shablon emas; faqat mazmunga mosini ishlat. Har slaydning layouti turlicha va vizual jihatdan puxta bo'lsin.\n"
         'FAQAT JSON: {"title":"","subtitle":"","style":"corporate","topic_en":"warehouse automation","cover_query":"","art_direction":{"mood":"","palette":{"bg":"071A35","card":"102544","line":"294466","soft":"456080","dark":"FFFFFF","text":"DCE6F2","brown":"D5B36A","tan":"B99A58","b1":"245A91","b2":"D5B36A","b3":"5C9BCB","hdr1":"173D68","hdr2":"8A6A32","row1":"102544","row2":"0B1B30","white":"FFFFFF"},"motif":"none","transition":"fade"},"slides":[{"layout":"","title":"",...,"notes":""}]}'
+        f"\n{build_visual_direction_guidance(topic, n)}\n"
     )
 
 
