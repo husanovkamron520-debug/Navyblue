@@ -231,7 +231,9 @@ def apply_remus_lupin_visual_coverage(slides) -> int:
     for index, slide in enumerate(slides or []):
         if not isinstance(slide, dict):
             continue
-        sanitize_remus_lupin_slide(slide)
+        sanitized = sanitize_remus_lupin_slide(slide)
+        if sanitized:
+            changed += 1
         layout = str(slide.get("layout") or "").casefold()
         if layout in excluded or layout not in text_only:
             continue
