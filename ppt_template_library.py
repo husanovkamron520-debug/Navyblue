@@ -96,7 +96,9 @@ def choose_design_reference(topic: str, archetype: str = "concept_explainer",
     topic_words = set(re.findall(r"[a-z0-9]+", str(topic).casefold()))
     ranked = []
     for item in items:
-        tags = {str(x).casefold() for x in (item.get("tags") or [])}
+        tags = set()
+        for tag in (item.get("tags") or []):
+            tags.update(re.findall(r"[a-z0-9]+", str(tag).casefold()))
         title_words = set(re.findall(r"[a-z0-9]+", str(item.get("title") or "").casefold()))
         score = 3 * len(tags & terms) + len(topic_words & title_words)
         if score:
