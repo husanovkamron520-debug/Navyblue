@@ -9253,28 +9253,9 @@ async def ppt_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await _ppt_ask_count(q.message, context, topic)
         return
-    if action == "tp" and len(parts) > 2:
-        if parts[2] == "r":
-            await q.answer()
-            try:
-                await q.message.edit_reply_markup(_ppt_topic_keyboard())
-            except Exception:
-                pass
-            return
-        if parts[2] == "own":
-            await q.answer()
-            context.user_data["_ppt_wait"] = time.time()
-            await q.message.reply_text("✍️ Mavzuni o'zingiz yozing.")
-            return
-        if parts[2].isdigit() and int(parts[2]) < len(PPT_TOPIC_POOL):
-            await q.answer()
-            context.user_data.pop("_ppt_wait", None)
-            try:
-                await q.message.edit_reply_markup(None)
-            except Exception:
-                pass
-            await _ppt_ask_count(q.message, context, PPT_TOPIC_POOL[int(parts[2])])
-            return
+    if action == "tp":
+        await q.answer("Mavzu menyusi olib tashlandi. Mavzuni matn ko'rinishida yuboring.", show_alert=True)
+        return
     if action == "img":
         context.user_data["_ppt_img"] = not context.user_data.get("_ppt_img", True)
         await q.answer("Rasmlar yoqildi" if context.user_data["_ppt_img"] else "Rasmlar o'chirildi")
