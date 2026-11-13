@@ -4447,8 +4447,8 @@ async def _ppt_attach_images(outline: dict, owner_ai: bool = False):
     Gemini image generation ishlatilmaydi; topilmasa mahalliy vektor vizual qo'llanadi."""
     used, credits = set(), []
     cardio_topic = cardiovascular_topic(outline.get("_source_topic") or outline.get("title") or outline.get("topic_en") or "")
-    anchor = " ".join(re.findall(r"[A-Za-z]+", str(outline.get("topic_en") or ""))[:4])
-    if not anchor:
+    anchor = "heart cardiovascular system" if cardio_topic else " ".join(re.findall(r"[A-Za-z]+", str(outline.get("topic_en") or ""))[:4])
+    if not anchor and not cardio_topic:
         try:
             tr, ok = await _pxb_to_english(outline.get("title") or "", "photo")
             anchor = " ".join(re.findall(r"[A-Za-z]+", tr if ok else "")[:4])
@@ -5949,6 +5949,28 @@ class _PptBuilder:
             else:
                 c_nv.set("descr", secondary if len(value) > 45 else support)
 
+    def _dedupe_repeated_text(self, slide):
+        """Bir slayd ichida uzun matn bloklari aynan takrorlansa, ikkinchi nusxani olib tashlaydi."""
+        seen = set()
+        removed = 0
+        for shape in list(slide.shapes):
+            if not getattr(shape, "has_text_frame", False):
+                continue
+            raw = str(shape.text_frame.text or "")
+            norm = re.sub(r"\s+", " ", raw).strip().casefold()
+            norm = re.sub(r"[^\w ]+", "", norm, flags=re.UNICODE).strip()
+            if len(norm) < 42:
+                continue
+            if norm in seen:
+                try:
+                    shape._element.getparent().remove(shape._element)
+                    removed += 1
+                except Exception:
+                    pass
+            else:
+                seen.add(norm)
+        return removed
+
     def _qa_slide(self, slide):
         """Matn sig'ishi va ustma-ust tushishni tekshiradi; sig'maganini kichraytiradi. Qolgan muammolar ro'yxatini qaytaradi."""
         E = 0.02 * 914400
@@ -6101,6 +6123,7 @@ class _PptBuilder:
         self.slide_title(outline)
         self._qa_slide(self.prs.slides[-1])
         self.repaired = 0
+        self.qa_duplicate_text_removed = 0
         for sl in outline["slides"]:
             n0 = len(self.prs.slides)
             texts, issues = [], []
