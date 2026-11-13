@@ -2800,7 +2800,7 @@ def _ppt_outline_prompt(topic: str, n: int, with_images: bool) -> str:
         "DIZAYN STANDARTI: sen faqat matn muallifi emas, mustaqil ART DIRECTOR ham bo'lasan. Mavzuni, auditoriyani va mazmun kayfiyatini tahlil qilib, har bir taqdimot uchun o'ziga xos vizual konsepsiya yarat. Ranglarni oldindan belgilangan bitta palitraga bog'lama: qora-oltin, ko'k-oq, bej-jigarrang, yashil, yorqin yoki boshqa uyg'un ranglarni mavzuga qarab tanla. Ranglar bir-biriga kontrastli va o'qilishi qulay bo'lsin.\n"
         "KOMPOZITSIYA: doira, yoy, chiziq, geometrik shakl, katta raqam, qatlam, foto-kollaj, ramka, bo'sh joy va tipografik urg'ularni faqat mazmunga xizmat qilsa ishlat; hech biri majburiy emas. Har slayd uchun mos maketni tanla, bir xil shablonni takrorlama. Rasmlar mavzuga aniq mos, sifatli va dekor emas, mazmunni tushuntiruvchi bo'lsin. Clipart, tasodifiy ikonalar va generik biznes rasmlaridan qoch.\n"
         "HARAKAT: har bir slayd uchun motion maydonini tanla: fade (matn/izoh), wipe (jarayon/diagramma), zoom (asosiy foto yoki muhim urg'u). "
-        "Bir xil effektni hamma slaydga majburlama; ketma-ketlik tabiiy bo'lsin va ko'zni charchatmasin.\\n"
+        "Bir xil effektni hamma slaydga majburlama; ketma-ketlik tabiiy bo'lsin va ko'zni charchatmasin.\n"
         "AI ART DIRECTION maydoni qaytar: {mood, palette:{bg,card,line,soft,dark,text,brown,tan,b1,b2,b3,hdr1,hdr2,row1,row2,white}, motif, transition}. Barcha ranglar # belgisisiz 6 xonali HEX. Palette kontrastini tekshir. Kulrang/neytral (B0B0B0 kabi) karta va och kulrang gradientlardan QOCH; ranglar psixologiyasidan foydalan (ishonch-ko'k, energiya-marjon, o'sish-yashil, ijod-binafsha, optimizm-amber), karta rangi fon bilan bir oilada bo'lsin. motif: none|circles|arcs|grid|editorial|organic|geometric. transition: fade|wipe|push. Bu tavsiyalar, lekin mavzuga mos bo'lmasa bezakni majburlama.\n"
         "Sans-serif yoki mavzuga mos serif tipografiya, sarlavha aniq. Bir slaydda 3-4 tadan ortiq asosiy element bo'lmasin. Vizual va matn muvozanatini saqla.\n"
         "PROFESSIONAL KOMPOZITSIYA: har slaydni alohida artboard sifatida loyihala: kuchli vizual fokus, aniq grid, chekka bo'shliqlar, qatlamlar va kontrastli tipografik ierarxiya. Bir xil kartochka maketini ketma-ket takrorlama. Katta sarlavha, kichik izoh, asosiy vizual va yordamchi ma'lumot o'rtasida aniq farq bo'lsin. Jadvalni faqat haqiqatan taqqoslash kerak bo'lsa ishlat; matnni uzun ro'yxatga aylantirma.\n"
@@ -7218,7 +7218,7 @@ def _ppt_outline_prompt_classic(topic: str, n: int, with_images: bool) -> str:
         "DIZAYN STANDARTI: sen faqat matn muallifi emas, mustaqil ART DIRECTOR ham bo'lasan. Mavzuni, auditoriyani va mazmun kayfiyatini tahlil qilib, har bir taqdimot uchun o'ziga xos vizual konsepsiya yarat. Ranglarni oldindan belgilangan bitta palitraga bog'lama: qora-oltin, ko'k-oq, bej-jigarrang, yashil, yorqin yoki boshqa uyg'un ranglarni mavzuga qarab tanla. Ranglar bir-biriga kontrastli va o'qilishi qulay bo'lsin.\n"
         "KOMPOZITSIYA: doira, yoy, chiziq, geometrik shakl, katta raqam, qatlam, foto-kollaj, ramka, bo'sh joy va tipografik urg'ularni faqat mazmunga xizmat qilsa ishlat; hech biri majburiy emas. Har slayd uchun mos maketni tanla, bir xil shablonni takrorlama. Rasmlar mavzuga aniq mos, sifatli va dekor emas, mazmunni tushuntiruvchi bo'lsin. Clipart, tasodifiy ikonalar va generik biznes rasmlaridan qoch.\n"
         "HARAKAT: har bir slayd uchun motion maydonini tanla: fade (matn/izoh), wipe (jarayon/diagramma), zoom (asosiy foto yoki muhim urg'u). "
-        "Bir xil effektni hamma slaydga majburlama; ketma-ketlik tabiiy bo'lsin va ko'zni charchatmasin.\\n"
+        "Bir xil effektni hamma slaydga majburlama; ketma-ketlik tabiiy bo'lsin va ko'zni charchatmasin.\n"
         "AI ART DIRECTION maydoni qaytar: {mood, palette:{bg,card,line,soft,dark,text,brown,tan,b1,b2,b3,hdr1,hdr2,row1,row2,white}, motif, transition}. Barcha ranglar # belgisisiz 6 xonali HEX. Palette kontrastini tekshir. Kulrang/neytral (B0B0B0 kabi) karta va och kulrang gradientlardan QOCH; ranglar psixologiyasidan foydalan (ishonch-ko'k, energiya-marjon, o'sish-yashil, ijod-binafsha, optimizm-amber), karta rangi fon bilan bir oilada bo'lsin. motif: none|circles|arcs|grid|editorial|organic|geometric. transition: fade|wipe|push. Bu tavsiyalar, lekin mavzuga mos bo'lmasa bezakni majburlama.\n"
         "Sans-serif yoki mavzuga mos serif tipografiya, sarlavha aniq. Bir slaydda 3-4 tadan ortiq asosiy element bo'lmasin. Vizual va matn muvozanatini saqla.\n"
         "PROFESSIONAL KOMPOZITSIYA: har slaydni alohida artboard sifatida loyihala: kuchli vizual fokus, aniq grid, chekka bo'shliqlar, qatlamlar va kontrastli tipografik ierarxiya. Bir xil kartochka maketini ketma-ket takrorlama. Katta sarlavha, kichik izoh, asosiy vizual va yordamchi ma'lumot o'rtasida aniq farq bo'lsin. Jadvalni faqat haqiqatan taqqoslash kerak bo'lsa ishlat; matnni uzun ro'yxatga aylantirma.\n"
@@ -8400,7 +8400,7 @@ def _ppt_genre_rule(topic):
             "'thestral winged horse illustration', 'basilisk fantasy serpent'. Oddiy fern, butterfly, ray fish, "
             "generic bird yoki tumanli o'rmonni sehrli mavjudot o'rniga qo'yma. "
             "Kanonik fakt bilan talqinni ajrat; bilmagan detallarni to'qima. "
-            "Foiz, statistik ko'rsatkich va rasmiy protokol faqat asl manbada mavjud bo'lsa ishlatiladi.\\n"
+            "Foiz, statistik ko'rsatkich va rasmiy protokol faqat asl manbada mavjud bo'lsa ishlatiladi.\n"
         )
     return ""
 
@@ -12892,7 +12892,7 @@ async def _paper_start(msg, context, kind: str, topic: str = ""):
         kb = InlineKeyboardMarkup([[InlineKeyboardButton("✅ Saqlangan ma'lumotlar bilan davom etish", callback_data="dg:pp:go")],
                                    [InlineKeyboardButton("✏️ Ma'lumotlarni o'zgartirish", callback_data="dg:pp:edit"),
                                     InlineKeyboardButton("⏭ Muallifsiz", callback_data="dg:pp:skip")]])
-        await msg.reply_text(f"📄 {label.capitalize()}: «{topic[:100]}»\\n♻️ Saqlangan ma'lumotlar: {', '.join(bits)}\\n\\nShu ma'lumotlar bilan tayyorlaymi?", reply_markup=kb)
+        await msg.reply_text(f"📄 {label.capitalize()}: «{topic[:100]}»\n♻️ Saqlangan ma'lumotlar: {', '.join(bits)}\n\nShu ma'lumotlar bilan tayyorlaymi?", reply_markup=kb)
         return
     context.user_data["_paper_wait"] = (kind, time.time(), "info")
     await msg.reply_text(f"📄 {label.capitalize()}: «{topic[:100]}»\n\nMuallif ma'lumotini yuboring (bir marta, keyin eslab qolaman):\n\n"
