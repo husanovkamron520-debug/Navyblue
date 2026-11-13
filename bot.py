@@ -3386,8 +3386,14 @@ def _sanitize_outline(data, topic: str, n: int, with_images: bool) -> dict:
                 d["composition"] = current = alternative
                 composition_repairs += 1
         composition_history.append(current)
+    # Include optional executive summary before indexing the per-slide visual manifest.
+    final_slides = _ppt_with_executive(
+        slides[:target_count], data, _ppt_s(data.get("title") or topic, 100), topic
+    )
     # Universal slide-level visual planning: per-slide focus, asset query and composition.
-    visual_plan_result = prepare_deck_visuals(topic, slides)
+    visual_plan_result = prepare_deck_visuals(
+        " ".join((str(topic or ""), str(data.get("topic_en") or ""))), final_slides
+    )
     visual_plan = visual_plan_result["manifest"]
     visual_qa = visual_plan_result["qa"]
     if visual_qa.get("issues"):
@@ -3424,8 +3430,8 @@ def _sanitize_outline(data, topic: str, n: int, with_images: bool) -> dict:
             "story_rationale": _ppt_s(data.get("story_rationale"), 220), "stepper": _ppt_stepper_labels(data),
             "_expanded": expanded, "_composition_repairs": composition_repairs,
             "_visual_plan": visual_plan, "_visual_qa": visual_qa,
-            "story_arc": [x.get("story_role", "") for x in slides[:target_count]],
-            "slides": _ppt_with_executive(slides[:target_count], data, _ppt_s(data.get("title") or topic, 100), topic)}
+            "story_arc": [x.get("story_role", "") for x in final_slides],
+            "slides": final_slides}
 
 
 def _ppt_outline_prompt_compact(topic: str, n: int, with_images: bool) -> str:
