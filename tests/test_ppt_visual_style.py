@@ -31,7 +31,7 @@ class PhotographicStyleTests(unittest.TestCase):
         self.assertIn("photorealistic editorial photograph", query)
 
     def test_biology_does_not_fall_back_to_heart_visuals(self):
-        query = build_photorealistic_query("biology", "Biology", "Cell structure")
+        query = build_photorealistic_query("science", "Biology", "Cell structure")
         self.assertIn("biological cell", query)
         self.assertNotIn("human heart", query)
 
