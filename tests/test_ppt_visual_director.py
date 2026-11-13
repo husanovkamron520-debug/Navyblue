@@ -6,6 +6,7 @@ from ppt_visual_director import (
     classify_visual_domain,
     critique_visual_plan,
     prepare_deck_visuals,
+    SUPPORTED_COMPOSITIONS,
 )
 
 
@@ -50,6 +51,18 @@ class UniversalVisualDirectorTests(unittest.TestCase):
         comps = [x["composition"] for x in plan["slides"]]
         self.assertNotEqual(comps[0], comps[1])
         self.assertNotEqual(comps[1], comps[2])
+
+    def test_all_planned_compositions_are_supported_by_renderer(self):
+        slides = [
+            {"layout": layout, "title": f"Slide {i} subject", "story_role": role}
+            for i, (layout, role) in enumerate([
+                ("map", "geography"), ("quote", "reflection"), ("pyramid", "taxonomy"),
+                ("chart", "evidence"), ("timeline", "chronology"), ("isometric", "workflow"),
+                ("image_text", "case_study"), ("compare", "comparison"),
+            ])
+        ]
+        plan = build_visual_plan("Universal test", slides)
+        self.assertTrue(all(x["composition"] in SUPPORTED_COMPOSITIONS for x in plan["slides"]))
 
     def test_critic_detects_repeated_visual_focus(self):
         slides = [
