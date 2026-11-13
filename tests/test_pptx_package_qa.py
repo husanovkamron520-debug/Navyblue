@@ -29,7 +29,7 @@ class PPTXPackageQATests(unittest.TestCase):
 
     def test_rejects_wrong_slide_count(self):
         with self.assertRaises(PPTXPackageError):
-            inspect_pptx_bytes(sample_deck(), expected_slides=2)
+            inspect_pptx_bytes(sample_deck(), expected_slides=3)
 
 
 if __name__ == "__main__":
