@@ -52,10 +52,13 @@ def inspect_pptx_bytes(data: bytes, expected_slides: int | None = None) -> dict:
             if not slide_names:
                 raise PPTXPackageError("PPTX ichida slayd topilmadi")
             morph_slides = []
-            xml_errors = []
             empty_slides = []
             out_of_bounds = []
             image_slides = 0
+            presentation_root = ET.fromstring(archive.read("ppt/presentation.xml"))
+            slide_size = presentation_root.find("p:sldSz", NS)
+            slide_w = int(slide_size.get("cx", "12192000")) if slide_size is not None else 12192000
+            slide_h = int(slide_size.get("cy", "6858000")) if slide_size is not None else 6858000
             for slide_name in slide_names:
                 try:
                     root = ET.fromstring(archive.read(slide_name))
@@ -68,6 +71,20 @@ def inspect_pptx_bytes(data: bytes, expected_slides: int | None = None) -> dict:
                 shapes = root.findall(".//p:sp", NS)
                 pictures = root.findall(".//p:pic", NS)
                 graphic_frames = root.findall(".//p:graphicFrame", NS)
+                content_pictures = 0
+                for picture in pictures:
+                    xfrm = picture.find(".//a:xfrm", NS)
+                    off = xfrm.find("a:off", NS) if xfrm is not None else None
+                    ext = xfrm.find("a:ext", NS) if xfrm is not None else None
+                    if ext is None:
+                        content_pictures += 1
+                        continue
+                    try:
+                        pw, ph = int(ext.get("cx", "0")), int(ext.get("cy", "0"))
+                        if pw < slide_w * 0.96 or ph < slide_h * 0.96:
+                            content_pictures += 1
+                    except (TypeError, ValueError):
+                        content_pictures += 1
                 text_values = []
                 for shape in shapes:
                     name_node = shape.find(".//p:cNvPr", NS)
@@ -84,11 +101,11 @@ def inspect_pptx_bytes(data: bytes, expected_slides: int | None = None) -> dict:
                                 x, y = int(off.get("x", "0")), int(off.get("y", "0"))
                                 w, h = int(ext.get("cx", "0")), int(ext.get("cy", "0"))
                                 # Allow a small bleed for intentional decorative geometry.
-                                if x < -180000 or y < -180000 or x + w > 12240000 or y + h > 7030000:
+                                if x < -180000 or y < -180000 or x + w > slide_w + 180000 or y + h > slide_h + 180000:
                                     out_of_bounds.append({"slide": slide_name, "shape": shape_name[:80]})
                             except (TypeError, ValueError):
                                 pass
-                if not any(text_values) and not pictures and not graphic_frames:
+                if not any(text_values) and not content_pictures and not graphic_frames:
                     empty_slides.append(slide_name)
                 if pictures:
                     image_slides += 1
