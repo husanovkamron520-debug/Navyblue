@@ -4495,9 +4495,27 @@ def _ppt_find_photo_sync(query: str, anchor: str, used: set, historical: bool = 
                 scored.append((qn_ * 2 + an_, h))
             if not scored:
                 continue
-            scored.sort(key=lambda x: -x[0])
+            # Compare the three strongest semantically relevant candidates instead
+            # of randomly selecting one: prefer richer photographic metadata and
+            # higher-resolution assets, while keeping subject relevance dominant.
+            def _candidate_quality(item):
+                score, hit = item
+                tags = (hit.get("tags") or "").casefold()
+                photo_signals = sum(term in tags for term in (
+                    "photograph", "photography", "documentary", "real", "realistic",
+                    "macro", "closeup", "close-up", "landscape", "architecture",
+                ))
+                width = int(hit.get("width") or 0)
+                height = int(hit.get("height") or 0)
+                return (score, photo_signals, min(width * height, 5000000))
+            scored.sort(key=_candidate_quality, reverse=True)
             top = [h for sc, h in scored if sc >= scored[0][0] - 1][:3]
-            got = _download(random.choice(top))
+            # Deterministic best-of-three selection makes QA reproducible.
+            top.sort(key=lambda h: _candidate_quality((sum(
+                2 if term in set(re.findall(r"[a-z]+", (h.get("tags") or "").lower())) else 1
+                for term in set(qs)
+            ), h)), reverse=True)
+            got = _download(top[0])
             if got:
                 return got
     # Filtrsiz Pixabay fallback ataylab olib tashlandi: mavzuga aloqasiz rasm qo'yishdan ko'ra
@@ -4675,7 +4693,15 @@ async def _ppt_attach_images(outline: dict, owner_ai: bool = False):
         imgs, assets = [], []
         for qy in sl.get("collage_queries") or []:
             historical_query = _ppt_historical_visual_query(outline, sl)
-            query = historical_query or qy
+            if historical_query:
+                query = historical_query + " photorealistic documentary photograph"
+            else:
+                query = build_photorealistic_query(
+                    classify_visual_domain(" ".join(str(outline.get(k) or "") for k in ("_source_topic", "title", "topic_en"))),
+                    outline.get("_source_topic") or outline.get("title") or "",
+                    str(qy or ""),
+                    _ppt_slide_text(sl),
+                )
             got = await stock(query, historical=bool(historical_query))
             if got:
                 imgs.append(got[0])
