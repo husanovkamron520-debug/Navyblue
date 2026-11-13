@@ -20,8 +20,8 @@ _RED = (139, 68, 73)
 
 
 def _norm(value):
-    value = str(value or "").casefold().replace("’", "'").replace("ʻ", "'").replace("‘", "'")
-    return re.sub(r"[^a-z0-9' ]+", " ", value)
+    value = str(value or "").casefold().replace("’", " ").replace("ʻ", " ").replace("‘", " ").replace("'", " ")
+    return re.sub(r"[^a-z0-9 ]+", " ", value)
 
 
 def remus_lupin_topic(value: str) -> bool:
