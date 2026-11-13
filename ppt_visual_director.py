@@ -81,9 +81,26 @@ def _visual_kind(slide, topic):
         return "place_illustration", "Aniq joy yoki me'moriy obyektni ko'rsatish"
     if _has(whole, "iqtibos", "fikricha", "degan edi", "quote"):
         return "typography", "Iqtibos yoki asosiy fikrni tipografik urg'u bilan berish"
-    if layout in {"collage", "image_story", "hero", "image_text", "text_image", "banner_cards", "split"}:
+    if layout in {"collage", "image_story", "hero", "image_text", "text_image", "banner_cards", "split"} or slide.get("photo_query"):
         return "photo", "Slayd mazmuniga mos fotografik dalil"
-    return "photo", "Mazmunni aniq ifodalovchi kontekstual tasvir"
+
+    role = str(slide.get("story_role") or infer_story_role(slide)).strip().lower()
+    role_kinds = {
+        "chronology": "timeline", "origin": "timeline", "geography": "map",
+        "workflow": "process", "mechanism": "process", "implementation": "process",
+        "relationship": "relationship", "actors": "relationship",
+        "comparison": "comparison", "tradeoff": "comparison",
+        "evidence": "data", "measurement": "data", "finding": "data",
+        "reflection": "typography", "quote": "typography",
+        "character": "subject_illustration", "creature_profile": "subject_illustration",
+        "artifact": "place_illustration", "setting": "place_illustration",
+    }
+    if role in role_kinds:
+        kind = role_kinds[role]
+        return kind, "Slaydning story_role vazifasiga mos vizual shakl"
+    if layout in {"text", "plain_text", "editorial", "statement", "section", "agenda", "closing", "references", "executive"}:
+        return "typography", "Matn markazli slayd uchun tahririy tipografik kompozitsiya"
+    return "typography", "Aniq foto yoki diagramma dalili belgilanmagan; tahririy vizual ierarxiya"
 
 
 _COMPOSITIONS = {
