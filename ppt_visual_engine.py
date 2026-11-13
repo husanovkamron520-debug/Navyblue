@@ -176,6 +176,27 @@ def render_cards_varied(self, sl):
                       self.fit(c["head"], 3.4, 0.42, 17, 11, 0.58, 1.08), "dark", True, "l", "m", self.tf)
             self.text(s, 8.52, y + 0.62, 3.48, max(0.35, rh - 0.8), c["text"],
                       self.fit(c["text"], 3.4, max(0.35, rh - 0.8), 13, 9), "text", False, "l", "t")
+    elif comp in {"brutalist_type", "oversized_numeral", "metric_wall", "data_dashboard", "data_lollipop"} and len(cards) >= 3:
+        # Poster-like hierarchy: oversized sequence numerals and staggered information blocks.
+        lead = cards[0]
+        self.box(s, 1.0, 2.0, 4.2, 4.7, fill="hdr1", line=None, rounded=False)
+        self.text(s, 1.22, 2.05, 3.7, 1.55, "01", 82, "b2", True, "l", "m", self.tf)
+        self.text(s, 1.28, 3.65, 3.55, 0.78, lead["head"],
+                  self.fit(lead["head"], 3.45, 0.78, 26, 14, 0.56, 1.0), "white", True, "l", "m", self.tf)
+        self.text(s, 1.28, 4.55, 3.5, 1.7, lead["text"],
+                  self.fit(lead["text"], 3.4, 1.65, 16, 10), "white", False, "l", "t")
+        rest = cards[1:]
+        rh = 4.55 / max(1, len(rest))
+        for i, card in enumerate(rest):
+            y = 2.0 + i * rh
+            self.text(s, 5.7, y + 0.02, 0.9, 0.78, f"{i+2:02d}", 38,
+                      colors[i % len(colors)], True, "c", "m", self.tf)
+            self.text(s, 6.75, y + 0.04, 5.25, 0.48, card["head"],
+                      self.fit(card["head"], 5.1, 0.48, 20, 12, 0.56, 1.0), "dark", True, "l", "m", self.tf)
+            self.text(s, 6.75, y + 0.58, 5.25, max(0.48, rh - 0.65), card["text"],
+                      self.fit(card["text"], 5.1, max(0.48, rh - 0.65), 14, 9), "text", False, "l", "t")
+            if i < len(rest) - 1:
+                self.box(s, 6.75, y + rh - 0.04, 5.15, 0.018, fill="line", line=None)
     elif comp in {"layered", "card_stack", "photo_diptych", "cinematic_frame"}:
         # Editorial numbered rows instead of repeated equal-size cards.
         row_h = min(1.28, 4.55 / max(1, len(cards)))
