@@ -7,7 +7,7 @@ from __future__ import annotations
 import io
 import math
 import re
-from PIL import Image, ImageDraw, ImageFont, ImageFilter
+from PIL import Image, ImageDraw, ImageFont
 
 W, H = 1600, 900
 
@@ -72,13 +72,12 @@ def render_cardiovascular_visual(kind: str = "heart", variant: int = 0) -> bytes
     """Return a 1600x900 original educational cardiovascular illustration."""
     kind = kind if kind in {"heart", "circulation", "vessels", "chambers", "valves", "ecg", "blood", "health"} else "heart"
     im = Image.new("RGB", (W, H), "#071B31")
-    px = im.load()
+    gradient = ImageDraw.Draw(im)
     top, bottom = (7, 27, 49), (13, 49, 69)
     for y in range(H):
         q = y / (H - 1)
-        c = tuple(int(top[i]*(1-q) + bottom[i]*q) for i in range(3))
-        for x in range(W):
-            px[x, y] = c
+        color = tuple(int(top[i]*(1-q) + bottom[i]*q) for i in range(3))
+        gradient.line((0, y, W, y), fill=color)
     d = ImageDraw.Draw(im, "RGBA")
     # Fine technical grid and soft glows keep the illustration polished without obscuring it.
     for x in range(0, W, 80):
