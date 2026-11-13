@@ -199,7 +199,7 @@ def apply_visual_plan(slides, plan):
         design = dict(slide.get("design") or {})
         design.setdefault("visual_type", item.get("visual_type"))
         design.setdefault("visual_focus", item.get("visual_focus"))
-        design.setdefault("composition", item.get("composition"))
+        design["composition"] = item.get("composition")
         slide["design"] = design
         if not slide.get("visual_focus"):
             slide["visual_focus"] = item.get("visual_focus")
