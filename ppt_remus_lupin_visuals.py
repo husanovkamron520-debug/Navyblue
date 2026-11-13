@@ -35,11 +35,11 @@ def remus_lupin_topic(value: str) -> bool:
 def remus_lupin_visual_kind(topic: str, title: str = "", body: str = "") -> str:
     t = _norm(" ".join((topic, title, body)))
     rules = (
+        ("patronus", ("patronus", "patronus afsuni", "expecto patronum", "kumush bo ri")),
         ("werewolf", ("bo ri", "bo ri odam", "werewolf", "lycanthropy", "likantrop", "oy to lishi", "la'nat")),
         ("professor", ("professor", "hogwarts", "xogvarts", "dark arts", "qorong u san at", "dars")),
         ("marauders", ("marauders", "talonchilar", "prongs", "padfoot", "wormtail", "moony", "xarita")),
         ("order_phoenix", ("feniks", "phoenix", "order of the phoenix", "qarshilik", "urush", "jang")),
-        ("patronus", ("patronus", "patronus afsuni", "expecto patronum", "kumush bo ri")),
         ("full_moon", ("to lin oy", "full moon", "oy fazasi", "transformatsiya", "o zgarish")),
         ("portrait", ("lupin portreti", "lupinning hayoti", "bolaligi")),
     )
