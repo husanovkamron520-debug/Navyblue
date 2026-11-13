@@ -10,7 +10,8 @@ class TemplateLibraryTests(unittest.TestCase):
         selected = choose_design_reference("Supply chain", "process_system", catalog)
         self.assertEqual(selected["slug"], "business")
         self.assertEqual(selected["license"], "CC BY 4.0")
-        self.assertEqual(selected["use"], "design_reference_only")\n        self.assertTrue(selected["license_verified_from_source_license"])
+        self.assertEqual(selected["use"], "design_reference_only")
+        self.assertTrue(selected["license_verified_from_source_license"])
 
     def test_guidance_does_not_claim_morph_without_inspection(self):
         item = {"title": "Academic Theme"}
