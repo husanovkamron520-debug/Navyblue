@@ -59,6 +59,7 @@ def inspect_pptx_bytes(data: bytes, expected_slides: int | None = None) -> dict:
             duplicate_text_blocks = []
             numeric_truncations = []
             truncated_text_blocks = []
+            text_fit_warnings = []
             presentation_root = ET.fromstring(archive.read("ppt/presentation.xml"))
             slide_size = presentation_root.find("p:sldSz", NS)
             slide_w = int(slide_size.get("cx", "12192000")) if slide_size is not None else 12192000
@@ -103,6 +104,48 @@ def inspect_pptx_bytes(data: bytes, expected_slides: int | None = None) -> dict:
                         paragraph_text = " ".join(
                             (node.text or "").strip() for node in paragraph.findall(".//a:t", NS)
                         ).strip()
+                        # Estimate text-box fit from OOXML geometry and font sizes.
+                        # Warning-only: font metrics vary by Office renderer.
+                        if paragraph_text:
+                            try:
+                                xfrm_fit = shape.find(".//a:xfrm", NS)
+                                ext_fit = xfrm_fit.find("a:ext", NS) if xfrm_fit is not None else None
+                                body_fit = shape.find(".//p:txBody/a:bodyPr", NS)
+                                if ext_fit is not None:
+                                    box_w_pt = int(ext_fit.get("cx", "0")) / 12700
+                                    box_h_pt = int(ext_fit.get("cy", "0")) / 12700
+                                    left_pt = int(body_fit.get("lIns", "91440")) / 12700 if body_fit is not None else 7.2
+                                    right_pt = int(body_fit.get("rIns", "91440")) / 12700 if body_fit is not None else 7.2
+                                    top_pt = int(body_fit.get("tIns", "45720")) / 12700 if body_fit is not None else 3.6
+                                    bottom_pt = int(body_fit.get("bIns", "45720")) / 12700 if body_fit is not None else 3.6
+                                    avail_w = max(1.0, box_w_pt - left_pt - right_pt)
+                                    avail_h = max(1.0, box_h_pt - top_pt - bottom_pt)
+                                    sizes = []
+                                    for run in paragraph.findall(".//a:r", NS):
+                                        props = run.find("a:rPr", NS)
+                                        if props is not None and props.get("sz"):
+                                            sizes.append(int(props.get("sz")) / 100)
+                                    if not sizes:
+                                        for props in (paragraph.find("a:pPr/a:defRPr", NS), paragraph.find("a:endParaRPr", NS)):
+                                            if props is not None and props.get("sz"):
+                                                sizes.append(int(props.get("sz")) / 100)
+                                    if sizes:
+                                        font_pt = max(sizes)
+                                        chars_per_line = max(1, int(avail_w / max(1.0, font_pt * 0.52)))
+                                        estimated_lines = max(1, (len(paragraph_text) + chars_per_line - 1) // chars_per_line)
+                                        estimated_h = estimated_lines * font_pt * 1.25
+                                        if estimated_h > avail_h * 1.18:
+                                            text_fit_warnings.append({
+                                                "slide": slide_name,
+                                                "shape": shape_name[:80],
+                                                "estimated_lines": estimated_lines,
+                                                "font_pt": round(font_pt, 1),
+                                                "estimated_height_pt": round(estimated_h, 1),
+                                                "available_height_pt": round(avail_h, 1),
+                                                "text": paragraph_text[:120],
+                                            })
+                            except (TypeError, ValueError, ZeroDivisionError):
+                                pass
                         # Catch sentence fragments left at the end of a text block.
                         # This is a warning-only heuristic: it must never reject a deck.
                         if len(paragraph_text) >= 28:
@@ -180,6 +223,7 @@ def inspect_pptx_bytes(data: bytes, expected_slides: int | None = None) -> dict:
         "duplicate_text_blocks": duplicate_text_blocks[:40],
         "numeric_truncations": numeric_truncations[:20],
         "truncated_text_blocks": truncated_text_blocks[:40],
+        "text_fit_warnings": text_fit_warnings[:40],
         "empty_slides": empty_slides,
         "out_of_bounds_shapes": out_of_bounds[:30],
         "warnings": [],
@@ -200,6 +244,8 @@ def inspect_pptx_bytes(data: bytes, expected_slides: int | None = None) -> dict:
         report["warnings"].append(
             f"{len(truncated_text_blocks)} ta matn bloki tugallanmagan jumla yoki ellipsis bilan tugaydi"
         )
+    if text_fit_warnings:
+        report["warnings"].append(f"{len(text_fit_warnings)} ta matn qutisida matn sig'masligi mumkin")
     if out_of_bounds:
         report["warnings"].append(f"{len(out_of_bounds)} ta obyekt slayd chegarasidan chiqishi mumkin")
     return report
