@@ -138,7 +138,8 @@ def inspect_pptx(path: str | Path) -> dict:
     """Inspect package integrity, Morph transitions and image-heavy slide ratio."""
     path = Path(path)
     with zipfile.ZipFile(path) as archive:
-        checked = _validate_pptx_archive(_zip_bytes(path))\n        checked.close()
+        checked = _validate_pptx_archive(_zip_bytes(path))
+        checked.close()
         names = archive.namelist()
         slides = sorted((n for n in names if re.fullmatch(r"ppt/slides/slide\d+\.xml", n)),
                         key=lambda n: int(re.search(r"(\d+)", n).group(1)))
