@@ -41,7 +41,7 @@ def remus_lupin_visual_kind(topic: str, title: str = "", body: str = "") -> str:
         ("order_phoenix", ("feniks", "phoenix", "order of the phoenix", "qarshilik", "urush", "jang")),
         ("patronus", ("patronus", "patronus afsuni", "expecto patronum", "kumush bo ri")),
         ("full_moon", ("to lin oy", "full moon", "oy fazasi", "transformatsiya", "o zgarish")),
-        ("portrait", ("lupin portreti", "lupinning hayoti", "bolaligi", "remus lupin")),
+        ("portrait", ("lupin portreti", "lupinning hayoti", "bolaligi")),
     )
     for kind, phrases in rules:
         if any(p in t for p in phrases):
