@@ -29,6 +29,7 @@ import museum
 import supply_chain
 from ppt_media_sources import find_commons_photo
 from ppt_story_engine import STORY_ROLES, build_story_guidance, infer_story_role, story_quality_report, enforce_story_quality
+from ppt_visual_director import build_visual_direction_guidance, apply_visual_direction
 from pptx_package_qa import inspect_pptx_bytes
 from ppt_template_library import choose_design_reference, download_design_reference, inspect_pptx as inspect_template_pptx
 from ppt_semantic_visuals import fantasy_visual_kind, render_fantasy_visual
@@ -2821,6 +2822,7 @@ def _ppt_outline_prompt(topic: str, n: int, with_images: bool) -> str:
         "SEMANTIK DIAGRAMMA QOIDASI: diagramma chizishdan oldin mazmundagi haqiqiy munosabatni aniqlagin: order (ketma-ketlik), link (bog'liqlik), parent (ierarxiya), membership (guruh/qatlam), contrast (taqqoslash), overlap (umumiy qism). Faqat manba yoki mantiq tasdiqlagan aloqalarni chiziq bilan bog'la; markaziy tugun, teng o'lchamli kartalar, simmetriya yoki siklni mazmun talab qilmasa o'ylab topma. Avval o'qish yo'li va munosabat, keyin shakl, rang va bezak. Har diagrammada har bir tugunning vazifasi aniq bo'lsin.\n"
         "SPEAKER NOTES: har slaydning notes maydoniga taqdimotchi uchun 2-4 tabiiy gap yoz: slayddagi asosiy fikrni izohla, zarur kontekst yoki hayotiy misol ber, keyingi slaydga tabiiy ko'prik yarat. Slayddagi matnni aynan takrorlama; yangi raqam yoki manbasiz fakt qo'shma. Notes tomoshabinga ko'rinmaydi, PowerPoint Presenter View uchun.\n"
         f"{build_story_guidance(topic, n)}\n"
+        f"{build_visual_direction_guidance(topic, n)}\n"
         "STORYTELLING: qat'iy bitta ketma-ketlikka yopishma; har slaydga mavzuga mos story_role va story_beat yoz. Sarlavhalar konkret bo'lsin, umumiy qolipni takrorlama.\n"
         "BADIY QA: agar mavzu badiiy qahramon yoki fantastik olam bo'lsa, manbasiz foiz, reyting, KPI, 100% fidoyilik, uydirma yil/son yoki soxta statistika yaratma. Qahramon hissasini sahnadagi aniq voqea, qaror va munosabatlar orqali sifat jihatdan tushuntir. Statistikaga o'xshash kartalar faqat tekshiriladigan manba va aniq o'lchov bo'lsa ishlatiladi.\n"
         "SLIDE DENSITY QA: har bir kontent slaydida sarlavhadan tashqari kamida 2 mazmuniy element yoki 35-60 so'zlik izoh bo'lsin. Faqat bo'sh fon + sarlavha qoldirma. Qisqa bo'lim slaydi ham bitta aniq izoh, obyekt yoki vizual dalilga ega bo'lsin.\n"
@@ -4615,7 +4617,9 @@ async def _ppt_attach_images(outline: dict, owner_ai: bool = False):
         if historical_query:
             got = await stock(historical_query, historical=True)
         else:
-            query = sl.get("map_query") if sl.get("layout") == "map" else (sl.get("photo_query") or sl.get("title"))
+            plan = sl.get("_visual_plan") if isinstance(sl.get("_visual_plan"), dict) else {}
+            query = (sl.get("map_query") if sl.get("layout") == "map" or plan.get("visual_type") == "map"
+                     else (sl.get("photo_query") or plan.get("asset_query") or sl.get("title")))
             got = await stock(query)
         if got:
             sl["_img"] = got[0]
@@ -4642,7 +4646,8 @@ async def _ppt_attach_images(outline: dict, owner_ai: bool = False):
           or fantasy_visual_kind(outline.get("title") or outline.get("topic_en") or "", sl.get("title") or "", _ppt_slide_text(sl))
           or cardio_topic
           or cloning_topic(" ".join(str(outline.get(k) or "") for k in ("_source_topic", "title", "topic_en")))
-          or lupin_topic),
+          or lupin_topic
+          or (isinstance(sl.get("_visual_plan"), dict) and sl["_visual_plan"].get("requires_external_asset"))),
         *(many(sl) for sl in outline.get("slides", []) if sl.get("collage_queries"))
     )
     outline["_credits"] = credits
@@ -9683,6 +9688,14 @@ async def _ppt_generate_and_send(msg, context, topic, n, with_images, author, mo
         outline["author"] = cover.get("name", "")     # Telegram ismi endi avtomatik qo'yilmaydi
         outline["cover"] = cover
         outline["_source_topic"] = topic
+        visual_manifest, visual_warnings = apply_visual_direction(topic, outline.get("slides") or [])
+        outline["_visual_manifest"] = visual_manifest
+        outline["_visual_plan_warnings"] = visual_warnings
+        if visual_warnings:
+            logger.warning("Visual Director critic: %s", visual_warnings)
+        logger.info("Visual Director: domain=%s slides=%s distribution=%s",
+                    visual_manifest.get("domain"), visual_manifest.get("slide_count"),
+                    visual_manifest.get("visual_type_distribution"))
         outline["_numeric_ellipsis_repairs"] = _ppt_repair_numeric_ellipsis(outline)
         _t1 = time.monotonic()
         # Tashqi litsenziyalangan dizayn namunasini mavzuga mos tanlaymiz.
