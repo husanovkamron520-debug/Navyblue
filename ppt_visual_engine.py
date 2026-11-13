@@ -450,6 +450,7 @@ def install(builder_class, layout_set, composition_set):
     new_layouts = {"waterfall", "swimlane", "network", "quote"}
     layout_set.update(new_layouts)
     composition_set.update({"network_graph", "waterfall", "swimlane", "quote_stage", "editorial_rows", "asym_cards"})
+    builder_class._pptx_native_3d = _native_3d
     builder_class._pptx_render_waterfall = render_waterfall
     builder_class._pptx_render_swimlane = render_swimlane
     builder_class._pptx_render_network = render_network
