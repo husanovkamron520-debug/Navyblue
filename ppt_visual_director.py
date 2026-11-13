@@ -34,7 +34,14 @@ def _fold(value):
 
 
 _DOMAIN_TERMS = {
-    "medical": ("heart", "cardio", "medical", "medicine", "anatomy", "health", "yurak", "qon tomir", "anatomiya", "tibbiyot", "salomatlik"),
+    "medical": (
+        "heart", "cardio", "medical", "medicine", "anatomy", "health", "hospital",
+        "clinic", "clinical", "doctor", "patient", "disease", "diabetes", "cancer",
+        "tumor", "surgery", "diagnosis", "treatment", "therapy", "infection",
+        "vaccine", "symptom", "blood", "organ", "yurak", "qon tomir", "anatomiya",
+        "tibbiyot", "salomatlik", "kasallik", "diabet", "saraton", "shifoxona",
+        "shifokor", "bemor", "davolash", "tashxis", "jarrohlik", "infeksiya",
+    ),
     "history": ("history", "historical", "empire", "war", "dynasty", "tarix", "imperiya", "urush", "sulola", "sivilizatsiya"),
     "fiction": ("fiction", "fantasy", "wizard", "magic", "harry potter", "hogwarts", "sehr", "fantastika", "afsona", "qahramon"),
     "science": ("science", "biology", "chemistry", "physics", "cloning", "cell", "biologiya", "klonlash", "hujayra", "fizika", "kimyo"),
