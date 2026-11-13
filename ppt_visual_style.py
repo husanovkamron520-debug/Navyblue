@@ -38,7 +38,7 @@ def build_photorealistic_query(domain: str, topic: str, title: str, body: str = 
         rules = (
             (("ecg", "electrocardiogram", "heart rhythm", "pulse", "yurak ritm", "puls"),
              "clinical electrocardiogram monitor real hospital photograph"),
-            (("erythrocyte", "red blood cell", "blood cells", "eritrotsit", "qon tarkib", "platelet"),
+            (("erythrocyte", "red blood cell", "blood cells", "eritrotsit", "eritrosit", "leykotsit", "trombotsit", "qon tarkib", "qon hujay", "platelet"),
              "photorealistic 3D medical render red blood cells inside human blood vessel"),
             (("artery", "vein", "capillary", "arteriya", "vena", "kapillyar", "tomir devor"),
              "photorealistic 3D medical render human artery vein capillary anatomy"),
