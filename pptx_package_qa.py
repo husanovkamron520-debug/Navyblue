@@ -86,11 +86,13 @@ def inspect_pptx_bytes(data: bytes, expected_slides: int | None = None) -> dict:
                     except (TypeError, ValueError):
                         content_pictures += 1
                 text_values = []
+                content_shapes = 0
                 for shape in shapes:
                     name_node = shape.find(".//p:cNvPr", NS)
                     shape_name = (name_node.get("name", "") if name_node is not None else "")
                     if shape_name.casefold().startswith("deco"):
                         continue
+                    content_shapes += 1
                     text_values.extend((node.text or "").strip() for node in shape.findall(".//a:t", NS))
                     xfrm = shape.find(".//a:xfrm", NS)
                     if xfrm is not None:
@@ -105,7 +107,7 @@ def inspect_pptx_bytes(data: bytes, expected_slides: int | None = None) -> dict:
                                     out_of_bounds.append({"slide": slide_name, "shape": shape_name[:80]})
                             except (TypeError, ValueError):
                                 pass
-                if not any(text_values) and not content_pictures and not graphic_frames:
+                if not content_shapes and not content_pictures and not graphic_frames:
                     empty_slides.append(slide_name)
                 if pictures:
                     image_slides += 1
