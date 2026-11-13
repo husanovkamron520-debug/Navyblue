@@ -35,7 +35,7 @@ def build_photorealistic_query(domain: str, topic: str, title: str, body: str = 
     text = _fold(" ".join((topic, title, body)))
     domain = _fold(domain)
 
-    if domain == "biology":
+    if domain in {"biology", "science"}:
         rules = (
             (("dna", "genome", "genetic", "adn"), "photorealistic scientific 3D render DNA molecular structure laboratory visualization"),
             (("cell", "hujayra", "membrane", "organelle"), "photorealistic scientific 3D render biological cell membrane organelles"),
@@ -48,7 +48,7 @@ def build_photorealistic_query(domain: str, topic: str, title: str, body: str = 
             if any(term in text for term in terms):
                 return query
         subject = " ".join(x for x in (topic, title) if x).strip()[:140]
-        return f"photorealistic scientific biology photograph or accurate 3D render {subject}".strip()
+        return f"photorealistic scientific documentary photograph or accurate 3D render {subject}".strip()
 
     if domain in {"medical", "cardiovascular"}:
         rules = (
