@@ -56,7 +56,7 @@ class RenderedSlideQATests(unittest.TestCase):
             self.assertEqual(len(sheets), 2)
             self.assertEqual((sheets[0]["start_slide"], sheets[0]["end_slide"]), (1, 2))
             self.assertEqual((sheets[1]["start_slide"], sheets[1]["end_slide"]), (3, 3))
-            self.assertTrue(sheets[0]["png"].startswith(b"\\x89PNG"))
+            self.assertTrue(sheets[0]["png"].startswith(b"\x89PNG"))
 
     def test_empty_pptx_input_is_reported(self):
         report = render_and_inspect_pptx(b"")
