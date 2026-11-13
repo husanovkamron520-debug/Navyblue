@@ -30,6 +30,7 @@ import supply_chain
 from ppt_media_sources import find_commons_photo
 from ppt_story_engine import STORY_ROLES, build_story_guidance, infer_story_role, story_quality_report, enforce_story_quality
 from ppt_visual_director import build_visual_direction_guidance, apply_visual_direction
+from ppt_content_critic import critique_content
 from pptx_package_qa import inspect_pptx_bytes
 from ppt_template_library import choose_design_reference, download_design_reference, inspect_pptx as inspect_template_pptx
 from ppt_semantic_visuals import fantasy_visual_kind, render_fantasy_visual
@@ -9691,6 +9692,13 @@ async def _ppt_generate_and_send(msg, context, topic, n, with_images, author, mo
         visual_manifest, visual_warnings = apply_visual_direction(topic, outline.get("slides") or [])
         outline["_visual_manifest"] = visual_manifest
         outline["_visual_plan_warnings"] = visual_warnings
+        content_qa = critique_content(topic, outline.get("slides") or [])
+        outline["_content_qa"] = content_qa
+        if content_qa.get("issues"):
+            logger.warning("Content Critic: score=%s/100 issues=%s",
+                           content_qa.get("score"), json.dumps(content_qa.get("issues"), ensure_ascii=False))
+        else:
+            logger.info("Content Critic passed: score=%s/100", content_qa.get("score"))
         if visual_warnings:
             logger.warning("Visual Director critic: %s", visual_warnings)
         logger.info("Visual Director: domain=%s slides=%s distribution=%s",
