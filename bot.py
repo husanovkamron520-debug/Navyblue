@@ -9764,10 +9764,21 @@ async def _ppt_generate_and_send(msg, context, topic, n, with_images, author, mo
         cover_visual_kind = ("hogwarts_castle" if any(x in cover_context for x in
             ("harry potter", "hogwarts", "xogvarts", "hogvarts")) else None)
         is_cardio_topic = cardiovascular_topic(topic + " " + str(outline.get("title") or ""))
+        is_lupin_topic = remus_lupin_topic(topic + " " + str(outline.get("title") or ""))
         if is_cardio_topic:
             cover_visual_kind = "cardiovascular_heart"
+            cover_query = build_photorealistic_query(
+                "medical", topic, outline.get("title") or "Human cardiovascular anatomy",
+                outline.get("subtitle") or "")
+        elif is_lupin_topic:
+            cover_visual_kind = None
+            cover_query = build_photorealistic_query(
+                "fiction", topic, outline.get("title") or "Remus Lupin",
+                outline.get("subtitle") or "Cinematic character introduction")
+        else:
+            cover_query = str(outline.get("cover_query") or "")
         bg_task = asyncio.create_task(asyncio.to_thread(
-            _ppt_make_backgrounds_sync, theme, outline.get("cover_query", ""), cover_visual_kind))
+            _ppt_make_backgrounds_sync, theme, cover_query, cover_visual_kind))
         if with_images and not is_cardio_topic:
             outline["_general_visual_slides"] = _ppt_apply_general_visual_coverage(outline)
         if with_images and remus_lupin_topic(" ".join(str(outline.get(k) or "") for k in ("_source_topic", "title", "topic_en"))):
