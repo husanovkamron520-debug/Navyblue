@@ -70,4 +70,4 @@ Changes are developed on a feature branch and reviewed through a pull request. S
 
 ## Rendered-slide QA
 
-`ppt_render_qa.py` optionally renders the serialized PPTX through LibreOffice and Poppler (or PyMuPDF), then checks the resulting slide images for blank pages, very low visual signal and exact duplicate renders. If a local renderer is not installed, the stage is explicitly marked `skipped`; it is not reported as a visual pass. Set `PPT_RENDER_QA=off` to disable this optional stage. Critical blank renders block delivery when rendering succeeds.
+`ppt_render_qa.py` optionally renders the serialized PPTX through LibreOffice and Poppler (or PyMuPDF), then checks the resulting slide images for blank pages, very low visual signal and exact duplicate renders. It can also build labeled contact sheets for a separate Gemini multimodal critic that reviews visible relevance, cropping, hierarchy, text fit and composition repetition. If a local renderer is not installed, the stage is explicitly marked `skipped`; it is not reported as a visual pass. Set `PPT_RENDER_QA=off` to disable this optional stage. Critical blank renders block delivery when rendering succeeds.
