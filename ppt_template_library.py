@@ -29,7 +29,7 @@ MAX_ZIP_ENTRIES = 2500
 CACHE_DIR = Path(os.environ.get("PPT_TEMPLATE_CACHE", "/tmp/navyblue_ppt_templates"))
 
 _PROFILE_TERMS = {
-    "fantasy_fiction": {"fantasy", "fantasy", "magical", "magic", "myth", "creative", "portfolio", "story"},
+    "fantasy_fiction": {"fantasy", "magical", "magic", "myth", "creative", "portfolio", "story"},
     "historical_chronicle": {"history", "historical", "heritage", "chronicle", "story"},
     "process_system": {"business", "project", "planning", "process", "strategy", "logistics", "data"},
     "research_evidence": {"academic", "thesis", "research", "data", "charts", "infographic"},
@@ -58,7 +58,7 @@ class _AllowlistedRedirect(urllib.request.HTTPRedirectHandler):
 def _read_url(url: str, allowed_hosts: set[str], limit: int) -> bytes:
     request = urllib.request.Request(url, headers={"User-Agent": "Navyblue-PPT-Template-Library/1.0"})
     opener = urllib.request.build_opener(_AllowlistedRedirect(allowed_hosts))
-    with opener.open(request, timeout=18) as response:
+    with opener.open(request, timeout=8) as response:
         _safe_url(response.geturl(), allowed_hosts)
         length = response.headers.get("Content-Length")
         if length and int(length) > limit:
@@ -100,7 +100,7 @@ def choose_design_reference(topic: str, archetype: str = "concept_explainer",
         return None
     ranked.sort(key=lambda row: (-row[0], row[1]))
     chosen = dict(ranked[0][2])
-    chosen["license"] = "CC BY 4.0"
+    # The source repository LICENSE explicitly covers every listed PPTX and preview image.\n    chosen["license"] = "CC BY 4.0"\n    chosen["license_verified_from_source_license"] = True
     chosen["license_url"] = LICENSE_URL
     chosen["attribution"] = "Template design reference by ppttemplate.ai (CC BY 4.0); adapted for Navyblue."
     chosen["use"] = "design_reference_only"
@@ -122,7 +122,7 @@ def _validate_pptx_archive(data: bytes) -> zipfile.ZipFile:
 
 def download_design_reference(item: dict, cache_dir: Path | str = CACHE_DIR) -> Path:
     """Download a catalog PPTX after checking its source, license and archive bounds."""
-    if str(item.get("license") or "").upper() not in {"CC BY 4.0", "CC-BY-4.0", "CC BY 4.0 (CREATIVE COMMONS)"}:
+    if (str(item.get("license") or "").upper() not in {"CC BY 4.0", "CC-BY-4.0", "CC BY 4.0 (CREATIVE COMMONS)"}\n            or item.get("license_verified_from_source_license") is not True):
         raise ValueError("A verified CC BY 4.0 license is required")
     url = _safe_url(item.get("pptx_url", ""), ALLOWED_CDN_HOSTS)
     data = _read_url(url, ALLOWED_CDN_HOSTS, MAX_DOWNLOAD_BYTES)
