@@ -8403,6 +8403,7 @@ class _PptBuilderClassic:
             texts, issues = [], []
             try:
                 self._build_one(sl)
+                self.qa_duplicate_text_removed += self._dedupe_repeated_text(self.prs.slides[-1])
                 issues = self._qa_slide(self.prs.slides[-1])
                 if issues:
                     texts = [sh.text_frame.text for sh in self.prs.slides[-1].shapes if getattr(sh, "has_text_frame", False)]
@@ -8419,7 +8420,8 @@ class _PptBuilderClassic:
                 self.plain_text(self._fallback_text(sl, texts or [sl.get("text", "")]))
                 self._qa_slide(self.prs.slides[-1])
                 self.repaired += 1
-        outline["_qa"] = {"fixes": self.qa_fixes, "rebuilt": self.repaired}
+        outline["_qa"] = {"fixes": self.qa_fixes, "rebuilt": self.repaired,
+                          "duplicate_text_blocks_removed": self.qa_duplicate_text_removed}
         # Slayd o'tishlari + obyektlar uchun ketma-ket kirish animatsiyasi.
         # Animatsiya fon qatlamiga tegmaydi; mazmun obyektlari yumshoq fade bilan paydo bo'ladi.
         try:
