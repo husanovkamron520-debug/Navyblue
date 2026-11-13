@@ -35,13 +35,13 @@ def remus_lupin_topic(value: str) -> bool:
 def remus_lupin_visual_kind(topic: str, title: str = "", body: str = "") -> str:
     t = _norm(" ".join((topic, title, body)))
     rules = (
-        ("portrait", ("remus lupin", "remus", "lupin portreti", "lupinning hayoti", "bolaligi")),
         ("werewolf", ("bo ri", "bo ri odam", "werewolf", "lycanthropy", "likantrop", "oy to lishi", "la'nat")),
         ("professor", ("professor", "hogwarts", "xogvarts", "dark arts", "qorong u san at", "dars")),
         ("marauders", ("marauders", "talonchilar", "prongs", "padfoot", "wormtail", "moony", "xarita")),
         ("order_phoenix", ("feniks", "phoenix", "order of the phoenix", "qarshilik", "urush", "jang")),
         ("patronus", ("patronus", "patronus afsuni", "expecto patronum", "kumush bo ri")),
         ("full_moon", ("to lin oy", "full moon", "oy fazasi", "transformatsiya", "o zgarish")),
+        ("portrait", ("lupin portreti", "lupinning hayoti", "bolaligi", "remus lupin")),
     )
     for kind, phrases in rules:
         if any(p in t for p in phrases):
@@ -81,8 +81,10 @@ def _person(d, cx=690, cy=425, scale=1.0, cloak=True):
     # Fictional, original interpretation: no resemblance to any actor.
     def box(v):
         return tuple(int(z) for z in v)
+    def pts(values):
+        return [(int(x), int(y)) for x, y in values]
     coat = (39, 55, 75, 255)
-    d.polygon(box([(cx-210*scale,cy+390*scale),(cx-150*scale,cy+55*scale),
+    d.polygon(pts([(cx-210*scale,cy+390*scale),(cx-150*scale,cy+55*scale),
                    (cx-80*scale,cy-10*scale),(cx+75*scale,cy-10*scale),
                    (cx+165*scale,cy+65*scale),(cx+230*scale,cy+390*scale)]),
               fill=coat if cloak else (65,78,90,255))
@@ -100,7 +102,7 @@ def _person(d, cx=690, cy=425, scale=1.0, cloak=True):
     d.arc(box((cx-30*scale,cy-55*scale,cx+35*scale,cy-15*scale)),5,165,fill=(92,54,51,255),width=max(2,int(4*scale)))
     # patched robe seams
     d.line(box((cx-145*scale,cy+115*scale,cx+145*scale,cy+115*scale)),fill=(*_GOLD,100),width=max(2,int(3*scale)))
-    d.polygon(box([(cx-30*scale,cy+30*scale),(cx+30*scale,cy+30*scale),
+    d.polygon(pts([(cx-30*scale,cy+30*scale),(cx+30*scale,cy+30*scale),
                    (cx+85*scale,cy+210*scale),(cx,cy+260*scale),(cx-85*scale,cy+210*scale)]),
               fill=(20,35,52,255))
 
@@ -119,8 +121,8 @@ def render_remus_lupin_visual(kind: str = "portrait", variant: int = 0) -> bytes
         d.ellipse((1060,95,1470,505),fill=(*_MOON,38),outline=(*_MOON,180),width=5)
         # restrained wolf silhouette
         d.ellipse((420,330,980,620),fill=(5,10,18,255))
-        d.polygon([(790,390),(930,220),(950,420),(1090,360),(1030,520),(900,570)],fill=(5,10,18,255))
-        d.polygon([(480,400),(370,270),(540,330),(640,300),(700,430)],fill=(5,10,18,255))
+        d.polygon(pts([(790,390),(930,220),(950,420),(1090,360),(1030,520),(900,570)]),fill=(5,10,18,255))
+        d.polygon(pts([(480,400),(370,270),(540,330),(640,300),(700,430)]),fill=(5,10,18,255))
         d.ellipse((900,420,930,448),fill=(*_GOLD,255))
         d.text((145,130),"THE CURSE OF THE FULL MOON",font=_font(30,True),fill=_PALE)
         d.text((145,680),"A burden he bears — not the whole of who he is",font=_font(25),fill=_GOLD)
@@ -187,7 +189,7 @@ def sanitize_remus_lupin_slide(slide: dict) -> bool:
     slide.pop("kpis", None)
     slide.pop("value", None)
     slide.pop("number", None)
-    slide["layout"] = "editorial"
+    slide["layout"] = "image_text"
     existing = str(slide.get("text") or slide.get("body") or "").strip()
     if not existing or re.search(r"\b100\s*%", existing):
         slide["text"] = (
