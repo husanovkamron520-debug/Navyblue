@@ -4511,6 +4511,7 @@ def _ppt_find_photo_sync(query: str, anchor: str, used: set, historical: bool = 
                 got = find_commons_photo(
                     qy, used, _ppt_valid_image,
                     relevance=lambda metadata: metadata_relevant(qy, metadata, minimum=1)
+                    and not is_nonphotographic_metadata(metadata)
                     and not contextually_irrelevant(anchor or query, metadata),
                 )
             except Exception as exc:
@@ -4548,6 +4549,7 @@ def _ppt_find_photo_sync(query: str, anchor: str, used: set, historical: bool = 
                 got = find_commons_photo(
                     qy, used, _ppt_valid_image,
                     relevance=lambda metadata: metadata_relevant(qy, metadata, minimum=1)
+                    and not is_nonphotographic_metadata(metadata)
                     and not contextually_irrelevant(anchor or query, metadata),
                 )
             except Exception as exc:
