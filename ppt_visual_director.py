@@ -6,11 +6,27 @@ PPTX composer and asset providers.
 """
 from __future__ import annotations
 
+import hashlib
 import re
 import unicodedata
 from collections import Counter
 
 from ppt_story_engine import classify_archetype, infer_story_role
+
+SUPPORTED_COMPOSITIONS = {
+    "map": ("map_route", "editorial_split", "magazine_spread"),
+    "timeline": ("timeline", "cinematic_frame", "editorial_rows", "magazine_spread"),
+    "data": ("data_dashboard", "data_focus", "metric_wall", "editorial_split"),
+    "comparison": ("comparison_duel", "swiss_modular", "magazine_spread", "asym_grid"),
+    "process": ("process_lane", "isometric_exploded", "funnel_steps", "editorial_split"),
+    "relationship": ("orbit_system", "radial_network", "editorial_split", "card_mosaic"),
+    "formula": ("oversized_numeral", "swiss_column", "editorial_split"),
+    "scientific_illustration": ("image_dominant", "editorial_split", "layered"),
+    "subject_illustration": ("cinematic_frame", "magazine_spread", "photo_triptych"),
+    "place_illustration": ("cinematic_panorama", "image_dominant", "editorial_split"),
+    "typography": ("typographic_poster", "negative_space", "editorial_masthead"),
+    "photo": ("editorial_split", "asym_grid", "magazine_spread", "cinematic_frame"),
+}
 
 
 def _fold(value):
@@ -86,6 +102,16 @@ _COMPOSITIONS = {
 }
 
 
+def _choose_composition(kind, topic, slide, index, previous):
+    options = [x for x in _COMPOSITIONS.get(kind, _COMPOSITIONS["photo"]) if x in SUPPORTED_COMPOSITIONS]
+    if not options:
+        return "editorial_split"
+    seed = hashlib.sha256((str(topic) + "|" + str(index) + "|" + str(slide.get("title") or "")).encode("utf-8")).digest()
+    offset = int.from_bytes(seed[:4], "big") % len(options)
+    ordered = options[offset:] + options[:offset]
+    return next((x for x in ordered if x not in previous[-2:]), ordered[0])
+
+
 def build_visual_direction_guidance(topic, slide_count):
     """Prompt guidance for a slide-specific visual director, not a fixed visual template."""
     domain = classify_archetype(topic)
@@ -110,6 +136,7 @@ def build_visual_manifest(topic, slides):
     domain = classify_archetype(topic)
     counts = Counter()
     manifest = []
+    previous_compositions = []
     for index, slide in enumerate(slides or [], start=1):
         if not isinstance(slide, dict):
             continue
@@ -127,7 +154,8 @@ def build_visual_manifest(topic, slides):
             "visual_type": kind,
             "visual_focus": title or str(topic or "").strip(),
             "asset_query": query,
-            "composition": _COMPOSITIONS[kind][variant % len(_COMPOSITIONS[kind])],
+            "search_query": query,
+            "composition": composition,
             "rationale": rationale,
             "requires_external_asset": kind in {"photo", "map", "scientific_illustration", "subject_illustration", "place_illustration"},
             "data_guard": kind == "data",
@@ -136,7 +164,7 @@ def build_visual_manifest(topic, slides):
         design = dict(slide.get("design") or {})
         design.setdefault("visual_type", kind)
         design.setdefault("visual_focus", plan["visual_focus"])
-        design.setdefault("composition", plan["composition"])
+        design["composition"] = plan["composition"]
         slide["design"] = design
         if kind == "map" and not slide.get("map_query"):
             slide["map_query"] = query
@@ -165,12 +193,19 @@ def critique_visual_manifest(manifest):
                 warnings.append({"severity": "warning", "code": "visual_type_overuse",
                                  "visual_type": kind, "count": count, "slides": len(types)})
     seen = {}
+    focus_counts = Counter(_fold(p.get("visual_focus")) for p in plans if isinstance(p, dict) and p.get("visual_focus"))
+    composition_counts = Counter(p.get("composition") for p in plans if isinstance(p, dict) and p.get("composition"))
     for plan in plans:
         if not isinstance(plan, dict):
             continue
         index = plan.get("slide")
         if not plan.get("visual_focus"):
             warnings.append({"severity": "error", "code": "missing_visual_focus", "slide": index})
+        focus = _fold(plan.get("visual_focus"))
+        if focus and focus_counts.get(focus, 0) > 1:
+            warnings.append({"severity": "warning", "code": "repeated_visual_focus", "slide": index})
+        if plan.get("composition") not in SUPPORTED_COMPOSITIONS:
+            warnings.append({"severity": "error", "code": "unsupported_composition", "slide": index, "composition": plan.get("composition")})
         query = _fold(plan.get("asset_query"))
         if plan.get("requires_external_asset") and not query:
             warnings.append({"severity": "error", "code": "missing_asset_query", "slide": index})
@@ -182,6 +217,10 @@ def critique_visual_manifest(manifest):
         if plan.get("data_guard") and not plan.get("has_source_data"):
             # A data visual can still be an authored qualitative chart; the renderer must not invent numbers.
             warnings.append({"severity": "info", "code": "verify_data_before_chart", "slide": index})
+    if len(plans) >= 4:
+        for composition, count in composition_counts.items():
+            if count / len(plans) > 0.5:
+                warnings.append({"severity": "warning", "code": "composition_overuse", "composition": composition, "count": count})
     return warnings
 
 
