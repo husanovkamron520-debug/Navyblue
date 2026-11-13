@@ -1,6 +1,7 @@
 import unittest
 
 from ppt_visual_style import build_photorealistic_query, is_nonphotographic_metadata
+from ppt_visual_director import classify_visual_domain
 
 
 class PhotographicStyleTests(unittest.TestCase):
@@ -55,6 +56,11 @@ class PhotographicStyleTests(unittest.TestCase):
                 self.assertIn("photorealistic editorial photograph", query)
                 self.assertIn(topic, query)
                 self.assertIn(title, query)
+
+    def test_general_health_topics_use_medical_visual_domain(self):
+        for topic in ("Diabetes", "Cancer treatment", "Hospital surgery", "Qon kasalliklari"):
+            with self.subTest(topic=topic):
+                self.assertEqual(classify_visual_domain(topic), "medical")
 
 
 if __name__ == "__main__":
