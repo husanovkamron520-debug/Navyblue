@@ -35,6 +35,7 @@ from ppt_semantic_visuals import fantasy_visual_kind, render_fantasy_visual
 from ppt_medical_visuals import cardiovascular_topic, cardiovascular_visual_kind, render_cardiovascular_visual
 from ppt_cloning_visuals import cloning_topic, cloning_visual_kind, render_cloning_visual
 from ppt_visual_relevance import metadata_relevant, contextually_irrelevant
+from ppt_visual_qa import visual_integrity_issues, package_qa_blockers, VisualIntegrityError
 
 from telegram import (
     Update,
@@ -4993,6 +4994,12 @@ def _ppt_apply_general_visual_coverage(outline: dict, target_ratio: float = 0.55
 def _ppt_finalize_images(outline: dict):
     _ppt_fix_missing_images(outline)
     _ppt_order_images(outline)
+    issues = visual_integrity_issues(outline.get("slides") or [], _PPT_IMG_LAYOUTS, _ppt_valid_image)
+    if issues:
+        raise VisualIntegrityError("VISUAL_INTEGRITY_GATE: " + json.dumps(issues, ensure_ascii=False))
+    outline["_visual_integrity"] = {"required_visual_slots": sum(
+        1 for sl in (outline.get("slides") or []) if isinstance(sl, dict) and sl.get("layout") in _PPT_IMG_LAYOUTS
+    ), "issues": 0}
 
 
 # ---------------------------- V8: Executive Summary, Stepper, A4 poster ----------------------------
@@ -9695,6 +9702,8 @@ async def _ppt_generate_and_send(msg, context, topic, n, with_images, author, mo
             if with_images and is_cardio_topic:
                 outline["_cardiovascular_visual_slides"] = _ppt_apply_cardiovascular_visuals(outline)
             _ppt_finalize_images(outline)   # bo'sh/begona rasm joylari qolmasin, chap-o'ng almashsin
+        except VisualIntegrityError:
+            raise
         except Exception:
             logger.exception("Rasm joylashuvini tartiblashda xato")
         try:
@@ -9721,6 +9730,10 @@ async def _ppt_generate_and_send(msg, context, topic, n, with_images, author, mo
             inspect_pptx_bytes, data, len(outline.get("slides", [])) + 1
         )
         outline.setdefault("_qa", {})["package"] = package_qa
+        package_blockers = package_qa_blockers(package_qa)
+        if package_blockers:
+            raise VisualIntegrityError("VISUAL_INTEGRITY_GATE: serialized PPTX contains empty slides: " +
+                                       ", ".join(package_blockers))
         if package_qa.get("warnings"):
             outline["_qa"].setdefault("warnings", []).extend(package_qa["warnings"])
         logger.info("PPTX package QA: %s", json.dumps(package_qa, ensure_ascii=False))
