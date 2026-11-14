@@ -1,7 +1,7 @@
 import unittest
 
 from ppt_visual_qa import (package_qa_blockers, visual_integrity_issues,
-                           is_decorative_shape_name, hard_slide_issues)
+                           is_decorative_shape_name, hard_slide_issues, content_slide_target)
 
 
 class VisualIntegrityTests(unittest.TestCase):
@@ -15,6 +15,11 @@ class VisualIntegrityTests(unittest.TestCase):
         self.assertTrue(is_decorative_shape_name("!!orb_2"))
         self.assertTrue(is_decorative_shape_name("!!orbit_ring"))
         self.assertFalse(is_decorative_shape_name("content_bad"))
+
+    def test_requested_total_includes_one_cover_slide(self):
+        self.assertEqual(content_slide_target(20), 19)
+        self.assertEqual(content_slide_target(6), 5)
+        self.assertEqual(content_slide_target(4), 3)
 
     def test_text_overlap_is_a_hard_slide_issue(self):
         self.assertEqual(
