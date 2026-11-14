@@ -6671,11 +6671,13 @@ class _PptBuilder:
             qa_warnings.append(f"vizual fokus takrorlangan: {repeated_focus}")
         if len(set(compositions)) < min(4, max(1, len(compositions) // 4)):
             qa_warnings.append("kompozitsiya xilma-xilligi yetarli emas")
-        if layouts and layouts[-1] != "closing":
-            qa_warnings.append("yakuniy slayd closing maketida emas")
         _core_layouts = [x for x in layouts if x != "executive"]
-        if _core_layouts and _core_layouts[0] != "agenda":
-            qa_warnings.append("birinchi mazmuniy slayd agenda maketida emas")
+        has_agenda = "agenda" in _core_layouts
+        has_closing = "closing" in _core_layouts
+        if has_agenda and _core_layouts[0] != "agenda":
+            qa_warnings.append("agenda slaydi birinchi mazmuniy slaydda emas")
+        if has_closing and _core_layouts[-1] != "closing":
+            qa_warnings.append("closing slaydi oxirgi mazmuniy slaydda emas")
         if len(self.prs.slides) != len(slide_specs) + 1:
             qa_warnings.append("slaydlar soni reja bilan mos kelmadi")
         soft_issue_count = sum(1 for item in self.qa_slide_issues for issue in item.get("issues", [])
@@ -6706,7 +6708,7 @@ class _PptBuilder:
                           "empty_slides": empty_slide_count, "sparse_slides": sparse_slide_count,
                           "soft_issue_count": soft_issue_count,
                           "warnings": qa_warnings,
-                          "story_order_ok": bool(layouts and layouts[0] == "agenda" and layouts[-1] == "closing"),
+                          "story_order_ok": bool(_core_layouts) and (not has_agenda or _core_layouts[0] == "agenda") and (not has_closing or _core_layouts[-1] == "closing"),
                           "slide_count_ok": len(self.prs.slides) == len(slide_specs) + 1}
         try:
             self._v8_post(outline)
