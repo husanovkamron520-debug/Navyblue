@@ -3487,7 +3487,7 @@ def _ppt_proofread_outline(outline):
 
 
 def _ppt_expand_missing_slides(outline, topic, requested, with_images, sanitizer):
-    """Gemini yetkazmagan slaydlarni mavzu oqimiga mos, yangi mazmun bilan davom ettiradi."""
+    """Gemini yetkazmagan slaydlarni kichik partiyalarda davom ettirib, so'ralgan songa yetkazadi."""
     try:
         slides = list(outline.get("slides") or [])
         def is_special(item):
@@ -3504,10 +3504,14 @@ def _ppt_expand_missing_slides(outline, topic, requested, with_images, sanitizer
                             "story_role": item.get("story_role", ""), "story_beat": item.get("story_beat", ""),
                             "layout": item.get("layout", "")})
         added = []
-        for attempt in range(2):
+        # Small batches avoid truncating long JSON responses when a large deck is short.
+        max_attempts = min(8, max(3, math.ceil(missing / 3) + 2))
+        for attempt in range(max_attempts):
             remaining = missing - len(added)
             if remaining <= 0:
                 break
+            batch_size = min(3, remaining)
+            model = PPT_AI_MODELS[min(attempt, len(PPT_AI_MODELS) - 1)]
             prompt = (
                 "Sen professional prezentatsiya muharririsan. Oldingi reja kerakli slaydlar soniga yetmadi. "
                 "Quyidagi taqdimotni aynan davom ettir: FAQAT yetishmayotgan yangi mazmunli slaydlarni yarat. "
@@ -3517,21 +3521,20 @@ def _ppt_expand_missing_slides(outline, topic, requested, with_images, sanitizer
                 "Mavzuga aloqasiz bezak, uydirma fakt, statistik raqam yoki manba qo'shma. "
                 "Raqamli dalil berilmagan bo'lsa, raqam to'qima; sifatli tahlil, jarayon yoki misol ishlat. "
                 "Slaydlar mazmunan to'liq, vizual jihatdan xilma-xil va professional bo'lsin. "
-                "Rasm yaratish prompti yozma; faqat kerak bo'lsa 2-4 inglizcha kalit so'zdan iborat photo_query ber. "
+                "photo_query faqat kerak bo'lsa 2-4 ta ANIQ INGLIZCHA kalit so'z bo'lsin. "
                 f"Til: mavzu tilida. Mavzu: {str(topic)[:500]}\n"
                 f"{build_story_guidance(topic, requested)}\n"
                 "Oldingi slaydlarning story_role va story_beat vazifalarini takrorlama; yangi mazmuniy yo'nalish tanla. "
-                f"Kerakli yangi kontent slaydlari soni: {remaining}. JSON slides massivida aynan {remaining} ta yangi slayd qaytar. "
+                f"Bu partiyada aynan {batch_size} ta yangi kontent slaydi qaytar. "
                 "Mavjud slaydlar mazmuni (takrorlamaslik uchun): "
                 + json.dumps(context, ensure_ascii=False)[:6500]
                 + '\nJSON format: {"slides":[{"layout":"text|image_text|text_image|cards|timeline|compare|chart|table|matrix|hub|funnel|bento|kpi|pyramid|venn|orbit|chain|iceberg|before_after|statement|editorial|waterfall|swimlane|network|quote","title":"aniq sarlavha","text":"mazmunli izoh","photo_query":"2-4 English keywords","story_role":"analysis","story_beat":"keyingi fikrga ko\'prik","notes":""}]}'
             )
             try:
-                model = PPT_AI_MODELS[min(attempt, len(PPT_AI_MODELS) - 1)]
                 raw = _json_loads_loose(_ai_generate_text_sync(
-                    prompt, 0.45, min(8500, 1800 + remaining * 650), True, [model]
+                    prompt, 0.35, min(5200, 1600 + batch_size * 1100), True, [model]
                 ))
-                expanded_outline = sanitizer(raw, topic, remaining, with_images)
+                expanded_outline = sanitizer(raw, topic, batch_size, with_images)
                 candidates = [
                     item for item in (expanded_outline.get("slides") or [])
                     if item.get("layout") not in ("executive", "agenda", "closing")
@@ -3542,8 +3545,14 @@ def _ppt_expand_missing_slides(outline, topic, requested, with_images, sanitizer
                     if key and key not in seen and len(added) < missing:
                         added.append(item)
                         seen.add(key)
+                        context.append({"title": item.get("title", ""),
+                                        "key_content": _ppt_clip(_ppt_slide_text(item), 260),
+                                        "story_role": item.get("story_role", ""),
+                                        "story_beat": item.get("story_beat", ""),
+                                        "layout": item.get("layout", "")})
             except Exception as exc:
-                logger.warning("Yetishmagan slaydlarni davom ettirish xatosi (%s): %s", model, exc)
+                logger.warning("Yetishmagan slaydlar partiyasi xatosi (%s, %s/%s): %s",
+                               model, attempt + 1, max_attempts, exc)
                 continue
         if added:
             closing_index = next((i for i, item in enumerate(slides) if item.get("layout") == "closing"), len(slides))
@@ -3551,14 +3560,14 @@ def _ppt_expand_missing_slides(outline, topic, requested, with_images, sanitizer
             outline["slides"] = slides
         outline["_expanded"] = len(added)
         if len(added) < missing:
-            logger.warning("Taqdimot: %s ta slayd yetishmadi, %s ta qo'shimcha slayd yaratildi", missing, len(added))
+            logger.warning("Taqdimot: %s ta slayd yetishmadi, %s ta qo'shimcha slayd yaratildi",
+                           missing, len(added))
         else:
             logger.info("Taqdimot: yetishmagan %s ta slayd sifatli davom ettirildi", len(added))
         return outline
     except Exception:
         logger.exception("Yetishmagan slaydlarni to'ldirish jarayoni ishlamadi")
         return outline
-
 
 def _gemini_outline_sync(topic: str, n_slides: int, with_images: bool = True) -> dict:
     """Birinchi navbatda yengil model; zarur bo'lsa zaxira model/prompt. Imlo AI tekshiruvi ixtiyoriy."""
@@ -7817,9 +7826,7 @@ _install_ppt_visual_engine(_PptBuilder, PPT_LAYOUTS, PPT_COMPOSITIONS)
 # ============================================================
 def _ppt_outline_prompt_classic(topic: str, n: int, with_images: bool) -> str:
     img_rule = (
-        f"- Rasmli slaydlar (image_text, text_image, banner_cards) uchun ikkita maydon yoz: "
-        f"'photo_query' (INGLIZ tilida 2-4 ta kalit so'z, stok foto qidiruvi uchun, masalan \"warehouse workers forklift\") va "
-        f"'photo_query' (INGLIZ tilida 1 gaplik sahna tavsifi, matnsiz, logotipsiz). Jami {_ppt_img_budget(n)} tadan oshmasin. MUHIM: 'photo_query' ning BIRINCHI so'zi taqdimotning asosiy obyekti yoki joyi bo'lsin (masalan ombor avtomatlashtirish haqida bo'lsa 'warehouse robot conveyor', 'warehouse shelves scanner'); 'automation', 'process', 'system', 'machine' kabi ko'p ma'noli so'zni yolg'iz yozma. Rasm slayd mazmunini AYNAN ko'rsatsin.\n"
+        f"- Rasmli slaydlar uchun faqat bitta 'photo_query' maydoni yoz: INGLIZ tilida 2-4 ta aniq kalit so'z, stok foto qidiruvi uchun (masalan \"warehouse workers forklift\"). Jami {_ppt_img_budget(n)} ta rasm so'rovidan oshmasin. MUHIM: birinchi so'z asosiy obyekt yoki joy bo'lsin; umumiy 'automation/process/system' so'zlarini yolg'iz yozma. Rasm slayd mazmunini aynan ko'rsatsin.\\n"
         if with_images else
         "- 'photo_query' maydonini yozma; rasmli maketlardan (image_text, text_image, banner_cards) foydalanma.\n"
     )
