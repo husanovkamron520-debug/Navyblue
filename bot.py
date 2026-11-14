@@ -4975,9 +4975,31 @@ def _ppt_fix_missing_images(outline: dict) -> int:
         if lay not in _PPT_IMG_LAYOUTS:
             continue
         if lay == "collage":
-            images = [image for image in (sl.get("_imgs") or []) if _ppt_valid_image(image)]
-            if len(images) >= 3:
-                sl["_imgs"] = images[:3]
+            raw_images = list(sl.get("_imgs") or [])
+            raw_assets = list(sl.get("_assets") or [])
+            valid_pairs = [
+                (image, raw_assets[index] if index < len(raw_assets) else {})
+                for index, image in enumerate(raw_images) if _ppt_valid_image(image)
+            ]
+            if len(valid_pairs) >= 3:
+                sl["_imgs"] = [pair[0] for pair in valid_pairs[:3]]
+                sl["_assets"] = [pair[1] for pair in valid_pairs[:3]]
+                continue
+            if valid_pairs:
+                # A partial collage must not discard photos that were successfully found.
+                # Fall back to a single-photo editorial layout instead of dropping all assets.
+                sl["_img"], sl["_asset"] = valid_pairs[0]
+                sl["layout"] = "image_text"
+                captions = [str(x).strip() for x in (sl.get("captions") or []) if str(x).strip()]
+                if not str(sl.get("text") or "").strip() and captions:
+                    sl["text"] = " · ".join(captions)
+                design = dict(sl.get("design") or {})
+                design["visual_type"] = "photo"
+                design["visual_focus"] = design.get("visual_focus") or str(sl.get("title") or "")
+                sl["design"] = design
+                for key in ("_imgs", "_assets", "collage_queries"):
+                    sl.pop(key, None)
+                demoted += 1
                 continue
             _ppt_demote_missing_visual(sl)
             demoted += 1
