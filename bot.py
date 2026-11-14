@@ -3507,14 +3507,15 @@ def _ppt_expand_missing_slides(outline, topic, requested, with_images, sanitizer
         # Small batches avoid truncating long JSON responses when a large deck is short.
         # A single large completion request often gets truncated or loses slides during
         # layout validation. Retry in smaller batches, then use safe editorial slides.
-        max_attempts = min(18, max(8, missing * 2 + 4))
+        max_attempts = min(8, max(5, missing + 1))
         for attempt in range(max_attempts):
             remaining = missing - len(added)
             if remaining <= 0:
                 break
             emergency_editorial = attempt >= max(5, math.ceil(missing / 3) + 1)
             batch_size = 1 if emergency_editorial else min(3, remaining)
-            model = PPT_AI_MODELS[min(attempt, len(PPT_AI_MODELS) - 1)]
+            available_models = PPT_AI_MODELS or [AI_MODEL_NAME]
+            model = available_models[attempt % len(available_models)]
             prompt = (
                 ("Sen professional prezentatsiya muharririsan. FAQAT BITTA yangi, mazmunli editorial slayd yarat. "
                  "layout='editorial', title aniq, text 70-100 so'z bo'lsin. Murakkab diagramma, jadval, chart yoki kollaj ishlatma. "
@@ -3576,8 +3577,15 @@ def _ppt_expand_missing_slides(outline, topic, requested, with_images, sanitizer
         return outline
     except Exception as exc:
         logger.exception("Yetishmagan slaydlarni to'ldirish jarayoni ishlamadi")
-        if isinstance(exc, RuntimeError) and str(exc).startswith("Slaydlar soni yetarli emas:"):
-            raise
+        current_slides = outline.get("slides") or [] if isinstance(outline, dict) else []
+        current_count = sum(
+            1 for item in current_slides
+            if isinstance(item, dict) and item.get("layout") != "executive"
+        )
+        if current_count < int(requested):
+            raise RuntimeError(
+                f"Slaydlar soni yetarli emas: {current_count}/{requested}"
+            ) from exc
         return outline
 
 def _gemini_outline_sync(topic: str, n_slides: int, with_images: bool = True) -> dict:
