@@ -7826,7 +7826,7 @@ _install_ppt_visual_engine(_PptBuilder, PPT_LAYOUTS, PPT_COMPOSITIONS)
 # ============================================================
 def _ppt_outline_prompt_classic(topic: str, n: int, with_images: bool) -> str:
     img_rule = (
-        f"- Rasmli slaydlar uchun faqat bitta 'photo_query' maydoni yoz: INGLIZ tilida 2-4 ta aniq kalit so'z, stok foto qidiruvi uchun (masalan \"warehouse workers forklift\"). Jami {_ppt_img_budget(n)} ta rasm so'rovidan oshmasin. MUHIM: birinchi so'z asosiy obyekt yoki joy bo'lsin; umumiy 'automation/process/system' so'zlarini yolg'iz yozma. Rasm slayd mazmunini aynan ko'rsatsin.\\n"
+        f"- Rasmli slaydlar uchun faqat bitta 'photo_query' maydoni yoz: INGLIZ tilida 2-4 ta aniq kalit so'z, stok foto qidiruvi uchun (masalan \"warehouse workers forklift\"). Jami {_ppt_img_budget(n)} ta rasm so'rovidan oshmasin. MUHIM: birinchi so'z asosiy obyekt yoki joy bo'lsin; umumiy 'automation/process/system' so'zlarini yolg'iz yozma. Rasm slayd mazmunini aynan ko'rsatsin.\n"
         if with_images else
         "- 'photo_query' maydonini yozma; rasmli maketlardan (image_text, text_image, banner_cards) foydalanma.\n"
     )
@@ -7907,7 +7907,6 @@ def _sanitize_outline_classic(data, topic: str, n: int, with_images: bool) -> di
             motion = "auto"
         out = {"layout": lay, "title": title, "notes": _ppt_s(s.get("notes"), 600),
                "motion": motion}
-        prompt = _ppt_s(s.get("photo_query"), 400)
         pquery = _ppt_s(s.get("photo_query"), 80)
         if lay == "collage":
             qs = [_ppt_s(x, 80) for x in (s.get("collage_queries") or []) if _ppt_s(x, 80)][:3]
@@ -7920,8 +7919,7 @@ def _sanitize_outline_classic(data, topic: str, n: int, with_images: bool) -> di
                     out["text"] = _ppt_s(" ".join(_ppt_s(c, 60) for c in (s.get("captions") or [])), 400) or title
         if lay in ("image_text", "text_image", "banner_cards", "hero", "split", "image_story"):
             if with_images and (prompt or pquery) and img_count < img_cap:
-                out["photo_query"] = prompt or pquery
-                out["photo_query"] = pquery or prompt[:80]
+                out["photo_query"] = pquery
                 img_count += 1
         if lay == "agenda":
             items = [_ppt_s(x, 90) for x in (s.get("items") or []) if _ppt_s(x, 90)][:4]
