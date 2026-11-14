@@ -96,7 +96,9 @@ def inspect_pptx_bytes(data: bytes, expected_slides: int | None = None) -> dict:
                 for shape in shapes:
                     name_node = shape.find(".//p:cNvPr", NS)
                     shape_name = (name_node.get("name", "") if name_node is not None else "")
-                    if shape_name.casefold().startswith("deco"):
+                    normalized_shape_name = shape_name.casefold().lstrip("!").strip()
+                    # These names are deliberate bleed decorations (rings/orbs), not content geometry.
+                    if normalized_shape_name.startswith(("deco", "orb", "orbit")):
                         continue
                     content_shapes += 1
                     text_values.extend((node.text or "").strip() for node in shape.findall(".//a:t", NS))
