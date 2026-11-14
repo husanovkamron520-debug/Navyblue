@@ -6,6 +6,34 @@ class VisualIntegrityError(RuntimeError):
     """Raised when a required visual slot or serialized slide is structurally empty."""
 
 
+HARD_SLIDE_ISSUES = frozenset({
+    "xato",
+    "chegaradan chiqdi",
+    "matn sig'madi",
+    "mazmun bo'sh",
+    "mazmun kam",
+    "matnlar ustma-ust tushdi",
+    "matn va rasm ustma-ust tushdi",
+})
+
+
+def is_decorative_shape_name(name):
+    """Recognize intentionally bleeding decorative geometry by normalized OOXML name."""
+    normalized = str(name or "").casefold().lstrip("!").strip()
+    return normalized.startswith(("deco", "orb", "orbit"))
+
+
+def content_slide_target(total_slides, has_references=False, has_executive=False):
+    """The selected count is the final deck total; reserve cover and optional final/summary slides."""
+    reserved = 1 + int(bool(has_references)) + int(bool(has_executive))
+    return max(1, int(total_slides) - reserved)
+
+
+def hard_slide_issues(issues):
+    """Return high-confidence layout issues that require repair or block delivery."""
+    return sorted({str(issue) for issue in (issues or [])} & HARD_SLIDE_ISSUES)
+
+
 def visual_integrity_issues(slides, image_layouts, valid_image):
     """Return required visual slots that remain empty or contain invalid image bytes."""
     issues = []
@@ -43,6 +71,8 @@ def package_qa_blockers(report):
     blockers.extend("unfinished sentence: " + str(item.get("slide", "unknown"))
                     for item in (report.get("truncated_text_blocks") or [])
                     if isinstance(item, dict) and item.get("reason") == "dangling_connector")
+    blockers.extend("out-of-bounds shape: " + str(item.get("slide", "unknown"))
+                    for item in (report.get("out_of_bounds_shapes") or []) if isinstance(item, dict))
     # Geometry-based estimates vary across PowerPoint renderers; block only extreme overflow.
     for item in (report.get("text_fit_warnings") or []):
         if not isinstance(item, dict):

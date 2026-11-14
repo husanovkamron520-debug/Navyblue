@@ -31,6 +31,21 @@ class AssetManifestTests(unittest.TestCase):
         report = build_asset_manifest(slides)
         self.assertIn("duplicate_asset", {x["code"] for x in report["issues"]})
 
+    def test_duplicate_asset_inside_same_collage_is_high_severity(self):
+        repeated = b"same collage image"
+        report = build_asset_manifest([{
+            "title": "Repeated collage",
+            "_imgs": [repeated, repeated],
+            "_assets": [
+                {"source_type": "retrieved", "provider": "Openverse", "credit": "Creator one"},
+                {"source_type": "retrieved", "provider": "Openverse", "credit": "Creator one"},
+            ],
+        }])
+        duplicates = [issue for issue in report["issues"] if issue["code"] == "duplicate_asset"]
+        self.assertEqual(len(duplicates), 1)
+        self.assertEqual(duplicates[0]["severity"], "high")
+        self.assertFalse(report["passed"])
+
     def test_tracks_collage_asset_metadata(self):
         slides = [{
             "title": "Collage",

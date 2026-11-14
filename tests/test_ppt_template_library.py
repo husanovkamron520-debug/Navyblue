@@ -1,5 +1,19 @@
+import tempfile
 import unittest
-from ppt_template_library import choose_design_reference, build_template_guidance
+from pathlib import Path
+
+from ppt_template_library import inspect_pptx, choose_design_reference, build_template_guidance
+
+try:
+    from pptx import Presentation
+    from pptx.oxml import parse_xml
+    from pptx.util import Inches
+    HAS_PPTX = True
+except ImportError:
+    Presentation = None
+    parse_xml = None
+    Inches = None
+    HAS_PPTX = False
 
 class TemplateLibraryTests(unittest.TestCase):
     def test_selects_topic_appropriate_reference(self):
@@ -30,6 +44,47 @@ class TemplateLibraryTests(unittest.TestCase):
         first = choose_design_reference("Supply chain", "process_system", catalog)
         second = choose_design_reference("Supply chain", "process_system", catalog)
         self.assertEqual(first["slug"], second["slug"])
+
+    @unittest.skipUnless(HAS_PPTX, "python-pptx is installed in the dedicated PPTX QA workflow")
+    def test_inspects_morph_transition_inside_alternate_content(self):
+        xml = "<mc:AlternateContent xmlns:mc=\"http://schemas.openxmlformats.org/markup-compatibility/2006\" xmlns:p=\"http://schemas.openxmlformats.org/presentationml/2006/main\"><mc:Choice xmlns:p159=\"http://schemas.microsoft.com/office/powerpoint/2015/09/main\" Requires=\"p159\"><p:transition spd=\"med\"><p159:morph option=\"byObject\"/></p:transition></mc:Choice><mc:Fallback><p:transition><p:fade/></p:transition></mc:Fallback></mc:AlternateContent>"
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        slide.shapes.add_textbox(Inches(1), Inches(1), Inches(2), Inches(1)).text_frame.text = "Morph test"
+        slide._element.append(parse_xml(xml))
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "morph-reference.pptx"
+            prs.save(path)
+            report = inspect_pptx(path)
+        self.assertTrue(report["has_morph"])
+        self.assertEqual(report["morph_slide_count"], 1)
+
+    def test_philosophy_topic_does_not_select_finance_template(self):
+        catalog = [
+            {
+                "slug": "finance-webinar",
+                "title": "Finance Webinar Slides for Clear Money Talks",
+                "tags": ["finance", "business", "webinar", "education"],
+                "pptx_url": "https://cdn.ppttemplate.ai/finance.pptx",
+            },
+            {
+                "slug": "philosophy-lecture",
+                "title": "Philosophy Lecture and Humanities Research",
+                "tags": ["philosophy", "academic", "humanities", "ethics"],
+                "pptx_url": "https://cdn.ppttemplate.ai/philosophy.pptx",
+            },
+        ]
+        selected = choose_design_reference("Falsafiy izlanishlar", catalog=catalog)
+        self.assertEqual(selected["slug"], "philosophy-lecture")
+
+    def test_unmatched_topic_uses_no_unrelated_template(self):
+        catalog = [{
+            "slug": "finance-webinar",
+            "title": "Finance Webinar Slides for Clear Money Talks",
+            "tags": ["finance", "business", "webinar", "education"],
+            "pptx_url": "https://cdn.ppttemplate.ai/finance.pptx",
+        }]
+        self.assertIsNone(choose_design_reference("Falsafiy izlanishlar", catalog=catalog))
 
     def test_guidance_does_not_claim_morph_without_inspection(self):
         item = {"title": "Academic Theme"}
