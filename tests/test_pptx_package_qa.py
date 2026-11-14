@@ -60,6 +60,7 @@ class PPTXPackageQATests(unittest.TestCase):
     def test_intentional_bleed_decorations_are_not_bounds_errors(self):
         prs = Presentation()
         slide = prs.slides.add_slide(prs.slide_layouts[6])
+        prs.slides.add_slide(prs.slide_layouts[6])
         title = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(5), Inches(1))
         title.text_frame.text = "Bounds test"
         decoration = slide.shapes.add_shape(
@@ -72,7 +73,7 @@ class PPTXPackageQATests(unittest.TestCase):
         bad_content.name = "content_bad"
         out = io.BytesIO()
         prs.save(out)
-        report = inspect_pptx_bytes(out.getvalue(), expected_slides=1)
+        report = inspect_pptx_bytes(out.getvalue(), expected_slides=2)
         self.assertEqual(
             [item["shape"] for item in report["out_of_bounds_shapes"]],
             ["content_bad"],
