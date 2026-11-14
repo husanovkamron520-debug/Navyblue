@@ -133,4 +133,4 @@ def needs_english_stock_translation(query: str) -> bool:
     if tokens & _UZBEK_STOCK_MARKERS:
         return True
     # Common Uzbek suffixes on otherwise Latin-script words.
-    return bool(re.search(r"\\b[a-z]+(?:ning|lari|lar|dagi|dan|ga|ni|lik|chi)\\b", _fold(raw)))
+    return bool(re.search(r"\b[a-z]+(?:ning|lari|lar|dagi|dan|ga|ni|lik|chi)\b", _fold(raw)))
