@@ -9868,6 +9868,14 @@ async def _ppt_generate_and_send(msg, context, topic, n, with_images, author, mo
                            content_qa.get("score"), json.dumps(content_qa.get("issues"), ensure_ascii=False))
         else:
             logger.info("Content Critic passed: score=%s/100", content_qa.get("score"))
+        high_content_issues = [
+            issue for issue in (content_qa.get("issues") or [])
+            if isinstance(issue, dict) and issue.get("severity") == "high"
+        ]
+        if high_content_issues:
+            raise VisualIntegrityError(
+                "CONTENT_QA_GATE: " + json.dumps(high_content_issues, ensure_ascii=False)
+            )
         if visual_warnings:
             logger.warning("Visual Director critic: %s", visual_warnings)
         logger.info("Visual Director: domain=%s slides=%s distribution=%s",
