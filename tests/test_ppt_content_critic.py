@@ -18,6 +18,14 @@ class ContentCriticTests(unittest.TestCase):
         self.assertIn("repeated_title", codes)
         self.assertIn("repeated_content", codes)
 
+    def test_short_agenda_is_not_misclassified_as_thin(self):
+        result = critique_content("Project overview", [{
+            "layout": "agenda",
+            "title": "Presentation roadmap",
+            "items": ["Context", "Challenges", "Options", "Conclusion"],
+        }])
+        self.assertNotIn("thin_content", {issue["code"] for issue in result["issues"]})
+
     def test_structured_matrix_content_is_not_misclassified_as_thin(self):
         result = critique_content("Decision matrix", [{
             "layout": "matrix",
