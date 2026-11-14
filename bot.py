@@ -41,7 +41,8 @@ from ppt_remus_lupin_visuals import (remus_lupin_topic, remus_lupin_visual_kind,
                                      render_remus_lupin_visual, sanitize_remus_lupin_slide,
                                      apply_remus_lupin_visual_coverage)
 from ppt_visual_relevance import metadata_relevant, contextually_irrelevant
-from ppt_visual_style import (build_photorealistic_query, is_nonphotographic_metadata,\n                              needs_english_stock_translation)
+from ppt_visual_style import (build_photorealistic_query, is_nonphotographic_metadata,
+                              needs_english_stock_translation)
 from ppt_visual_qa import visual_integrity_issues, package_qa_blockers, VisualIntegrityError
 
 from telegram import (
