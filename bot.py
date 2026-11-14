@@ -8100,7 +8100,7 @@ def _sanitize_outline_classic(data, topic: str, n: int, with_images: bool) -> di
             "art_direction": {"mood": _ppt_s(ad.get("mood"), 100), "palette": palette,
                               "motif": motif if motif in ("none", "circles", "arcs", "grid", "editorial", "organic", "geometric") else "none",
                               "transition": transition if transition in ("fade", "wipe", "push") else "fade"},
-            "slides": slides[:n + 2]}
+            "slides": slides[:n]}
 
 
 def _ppt_outline_prompt_compact_classic(topic: str, n: int, with_images: bool) -> str:
