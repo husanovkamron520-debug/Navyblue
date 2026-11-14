@@ -4499,7 +4499,7 @@ def _ppt_find_photo_sync(query: str, anchor: str, used: set, historical: bool = 
                         # slaydning aniq qidiruv iborasidan kamida ikki mazmunli so'z mos bo'lsin.
                         if not t or (qs and qn_ < min(2, len(qs))):
                             continue
-                    elif not t or (an and an[0] not in words) or (qs and qn_ < min(2, len(qs))):
+                    elif not t or (qs and qn_ < min(2, len(qs))):
                         continue
                 else:                      # yumshoq: kamida bitta so'z mos kelsa yetadi
                     if t and (qs or an) and (qn_ + an_) == 0:
@@ -4601,10 +4601,17 @@ async def _ppt_attach_images(outline: dict, owner_ai: bool = False):
     anchor = "heart cardiovascular system" if cardio_topic else " ".join(re.findall(r"[A-Za-z]+", str(outline.get("topic_en") or ""))[:4])
     if not anchor and not cardio_topic:
         try:
-            tr, ok = await _pxb_to_english(outline.get("title") or "", "photo")
+            tr, ok = await _pxb_to_english(outline.get("_source_topic") or outline.get("title") or "", "photo")
             anchor = " ".join(re.findall(r"[A-Za-z]+", tr if ok else "")[:4])
         except Exception:
             anchor = ""
+    elif anchor and needs_english_stock_translation(anchor):
+        try:
+            tr, ok = await _pxb_to_english(anchor, "photo")
+            if ok and tr:
+                anchor = " ".join(re.findall(r"[A-Za-z]+", tr)[:4])
+        except Exception:
+            pass
     outline["topic_en"] = anchor
 
     translated_queries = {}
