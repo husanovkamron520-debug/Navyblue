@@ -1,6 +1,6 @@
 import unittest
 
-from ppt_visual_style import build_photorealistic_query, is_nonphotographic_metadata
+from ppt_visual_style import (build_photorealistic_query, is_nonphotographic_metadata,\n                              needs_english_stock_translation)
 from ppt_visual_director import classify_visual_domain
 
 
@@ -60,6 +60,12 @@ class PhotographicStyleTests(unittest.TestCase):
                 self.assertIn("photorealistic editorial photograph", query)
                 self.assertIn(topic, query)
                 self.assertIn(title, query)
+
+    def test_uzbek_latin_stock_queries_are_translated(self):
+        self.assertTrue(needs_english_stock_translation("Usmonli imperiyasi harbiy tizimi"))
+        self.assertTrue(needs_english_stock_translation("Yurak qon tomir tizimi"))
+        self.assertTrue(needs_english_stock_translation("Davlat byudjeti va xarajatlari"))
+        self.assertFalse(needs_english_stock_translation("Ottoman Empire historical mosque"))
 
     def test_general_health_topics_use_medical_visual_domain(self):
         for topic in ("Diabetes", "Cancer treatment", "Hospital surgery", "Qon kasalliklari"):
