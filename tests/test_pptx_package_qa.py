@@ -10,6 +10,7 @@ except ImportError:
     HAS_PPTX = False
     Presentation = None
     Inches = None
+    Image = None
     PPTXPackageError = ValueError
     inspect_pptx_bytes = None
 
@@ -32,6 +33,26 @@ class PPTXPackageQATests(unittest.TestCase):
         self.assertTrue(report["valid"])
         self.assertEqual(report["slides"], 2)
         self.assertEqual(len(report["empty_slides"]), 1)
+
+    def test_full_bleed_background_does_not_count_as_content_photo(self):
+        prs = Presentation()
+        background_slide = prs.slides.add_slide(prs.slide_layouts[6])
+        content_slide = prs.slides.add_slide(prs.slide_layouts[6])
+        image_bytes = io.BytesIO()
+        Image.new("RGB", (320, 180), "navy").save(image_bytes, format="PNG")
+        raw = image_bytes.getvalue()
+        background_slide.shapes.add_picture(
+            io.BytesIO(raw), 0, 0, prs.slide_width, prs.slide_height
+        )
+        content_slide.shapes.add_picture(
+            io.BytesIO(raw), Inches(1), Inches(1), Inches(3), Inches(2)
+        )
+        out = io.BytesIO()
+        prs.save(out)
+        report = inspect_pptx_bytes(out.getvalue(), expected_slides=2)
+        self.assertEqual(report["image_slides"], 1)
+        self.assertEqual(report["image_coverage_ratio"], 0.5)
+        self.assertEqual(len(report["slides_without_images"]), 1)
 
     def test_reports_ellipsis_truncation(self):
         report = inspect_pptx_bytes(
