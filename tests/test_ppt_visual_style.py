@@ -1,6 +1,7 @@
 import unittest
 
-from ppt_visual_style import (build_photorealistic_query, is_nonphotographic_metadata,\n                              needs_english_stock_translation)
+from ppt_visual_style import (build_photorealistic_query, is_nonphotographic_metadata,
+                              needs_english_stock_translation)
 from ppt_visual_director import classify_visual_domain
 
 
