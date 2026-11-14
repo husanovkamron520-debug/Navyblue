@@ -18,6 +18,12 @@ class VisualIntegrityTests(unittest.TestCase):
         slides = [{"layout": "image_text", "_img": b"png"}, {"layout": "collage", "_imgs": [b"a", b"b", b"c"]}]
         self.assertEqual(visual_integrity_issues(slides, {"image_text", "collage"}, lambda value: isinstance(value, bytes)), [])
 
+    def test_out_of_bounds_shapes_block_delivery(self):
+        blockers = package_qa_blockers({
+            "out_of_bounds_shapes": [{"slide": "slide7.xml", "shape": "chart"}]
+        })
+        self.assertEqual(blockers, ["out-of-bounds shape: slide7.xml"])
+
     def test_empty_serialized_slides_block_delivery(self):
         self.assertEqual(package_qa_blockers({"empty_slides": ["ppt/slides/slide4.xml"]}), ["empty slide: ppt/slides/slide4.xml"])
         self.assertEqual(package_qa_blockers({"empty_slides": [], "warnings": ["text fit"]}), [])
