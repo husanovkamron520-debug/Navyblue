@@ -1,6 +1,7 @@
 import unittest
 
-from ppt_visual_qa import package_qa_blockers, visual_integrity_issues
+from ppt_visual_qa import (package_qa_blockers, visual_integrity_issues,
+                           is_decorative_shape_name, hard_slide_issues)
 
 
 class VisualIntegrityTests(unittest.TestCase):
