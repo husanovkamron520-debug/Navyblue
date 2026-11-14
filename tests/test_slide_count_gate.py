@@ -27,6 +27,29 @@ class SlideCountGateTests(unittest.TestCase):
         )
         self.assertIs(result, slides)
 
+    def test_trim_preserves_agenda_closing_and_executive_slides(self):
+        source = (Path(__file__).resolve().parents[1] / "bot.py").read_text(encoding="utf-8")
+        module = ast.parse(source)
+        function = next(
+            node for node in module.body
+            if isinstance(node, ast.FunctionDef) and node.name == "_ppt_trim_outline_to_count"
+        )
+        isolated = ast.Module(body=[function], type_ignores=[])
+        namespace = {}
+        exec(compile(isolated, "bot.py", "exec"), namespace)
+        outline = {"slides": [
+            {"layout": "executive", "title": "Executive"},
+            {"layout": "agenda", "title": "Agenda"},
+            {"layout": "text", "title": "First content"},
+            {"layout": "text", "title": "Surplus content"},
+            {"layout": "closing", "title": "Closing"},
+        ]}
+        result = namespace["_ppt_trim_outline_to_count"](outline, 3)
+        self.assertEqual(
+            [slide["layout"] for slide in result["slides"]],
+            ["executive", "agenda", "text", "closing"],
+        )
+
     def test_unexpected_recovery_error_cannot_return_short_outline(self):
         source = (Path(__file__).resolve().parents[1] / "bot.py").read_text(encoding="utf-8")
         module = ast.parse(source)
