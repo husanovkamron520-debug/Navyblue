@@ -6,6 +6,28 @@ class VisualIntegrityError(RuntimeError):
     """Raised when a required visual slot or serialized slide is structurally empty."""
 
 
+HARD_SLIDE_ISSUES = frozenset({
+    "xato",
+    "chegaradan chiqdi",
+    "matn sig'madi",
+    "mazmun bo'sh",
+    "mazmun kam",
+    "matnlar ustma-ust tushdi",
+    "matn va rasm ustma-ust tushdi",
+})
+
+
+def is_decorative_shape_name(name):
+    """Recognize intentionally bleeding decorative geometry by normalized OOXML name."""
+    normalized = str(name or "").casefold().lstrip("!").strip()
+    return normalized.startswith(("deco", "orb", "orbit"))
+
+
+def hard_slide_issues(issues):
+    """Return high-confidence layout issues that require repair or block delivery."""
+    return sorted({str(issue) for issue in (issues or [])} & HARD_SLIDE_ISSUES)
+
+
 def visual_integrity_issues(slides, image_layouts, valid_image):
     """Return required visual slots that remain empty or contain invalid image bytes."""
     issues = []
