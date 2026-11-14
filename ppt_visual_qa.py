@@ -23,9 +23,10 @@ def is_decorative_shape_name(name):
     return normalized.startswith(("deco", "orb", "orbit"))
 
 
-def content_slide_target(total_slides):
-    """The selected count is the final deck total; the cover occupies one slide."""
-    return max(1, int(total_slides) - 1)
+def content_slide_target(total_slides, has_references=False, has_executive=False):
+    """The selected count is the final deck total; reserve cover and optional final/summary slides."""
+    reserved = 1 + int(bool(has_references)) + int(bool(has_executive))
+    return max(1, int(total_slides) - reserved)
 
 
 def hard_slide_issues(issues):
