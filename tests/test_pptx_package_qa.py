@@ -4,6 +4,7 @@ import unittest
 try:
     from pptx import Presentation
     from pptx.util import Inches
+    from pptx.enum.shapes import MSO_SHAPE
     from PIL import Image
     from pptx_package_qa import PPTXPackageError, inspect_pptx_bytes
     HAS_PPTX = True
@@ -11,6 +12,7 @@ except ImportError:
     HAS_PPTX = False
     Presentation = None
     Inches = None
+    MSO_SHAPE = None
     Image = None
     PPTXPackageError = ValueError
     inspect_pptx_bytes = None
@@ -54,6 +56,27 @@ class PPTXPackageQATests(unittest.TestCase):
         self.assertEqual(report["image_slides"], 1)
         self.assertEqual(report["image_coverage_ratio"], 0.5)
         self.assertEqual(len(report["slides_without_images"]), 1)
+
+    def test_intentional_bleed_decorations_are_not_bounds_errors(self):
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        title = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(5), Inches(1))
+        title.text_frame.text = "Bounds test"
+        decoration = slide.shapes.add_shape(
+            MSO_SHAPE.OVAL, Inches(-1), Inches(1), Inches(2), Inches(2)
+        )
+        decoration.name = "!!orb_1"
+        bad_content = slide.shapes.add_shape(
+            MSO_SHAPE.RECTANGLE, Inches(-1), Inches(4), Inches(2), Inches(1)
+        )
+        bad_content.name = "content_bad"
+        out = io.BytesIO()
+        prs.save(out)
+        report = inspect_pptx_bytes(out.getvalue(), expected_slides=1)
+        self.assertEqual(
+            [item["shape"] for item in report["out_of_bounds_shapes"]],
+            ["content_bad"],
+        )
 
     def test_reports_ellipsis_truncation(self):
         report = inspect_pptx_bytes(
