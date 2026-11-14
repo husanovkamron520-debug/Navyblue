@@ -3520,7 +3520,7 @@ def _ppt_expand_missing_slides(outline, topic, requested, with_images, sanitizer
                  "layout='editorial', title aniq, text 70-100 so'z bo'lsin. Murakkab diagramma, jadval, chart yoki kollaj ishlatma. "
                  "Mavjud slaydlarning sarlavhasi va mazmunini takrorlama.\n" if emergency_editorial else
                  "Sen professional prezentatsiya muharririsan. Oldingi reja kerakli slaydlar soniga yetmadi. ")
-                "Quyidagi taqdimotni aynan davom ettir: FAQAT yetishmayotgan yangi mazmunli slaydlarni yarat. "
+                + "Quyidagi taqdimotni aynan davom ettir: FAQAT yetishmayotgan yangi mazmunli slaydlarni yarat. "
                 "Mavjud slaydlarni takrorlama, sarlavhalarni qayta yozma, umumiy gap bilan son to'ldirma. "
                 "Har bir yangi slayd alohida yangi savol, sabab, mexanizm, dalil, taqqoslash, amaliy misol yoki yechimni ochsin. "
                 "Mantiqiy ketma-ketlik va kuchli storytelling saqlansin; har slaydning aniq xulosasi bo'lsin. "
