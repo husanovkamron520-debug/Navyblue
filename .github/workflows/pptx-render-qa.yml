@@ -28,7 +28,7 @@ jobs:
         run: python tests/create_render_fixtures.py render-fixtures
       - name: Render every slide to PNG and run visual preflight
         run: |
-          python pptx_render_qa.py --input render-fixtures/medicine.pptx render-fixtures/history.pptx render-fixtures/biology.pptx render-fixtures/fiction.pptx render-fixtures/economics.pptx render-fixtures/logistics.pptx --output-dir rendered-qa --dpi 120
+          python pptx_render_qa.py --input render-fixtures/medicine.pptx render-fixtures/history.pptx render-fixtures/biology.pptx render-fixtures/fiction.pptx render-fixtures/economics.pptx render-fixtures/logistics.pptx render-fixtures/stress20.pptx --output-dir rendered-qa --dpi 120
       - name: Upload PNG contact sheets and machine-readable reports
         if: always()
         uses: actions/upload-artifact@v4
