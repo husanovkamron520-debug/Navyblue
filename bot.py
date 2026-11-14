@@ -9994,9 +9994,22 @@ async def _ppt_generate_and_send(msg, context, topic, n, with_images, author, mo
     except Exception as exc:
         logger.exception("Taqdimot yaratish xatosi")
         if isinstance(exc, VisualIntegrityError):
-            answer = ("Taqdimot yakuniy sifat tekshiruvidan o'tmadi. Bo'sh vizual, bo'sh slayd "
-                      "yoki jiddiy matn sig'ishi muammosi aniqlandi. Noto'g'ri fayl yuborilmadi; "
-                      "xatoni tuzatib qayta urinib ko'ring.")
+            reason_text = str(exc)
+            if "SLIDE_COUNT" in reason_text:
+                answer = ("Slaydlar soni talabga mos kelmadi. Qisqa yoki ortiqcha slaydli fayl yuborilmadi; "
+                          "qayta urinib ko'ring.")
+            elif "CONTENT_QA_GATE" in reason_text:
+                answer = ("Kontent tekshiruvida juda qisqa yoki takroriy slayd aniqlandi. "
+                          "Sifatsiz fayl yuborilmadi; mavzuni qayta ishlab urinib ko'ring.")
+            elif "ASSET_DUPLICATE_GATE" in reason_text:
+                answer = ("Bir xil rasm bir necha joyda takrorlandi. Takroriy vizualli fayl yuborilmadi; qayta urinib ko'ring.")
+            elif "SLIDE_REPAIR_FAILED" in reason_text:
+                answer = ("Matn joylashuvi yoki ustma-ust tushish xatosini avtomatik tuzatib bo'lmadi. "
+                          "Xatoli fayl yuborilmadi.")
+            else:
+                answer = ("Taqdimot yakuniy sifat tekshiruvidan o'tmadi. Bo'sh vizual, bo'sh slayd "
+                          "yoki jiddiy matn sig'ishi muammosi aniqlandi. Noto'g'ri fayl yuborilmadi; "
+                          "xatoni tuzatib qayta urinib ko'ring.")
         else:
             reason = _ai_err_reason(exc)
             answer = "Taqdimot yaratilmadi." + (f" Sabab: {reason}." if reason else "") + \
