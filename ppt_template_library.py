@@ -173,7 +173,7 @@ def inspect_pptx(path: str | Path) -> dict:
         slide_ns = {"p": "http://schemas.openxmlformats.org/presentationml/2006/main"}
         for slide_name in slides:
             root = ET.fromstring(archive.read(slide_name))
-            transition = root.find("p:transition", slide_ns)
+            transition = root.find(".//p:transition", slide_ns)
             transition_xml = ET.tostring(transition, encoding="unicode") if transition is not None else ""
             if "morph" in transition_xml.casefold():
                 morph_slides.append(slide_name)
