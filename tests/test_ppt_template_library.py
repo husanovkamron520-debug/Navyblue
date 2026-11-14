@@ -1,4 +1,12 @@
+import io
+import tempfile
 import unittest
+from pathlib import Path
+
+from pptx import Presentation
+from pptx.oxml import parse_xml
+from pptx.util import Inches
+from ppt_template_library import inspect_pptx
 from ppt_template_library import choose_design_reference, build_template_guidance
 
 class TemplateLibraryTests(unittest.TestCase):
@@ -30,6 +38,19 @@ class TemplateLibraryTests(unittest.TestCase):
         first = choose_design_reference("Supply chain", "process_system", catalog)
         second = choose_design_reference("Supply chain", "process_system", catalog)
         self.assertEqual(first["slug"], second["slug"])
+
+    def test_inspects_morph_transition_inside_alternate_content(self):
+        xml = "<mc:AlternateContent xmlns:mc=\"http://schemas.openxmlformats.org/markup-compatibility/2006\" xmlns:p=\"http://schemas.openxmlformats.org/presentationml/2006/main\"><mc:Choice xmlns:p159=\"http://schemas.microsoft.com/office/powerpoint/2015/09/main\" Requires=\"p159\"><p:transition spd=\"med\"><p159:morph option=\"byObject\"/></p:transition></mc:Choice><mc:Fallback><p:transition><p:fade/></p:transition></mc:Fallback></mc:AlternateContent>"
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        slide.shapes.add_textbox(Inches(1), Inches(1), Inches(2), Inches(1)).text_frame.text = "Morph test"
+        slide._element.append(parse_xml(xml))
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "morph-reference.pptx"
+            prs.save(path)
+            report = inspect_pptx(path)
+        self.assertTrue(report["has_morph"])
+        self.assertEqual(report["morph_slide_count"], 1)
 
     def test_guidance_does_not_claim_morph_without_inspection(self):
         item = {"title": "Academic Theme"}
