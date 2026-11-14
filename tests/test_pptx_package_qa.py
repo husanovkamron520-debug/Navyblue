@@ -4,6 +4,7 @@ import unittest
 try:
     from pptx import Presentation
     from pptx.util import Inches
+    from PIL import Image
     from pptx_package_qa import PPTXPackageError, inspect_pptx_bytes
     HAS_PPTX = True
 except ImportError:
