@@ -9,6 +9,18 @@ class VisualIntegrityTests(unittest.TestCase):
         issues = visual_integrity_issues(slides, {"image_text", "collage"}, lambda value: isinstance(value, bytes))
         self.assertEqual(issues[0]["reason"], "missing_or_invalid_image")
 
+    def test_decorative_bleed_names_are_normalized(self):
+        self.assertTrue(is_decorative_shape_name("!!deco_1"))
+        self.assertTrue(is_decorative_shape_name("!!orb_2"))
+        self.assertTrue(is_decorative_shape_name("!!orbit_ring"))
+        self.assertFalse(is_decorative_shape_name("content_bad"))
+
+    def test_text_overlap_is_a_hard_slide_issue(self):
+        self.assertEqual(
+            hard_slide_issues(["matnlar ustma-ust tushdi", "matn va rasm ustma-ust tushdi", "warning"]),
+            ["matn va rasm ustma-ust tushdi", "matnlar ustma-ust tushdi"],
+        )
+
     def test_collage_requires_three_valid_images(self):
         slides = [{"layout": "collage", "_imgs": [b"a", None, b"b"]}]
         issues = visual_integrity_issues(slides, {"image_text", "collage"}, lambda value: isinstance(value, bytes))
