@@ -3574,8 +3574,10 @@ def _ppt_expand_missing_slides(outline, topic, requested, with_images, sanitizer
         logger.info("SLIDE_COUNT_GATE passed: requested=%s actual=%s",
                     requested, final_content_count)
         return outline
-    except Exception:
+    except Exception as exc:
         logger.exception("Yetishmagan slaydlarni to'ldirish jarayoni ishlamadi")
+        if isinstance(exc, RuntimeError) and str(exc).startswith("Slaydlar soni yetarli emas:"):
+            raise
         return outline
 
 def _gemini_outline_sync(topic: str, n_slides: int, with_images: bool = True) -> dict:
