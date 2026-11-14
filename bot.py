@@ -44,7 +44,7 @@ from ppt_visual_relevance import metadata_relevant, contextually_irrelevant
 from ppt_visual_style import (build_photorealistic_query, is_nonphotographic_metadata,
                               needs_english_stock_translation)
 from ppt_visual_qa import (visual_integrity_issues, package_qa_blockers, VisualIntegrityError,
-                           is_decorative_shape_name, hard_slide_issues)
+                           is_decorative_shape_name, hard_slide_issues, content_slide_target)
 
 from telegram import (
     Update,
@@ -9833,7 +9833,7 @@ async def _ppt_generate_and_send(msg, context, topic, n, with_images, author, mo
     mode = "common" if mode == "common" else "premium"
     # Telegramdagi tanlov — yakuniy PPTX faylidagi JAMI slaydlar soni, muqova bilan.
     requested_total = max(PPT_MIN_SLIDES, min(PPT_MAX_SLIDES, int(n)))
-    outline_n = max(1, requested_total - 1)  # generator faqat muqovadan keyingi kontent slaydlarini tuzadi
+    outline_n = content_slide_target(requested_total)  # generator faqat muqovadan keyingi kontent slaydlarini tuzadi
     n = requested_total
     quota_feature = "slide_common" if mode == "common" else "slide_premium"
     _ok, _why = quota_check(context, quota_feature)
