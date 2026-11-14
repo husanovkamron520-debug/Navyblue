@@ -32,7 +32,7 @@ _PROFILE_TERMS = {
     "fantasy_fiction": {"fantasy", "magical", "magic", "myth", "creative", "portfolio", "story"},
     "historical_chronicle": {"history", "historical", "heritage", "chronicle", "story"},
     "process_system": {"business", "project", "planning", "process", "strategy", "logistics", "data"},
-    "research_evidence": {"academic", "thesis", "research", "data", "charts", "infographic"},
+    "research_evidence": {"academic", "thesis", "research", "data", "charts", "infographic", "philosophy", "humanities", "ethics", "logic"},
     "science_and_technology": {"technology", "science", "engineering", "ai", "product", "software"},
     "medical_education": {"medical", "health", "clinical", "biology", "anatomy", "medicine", "wellness"},
     "arts_culture": {"creative", "portfolio", "art", "culture", "design", "editorial", "photography"},
@@ -41,7 +41,44 @@ _PROFILE_TERMS = {
     "finance_accounting": {"finance", "accounting", "budget", "economics", "investment", "financial"},
     "educational_method": {"education", "classroom", "lesson", "academic", "learning", "teaching"},
     "concept_explainer": {"general", "minimal", "aesthetic", "education", "infographic"},
+
 }
+
+_TOPIC_ARCHETYPE_KEYWORDS = {
+    "research_evidence": ("falsafa", "falsafiy", "philosoph", "tadqiqot", "ilmiy", "nazariya", "bilish"),
+    "historical_chronicle": ("tarix", "tarixiy", "imperiya", "sulola", "usmonli", "ottoman"),
+    "process_system": ("logistika", "ta'minot", "zanjir", "transport", "supply chain"),
+    "finance_accounting": ("iqtisod", "moliya", "byudjet", "budjet", "hisob", "bank", "investitsiya"),
+    "medical_education": ("tibbiyot", "yurak", "qon tomir", "anatomiya", "kasallik", "sog'liq"),
+    "science_and_technology": ("biologiya", "klonlash", "texnologiya", "sun'iy intellekt", "robot"),
+    "fantasy_fiction": ("sehr", "fantasy", "harry potter", "remus", "lupin", "fantastika"),
+    "arts_culture": ("san'at", "madaniyat", "adabiyot", "she'riyat", "musiqa"),
+}
+
+_TOPIC_TERM_ALIASES = {
+    "research_evidence": {"philosophy", "humanities", "ethics", "logic", "academic", "research"},
+    "historical_chronicle": {"history", "historical", "empire", "heritage", "chronicle"},
+    "process_system": {"logistics", "supply", "chain", "transportation", "operations"},
+    "finance_accounting": {"economics", "finance", "accounting", "budget", "investment"},
+    "medical_education": {"medical", "health", "clinical", "biology", "anatomy", "medicine"},
+    "science_and_technology": {"science", "biology", "genetics", "technology", "engineering", "ai"},
+    "fantasy_fiction": {"fantasy", "fiction", "magical", "magic", "myth", "story"},
+    "arts_culture": {"art", "culture", "literature", "poetry", "music", "creative"},
+}
+
+
+def _infer_template_archetype(topic: str, fallback: str) -> str:
+    low = str(topic or "").casefold()
+    for archetype, keywords in _TOPIC_ARCHETYPE_KEYWORDS.items():
+        if any(keyword in low for keyword in keywords):
+            return archetype
+    return fallback
+
+
+def _topic_terms(topic: str, archetype: str) -> set[str]:
+    words = set(re.findall(r"[a-z0-9]+", str(topic or "").casefold()))
+    words.update(_TOPIC_TERM_ALIASES.get(archetype, set()))
+    return words
 
 def _safe_url(url: str, allowed_hosts: set[str]) -> str:
     parsed = urlparse(str(url or ""))
@@ -92,15 +129,20 @@ def choose_design_reference(topic: str, archetype: str = "concept_explainer",
                             catalog: list[dict] | None = None) -> dict | None:
     """Choose a design reference by archetype/tags; deterministic and topic-aware."""
     items = catalog if catalog is not None else load_catalog()
+    archetype = _infer_template_archetype(topic, archetype)
     terms = _PROFILE_TERMS.get(archetype, _PROFILE_TERMS["concept_explainer"])
-    topic_words = set(re.findall(r"[a-z0-9]+", str(topic).casefold()))
+    topic_words = _topic_terms(topic, archetype)
     ranked = []
     for item in items:
         tags = set()
         for tag in (item.get("tags") or []):
             tags.update(re.findall(r"[a-z0-9]+", str(tag).casefold()))
         title_words = set(re.findall(r"[a-z0-9]+", str(item.get("title") or "").casefold()))
-        score = 3 * len(tags & terms) + len(topic_words & title_words)
+        topic_overlap = len(topic_words & (tags | title_words))
+        # A generic archetype match is not enough: require at least one topic-relevant term.
+        if not topic_overlap:
+            continue
+        score = 3 * len(tags & terms) + 2 * topic_overlap
         if score:
             ranked.append((score, str(item.get("slug") or item.get("title") or ""), item))
     if not ranked:
