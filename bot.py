@@ -3505,15 +3505,21 @@ def _ppt_expand_missing_slides(outline, topic, requested, with_images, sanitizer
                             "layout": item.get("layout", "")})
         added = []
         # Small batches avoid truncating long JSON responses when a large deck is short.
-        max_attempts = min(8, max(3, math.ceil(missing / 3) + 2))
+        # A single large completion request often gets truncated or loses slides during
+        # layout validation. Retry in smaller batches, then use safe editorial slides.
+        max_attempts = min(18, max(8, missing * 2 + 4))
         for attempt in range(max_attempts):
             remaining = missing - len(added)
             if remaining <= 0:
                 break
-            batch_size = min(3, remaining)
+            emergency_editorial = attempt >= max(5, math.ceil(missing / 3) + 1)
+            batch_size = 1 if emergency_editorial else min(3, remaining)
             model = PPT_AI_MODELS[min(attempt, len(PPT_AI_MODELS) - 1)]
             prompt = (
-                "Sen professional prezentatsiya muharririsan. Oldingi reja kerakli slaydlar soniga yetmadi. "
+                ("Sen professional prezentatsiya muharririsan. FAQAT BITTA yangi, mazmunli editorial slayd yarat. "
+                 "layout='editorial', title aniq, text 70-100 so'z bo'lsin. Murakkab diagramma, jadval, chart yoki kollaj ishlatma. "
+                 "Mavjud slaydlarning sarlavhasi va mazmunini takrorlama.\n" if emergency_editorial else
+                 "Sen professional prezentatsiya muharririsan. Oldingi reja kerakli slaydlar soniga yetmadi. ")
                 "Quyidagi taqdimotni aynan davom ettir: FAQAT yetishmayotgan yangi mazmunli slaydlarni yarat. "
                 "Mavjud slaydlarni takrorlama, sarlavhalarni qayta yozma, umumiy gap bilan son to'ldirma. "
                 "Har bir yangi slayd alohida yangi savol, sabab, mexanizm, dalil, taqqoslash, amaliy misol yoki yechimni ochsin. "
@@ -3559,11 +3565,14 @@ def _ppt_expand_missing_slides(outline, topic, requested, with_images, sanitizer
             slides[closing_index:closing_index] = added
             outline["slides"] = slides
         outline["_expanded"] = len(added)
-        if len(added) < missing:
-            logger.warning("Taqdimot: %s ta slayd yetishmadi, %s ta qo'shimcha slayd yaratildi",
-                           missing, len(added))
-        else:
-            logger.info("Taqdimot: yetishmagan %s ta slayd sifatli davom ettirildi", len(added))
+        final_content_count = sum(1 for item in (outline.get("slides") or [])
+                                  if item.get("layout") != "executive")
+        if final_content_count < int(requested):
+            logger.error("SLIDE_COUNT_GATE: so'ralgan=%s, tayyor=%s; qisqa deck yuborilmaydi",
+                         requested, final_content_count)
+            raise RuntimeError(f"Slaydlar soni yetarli emas: {final_content_count}/{requested}")
+        logger.info("SLIDE_COUNT_GATE passed: requested=%s actual=%s",
+                    requested, final_content_count)
         return outline
     except Exception:
         logger.exception("Yetishmagan slaydlarni to'ldirish jarayoni ishlamadi")
@@ -9791,7 +9800,7 @@ async def _ppt_generate_and_send(msg, context, topic, n, with_images, author, mo
     mode = mode or context.user_data.get("_ppt_mode", "premium")
     mode = "common" if mode == "common" else "premium"
     if mode == "common":
-        n = min(int(n), 15)   # Common: ko'pi bilan 15 slayd
+        n = min(int(n), PPT_MAX_SLIDES)   # Common ham foydalanuvchi so'ragan to'liq sonni qo'llaydi
     quota_feature = "slide_common" if mode == "common" else "slide_premium"
     _ok, _why = quota_check(context, quota_feature)
     if not _ok:
