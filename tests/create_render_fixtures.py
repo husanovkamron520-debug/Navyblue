@@ -124,4 +124,67 @@ for slug, (title, subtitle, labels, descriptions) in DOMAINS.items():
 
     deck.save(OUT / f"{slug}.pptx")
 
+# One 20-slide stress deck checks that the renderer handles a full-length presentation.
+stress = Presentation()
+stress.slide_width = Inches(13.333)
+stress.slide_height = Inches(7.5)
+for index in range(20):
+    slide = stress.slides.add_slide(stress.slide_layouts[6])
+    family = index % 5
+    title = f"20-slide stress test — {index + 1:02d}"
+    subtitle = f"Unique content block {index + 1}; layout family {family + 1}"
+    add_header(slide, title, subtitle)
+    if family == 0:
+        add_text(slide, 0.9, 2.2, 4.0, 1.6, f"{(index + 1) * 7}%", 46, (36, 90, 145), True)
+        add_text(slide, 5.1, 2.25, 6.8, 1.3,
+                 f"Stress-test metric {index + 1} has a distinct explanation and supporting context.",
+                 22, (55, 65, 78))
+    elif family == 1:
+        for card_index in range(3):
+            x = 0.9 + card_index * 4.05
+            card = slide.shapes.add_shape(
+                MSO_SHAPE.ROUNDED_RECTANGLE, Inches(x), Inches(2.25), Inches(3.35), Inches(2.35)
+            )
+            card.fill.solid()
+            card.fill.fore_color.rgb = RGBColor(36 + card_index * 35, 90 + index * 3, 145 - card_index * 20)
+            card.text_frame.text = f"Card {card_index + 1}\nSlide {index + 1}\nUnique detail {index * 3 + card_index + 1}"
+            for paragraph in card.text_frame.paragraphs:
+                paragraph.alignment = PP_ALIGN.CENTER
+                for run in paragraph.runs:
+                    run.font.size = Pt(18)
+                    run.font.bold = True
+                    run.font.color.rgb = RGBColor(255, 255, 255)
+    elif family == 2:
+        for row in range(4):
+            y = 2.0 + row * 0.95
+            add_text(slide, 0.9, y, 2.4, 0.42, f"Factor {index + row + 1}", 17, (36, 90, 145), True)
+            bar = slide.shapes.add_shape(
+                MSO_SHAPE.RECTANGLE, Inches(3.5), Inches(y + 0.05),
+                Inches(1.4 + ((index + row) % 5) * 0.72), Inches(0.22)
+            )
+            bar.fill.solid()
+            bar.fill.fore_color.rgb = RGBColor(36, 90, 145)
+            bar.line.fill.background()
+    elif family == 3:
+        connector_y = 3.35
+        slide.shapes.add_connector(
+            MSO_CONNECTOR.STRAIGHT, Inches(1.25), Inches(connector_y),
+            Inches(11.9), Inches(connector_y)
+        ).line.color.rgb = RGBColor(190, 150, 80)
+        for step in range(4):
+            x = 1.1 + step * 3.45
+            marker_shape = slide.shapes.add_shape(
+                MSO_SHAPE.OVAL, Inches(x), Inches(2.95), Inches(0.8), Inches(0.8)
+            )
+            marker_shape.fill.solid()
+            marker_shape.fill.fore_color.rgb = RGBColor(36, 90, 145)
+            add_text(slide, x - 0.2, 4.0, 1.8, 0.65, f"Stage {step + 1}\nItem {index + step + 1}",
+                     14, (55, 65, 78), True)
+    else:
+        add_text(slide, 1.0, 2.1, 4.8, 0.55, f"Option A — {index + 1}", 22, (36, 90, 145), True)
+        add_text(slide, 7.0, 2.1, 4.8, 0.55, f"Option B — {index + 1}", 22, (190, 120, 40), True)
+        add_text(slide, 1.0, 3.0, 4.8, 1.2, f"Distinct comparison evidence for item {index + 1}.", 19)
+        add_text(slide, 7.0, 3.0, 4.8, 1.2, f"Alternative evidence and implication for item {index + 1}.", 19)
+stress.save(OUT / "stress20.pptx")
+
 print(f"Created {len(DOMAINS)} domain fixtures in {OUT}")
