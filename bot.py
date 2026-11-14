@@ -5178,6 +5178,14 @@ def _ppt_finalize_images(outline: dict):
     outline["_asset_manifest"] = asset_report
     if asset_report.get("issues"):
         logger.warning("Asset provenance critic: %s", json.dumps(asset_report.get("issues"), ensure_ascii=False))
+    duplicate_assets = [
+        issue for issue in (asset_report.get("issues") or [])
+        if isinstance(issue, dict) and issue.get("code") == "duplicate_asset"
+    ]
+    if duplicate_assets:
+        raise VisualIntegrityError(
+            "ASSET_DUPLICATE_GATE: " + json.dumps(duplicate_assets, ensure_ascii=False)
+        )
     logger.info("Asset manifest: assets=%s slides=%s sources=%s",
                 asset_report.get("asset_count"), asset_report.get("slide_count_with_assets"),
                 asset_report.get("source_counts"))
