@@ -43,6 +43,8 @@ def package_qa_blockers(report):
     blockers.extend("unfinished sentence: " + str(item.get("slide", "unknown"))
                     for item in (report.get("truncated_text_blocks") or [])
                     if isinstance(item, dict) and item.get("reason") == "dangling_connector")
+    blockers.extend("out-of-bounds shape: " + str(item.get("slide", "unknown"))
+                    for item in (report.get("out_of_bounds_shapes") or []) if isinstance(item, dict))
     # Geometry-based estimates vary across PowerPoint renderers; block only extreme overflow.
     for item in (report.get("text_fit_warnings") or []):
         if not isinstance(item, dict):
