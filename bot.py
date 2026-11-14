@@ -43,7 +43,8 @@ from ppt_remus_lupin_visuals import (remus_lupin_topic, remus_lupin_visual_kind,
 from ppt_visual_relevance import metadata_relevant, contextually_irrelevant
 from ppt_visual_style import (build_photorealistic_query, is_nonphotographic_metadata,
                               needs_english_stock_translation)
-from ppt_visual_qa import visual_integrity_issues, package_qa_blockers, VisualIntegrityError
+from ppt_visual_qa import (visual_integrity_issues, package_qa_blockers, VisualIntegrityError,
+                           is_decorative_shape_name, hard_slide_issues)
 
 from telegram import (
     Update,
@@ -6436,7 +6437,7 @@ class _PptBuilder:
                 l, t, w, h = shp.left, shp.top, shp.width, shp.height
             except Exception:
                 continue
-            if str(getattr(shp, "name", "")).startswith("deco"):
+            if is_decorative_shape_name(getattr(shp, "name", "")):
                 continue
             is_pic = shp.shape_type == 13
             if is_pic:
@@ -6466,7 +6467,7 @@ class _PptBuilder:
             ((getattr(shp, "shape_type", None) == 13) and
              not (shp.width >= W * 0.96 and shp.height >= H * 0.96)) or
             getattr(shp, "has_chart", False) or getattr(shp, "has_table", False)
-            for shp in slide.shapes if not str(getattr(shp, "name", "")).startswith("deco")
+            for shp in slide.shapes if not is_decorative_shape_name(getattr(shp, "name", ""))
         )
         if not texts and not has_nontext_content:
             issues.append("mazmun bo'sh")
@@ -6475,7 +6476,7 @@ class _PptBuilder:
             visible_chars = sum(len(str(getattr(shp, "text", "")).strip()) for shp in slide.shapes
                                 if getattr(shp, "has_text_frame", False))
             meaningful_visuals = sum(1 for shp in slide.shapes
-                                     if not str(getattr(shp, "name", "")).startswith("deco")
+                                     if not is_decorative_shape_name(getattr(shp, "name", ""))
                                      and not (getattr(shp, "shape_type", None) == 13
                                               and shp.width >= W * 0.96 and shp.height >= H * 0.96)
                                      and (getattr(shp, "shape_type", None) == 13
@@ -6620,7 +6621,7 @@ class _PptBuilder:
                 self.qa_slide_issues.append({"title": sl.get("title", "")[:80], "issues": unique_issues})
                 # Geometrik xato va sig'magan matn — jiddiy; ataylab qatlamlangan dizayndagi
                 # kesishish esa yumshoq ogohlantirish bo'lib, butun slaydni buzib yubormaydi.
-                hard = [x for x in unique_issues if x in ("xato", "chegaradan chiqdi", "matn sig'madi", "mazmun bo'sh", "mazmun kam")]
+                hard = hard_slide_issues(unique_issues)
                 if hard:
                     logger.warning("Avto-tekshiruv: %s slaydi qayta tiklanadi: %s", sl.get("layout"), hard)
                     try:
@@ -6637,7 +6638,12 @@ class _PptBuilder:
                     rebuilt_slide._jarvis_visual_type = rebuilt_design.get("visual_type", "typography")
                     self._apply_blueprint_accessibility(rebuilt_slide, fallback)
                     remaining = self._qa_slide(rebuilt_slide)
+                    remaining_hard = hard_slide_issues(remaining)
                     self.qa_slide_issues.append({"title": sl.get("title", "")[:80], "repair_issues": sorted(set(remaining))})
+                    if remaining_hard:
+                        raise VisualIntegrityError(
+                            "SLIDE_REPAIR_FAILED: " + sl.get("title", "")[:80] + " — " + ", ".join(remaining_hard)
+                        )
                     self.repaired += 1
                     self.qa_hard_repairs += 1
                 else:
