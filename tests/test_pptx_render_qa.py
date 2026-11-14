@@ -51,8 +51,9 @@ class RenderedSlideQATests(unittest.TestCase):
                 image.save(path)
                 paths.append(path)
             report = analyze_rendered_slides(paths)
-            self.assertTrue(report["passed"])
+            self.assertFalse(report["passed"])
             self.assertEqual(len(report["duplicate_slide_pairs"]), 1)
+            self.assertIn("duplicate_rendered_slide", [item["code"] for item in report["issues"]])
             self.assertTrue(report["warnings"])
 
 
