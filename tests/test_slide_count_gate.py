@@ -8,6 +8,25 @@ from pathlib import Path
 
 
 class SlideCountGateTests(unittest.TestCase):
+    def test_ai_cannot_add_unrequested_executive_slide(self):
+        source = (Path(__file__).resolve().parents[1] / "bot.py").read_text(encoding="utf-8")
+        module = ast.parse(source)
+        function = next(
+            node for node in module.body
+            if isinstance(node, ast.FunctionDef) and node.name == "_ppt_with_executive"
+        )
+        isolated = ast.Module(body=[function], type_ignores=[])
+        namespace = {"re": re}
+        exec(compile(isolated, "bot.py", "exec"), namespace)
+        slides = [{"layout": "text", "title": "Main content"}]
+        result = namespace["_ppt_with_executive"](
+            slides,
+            {"executive": {"enabled": True}},
+            "Falsafiy izlanishlar",
+            "Falsafiy izlanishlar",
+        )
+        self.assertIs(result, slides)
+
     def test_unexpected_recovery_error_cannot_return_short_outline(self):
         source = (Path(__file__).resolve().parents[1] / "bot.py").read_text(encoding="utf-8")
         module = ast.parse(source)
