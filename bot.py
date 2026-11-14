@@ -3487,6 +3487,32 @@ def _ppt_proofread_outline(outline):
     return outline
 
 
+def _ppt_trim_outline_to_count(outline, requested_nonexecutive):
+    """Trim surplus content while preserving executive, agenda, closing, and references slides."""
+    slides = list(outline.get("slides") or [])
+    def layout_of(item):
+        return str(item.get("layout") or "") if isinstance(item, dict) else ""
+    def nonexecutive_count():
+        return sum(1 for item in slides if layout_of(item) != "executive")
+    while nonexecutive_count() > int(requested_nonexecutive):
+        candidates = [
+            index for index, item in enumerate(slides)
+            if layout_of(item) not in {"executive", "agenda", "closing", "references"}
+        ]
+        if not candidates:
+            candidates = [
+                index for index, item in enumerate(slides)
+                if layout_of(item) not in {"executive", "closing", "references"}
+            ]
+        if not candidates:
+            candidates = [index for index, item in enumerate(slides) if layout_of(item) != "executive"]
+        if not candidates:
+            break
+        slides.pop(candidates[-1])
+    outline["slides"] = slides
+    return outline
+
+
 def _ppt_expand_missing_slides(outline, topic, requested, with_images, sanitizer):
     """Gemini yetkazmagan slaydlarni kichik partiyalarda davom ettirib, so'ralgan songa yetkazadi."""
     try:
@@ -3600,7 +3626,22 @@ def _gemini_outline_sync(topic: str, n_slides: int, with_images: bool = True) ->
             try:
                 text = _ai_generate_text_sync(build(topic, n_slides, with_images), temp, mx, True, [model])
                 outline = _sanitize_outline(_json_loads_loose(text), topic, n_slides, with_images)
-                outline = _ppt_expand_missing_slides(outline, topic, n_slides, with_images, _sanitize_outline)
+                has_reference_slide = any(
+                    isinstance(item, dict) and item.get("layout") == "references"
+                    for item in (outline.get("slides") or [])
+                )
+                has_references = bool(outline.get("refs")) and not has_reference_slide
+                has_executive = any(
+                    isinstance(item, dict) and item.get("layout") == "executive"
+                    for item in (outline.get("slides") or [])
+                )
+                target_nonexecutive = content_slide_target(
+                    n_slides + 1, has_references=has_references, has_executive=has_executive
+                )
+                outline = _ppt_trim_outline_to_count(outline, target_nonexecutive)
+                outline = _ppt_expand_missing_slides(
+                    outline, topic, target_nonexecutive, with_images, _sanitize_outline
+                )
                 # Ikkinchi to'liq Gemini proofreading chaqiruvi odatda vaqtni oshiradi.
                 # Asosiy generator allaqachon imlo va grammatika talablariga ega; kerak bo'lsa env orqali yoqiladi.
                 if os.environ.get("PPT_AI_PROOFREAD", "").strip().lower() in ("1", "true", "yes"):
@@ -8163,7 +8204,22 @@ def _gemini_outline_sync_classic(topic: str, n_slides: int, with_images: bool = 
             try:
                 text = _ai_generate_text_sync(build(topic, n_slides, with_images), temp, mx, True, [model])
                 outline = _sanitize_outline_classic(_json_loads_loose(text), topic, n_slides, with_images)
-                return _ppt_expand_missing_slides(outline, topic, n_slides, with_images, _sanitize_outline_classic)
+                has_reference_slide = any(
+                    isinstance(item, dict) and item.get("layout") == "references"
+                    for item in (outline.get("slides") or [])
+                )
+                has_references = bool(outline.get("refs")) and not has_reference_slide
+                has_executive = any(
+                    isinstance(item, dict) and item.get("layout") == "executive"
+                    for item in (outline.get("slides") or [])
+                )
+                target_nonexecutive = content_slide_target(
+                    n_slides + 1, has_references=has_references, has_executive=has_executive
+                )
+                outline = _ppt_trim_outline_to_count(outline, target_nonexecutive)
+                return _ppt_expand_missing_slides(
+                    outline, topic, target_nonexecutive, with_images, _sanitize_outline_classic
+                )
             except Exception as exc:
                 last_exc = exc
                 logger.warning("Taqdimot rejasi xatosi (%s, %s): %s", build.__name__, model, exc)
