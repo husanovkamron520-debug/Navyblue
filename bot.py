@@ -9872,6 +9872,10 @@ async def _ppt_generate_and_send(msg, context, topic, n, with_images, author, mo
                 outline.get("subtitle") or "Cinematic character introduction")
         else:
             cover_query = str(outline.get("cover_query") or "")
+            if needs_english_stock_translation(cover_query):
+                translated_cover, translated_ok = await _pxb_to_english(cover_query, "photo")
+                if translated_ok and translated_cover:
+                    cover_query = translated_cover
         bg_task = asyncio.create_task(asyncio.to_thread(
             _ppt_make_backgrounds_sync, theme, cover_query, cover_visual_kind))
         if with_images and not is_cardio_topic:
