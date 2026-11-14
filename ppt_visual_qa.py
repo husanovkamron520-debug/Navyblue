@@ -23,6 +23,11 @@ def is_decorative_shape_name(name):
     return normalized.startswith(("deco", "orb", "orbit"))
 
 
+def content_slide_target(total_slides):
+    """The selected count is the final deck total; the cover occupies one slide."""
+    return max(1, int(total_slides) - 1)
+
+
 def hard_slide_issues(issues):
     """Return high-confidence layout issues that require repair or block delivery."""
     return sorted({str(issue) for issue in (issues or [])} & HARD_SLIDE_ISSUES)
