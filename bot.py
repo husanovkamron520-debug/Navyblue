@@ -5212,9 +5212,15 @@ def _ppt_stepper_labels(data):
 
 
 def _ppt_with_executive(slides, data, title, topic):
-    """1 sahifalik Executive Summary slaydini tuzadi (3 ko'rsatkich, muammo, yechim, maqsad) va boshiga qo'yadi.
-    Raqamlar faqat AI bergan yoki slaydlarda bor bo'lsa ishlatiladi; bo'lmasa — asosiy yo'nalishlar kartochkalari."""
+    """Add a separate executive-summary slide only when the user explicitly requests one."""
     try:
+        request_text = (str(title or "") + " " + str(topic or "")).casefold()
+        explicit_request = any(term in request_text for term in (
+            "executive summary", "management summary",
+            "rahbarlar uchun xulosa", "boshqaruv xulosasi", "ijro xulosasi",
+        ))
+        if not explicit_request:
+            return slides
         raw = data.get("executive") if isinstance(data.get("executive"), dict) else {}
         if raw.get("enabled") is not True:
             return slides
