@@ -22,20 +22,35 @@ def _fold(value):
     return re.sub(r"[^a-z0-9]+", " ", str(value or "").casefold()).strip()
 
 
+_CONTENT_SKIP_KEYS = {
+    "title", "layout", "story_role", "role", "notes", "speaker_notes",
+    "design", "motion", "transition", "icon", "color", "photo_query",
+    "cover_query", "image_query", "image_url", "url", "source", "source_note",
+    "citation", "references", "manba", "credit", "license", "visual_focus",
+    "visual_type", "composition",
+}
+
+
 def _content(slide):
+    """Flatten visible slide content across all supported nested layouts."""
     parts = []
-    for key in ("text", "body", "final", "quote", "context"):
-        value = slide.get(key)
+
+    def collect(value, key="", depth=0):
+        if depth > 6 or key in _CONTENT_SKIP_KEYS or str(key).startswith("_"):
+            return
         if isinstance(value, str):
-            parts.append(value)
-    for key in ("cards", "items", "steps", "nodes", "levels", "takeaways", "stats", "kpis", "rows"):
-        values = slide.get(key)
-        if isinstance(values, list):
-            for item in values:
-                if isinstance(item, dict):
-                    parts.extend(str(v) for k, v in item.items() if k not in {"icon", "color"})
-                elif isinstance(item, (str, int, float)):
-                    parts.append(str(item))
+            if value.strip():
+                parts.append(value.strip())
+        elif isinstance(value, (int, float)) and not isinstance(value, bool):
+            parts.append(str(value))
+        elif isinstance(value, dict):
+            for child_key, child_value in value.items():
+                collect(child_value, str(child_key), depth + 1)
+        elif isinstance(value, (list, tuple)):
+            for item in value:
+                collect(item, "", depth + 1)
+
+    collect(slide)
     return " ".join(parts).strip()
 
 
