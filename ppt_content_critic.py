@@ -80,7 +80,9 @@ def critique_content(topic, slides):
         if not title:
             issues.append({"slide": number, "severity": "high", "code": "missing_title",
                            "message": "Slayd sarlavhasi yo'q", "action": "Mazmunni aniq nomlaydigan sarlavha yoz"})
-        if len(re.findall(r"\w+", body, re.UNICODE)) < 8:
+        word_count = len(re.findall(r"\w+", body, re.UNICODE))
+        min_words = 4 if layout in {"agenda", "closing", "statement", "section"} else 8
+        if word_count < min_words:
             issues.append({"slide": number, "severity": "high", "code": "thin_content",
                            "message": "Slaydda mazmuniy izoh juda kam", "action": "Mavjud faktni izohla yoki mazmunli diagramma elementlari qo'sh"})
         if title_key in _GENERIC_TITLES:
