@@ -110,3 +110,27 @@ def build_photorealistic_query(domain: str, topic: str, title: str, body: str = 
     subject = re.sub(r"[^A-Za-z0-9 ]+", " ", " ".join((str(topic or ""), str(title or "")))).strip()
     subject = re.sub(r"\s+", " ", subject)[:150]
     return f"photorealistic editorial photograph {subject} natural cinematic lighting".strip()
+
+
+_UZBEK_STOCK_MARKERS = {
+    "haqida", "uchun", "orqali", "tizimi", "tarixi", "davlat", "imperiyasi",
+    "sultonligi", "harbiy", "madaniyati", "iqtisodiy", "rivojlanish", "boshqaruv",
+    "jarayoni", "xususiyatlari", "muammolari", "yechimlari", "qon", "yurak",
+    "tomir", "ta'minot", "zanjiri", "ombor", "ishlab", "chiqarish", "samaradorligi",
+    "tahlili", "asoslari", "mintaqasi", "hududi", "shahar", "sanoat", "o'zbekiston",
+    "uzbekiston", "qadimgi", "o'rta", "asrlar", "imperiya", "sivilizatsiya",
+}
+
+
+def needs_english_stock_translation(query: str) -> bool:
+    """Detect Uzbek/Russian/Cyrillic stock queries even when Uzbek uses Latin letters."""
+    raw = str(query or "").strip()
+    if not raw:
+        return False
+    if any(ord(char) > 127 for char in raw):
+        return True
+    tokens = set(_fold(raw).split())
+    if tokens & _UZBEK_STOCK_MARKERS:
+        return True
+    # Common Uzbek suffixes on otherwise Latin-script words.
+    return bool(re.search(r"\\b[a-z]+(?:ning|lari|lar|dagi|dan|ga|ni|lik|chi)\\b", _fold(raw)))
