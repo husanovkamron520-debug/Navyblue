@@ -69,7 +69,7 @@ def inspect_pptx_bytes(data: bytes, expected_slides: int | None = None) -> dict:
                     root = ET.fromstring(archive.read(slide_name))
                 except ET.ParseError as exc:
                     raise PPTXPackageError(f"Slayd XML buzilgan: {slide_name}") from exc
-                transition = root.find("p:transition", NS)
+                transition = root.find(".//p:transition", NS)
                 transition_xml = ET.tostring(transition, encoding="unicode") if transition is not None else ""
                 if "morph" in transition_xml.casefold() or "p159/morph" in transition_xml.casefold():
                     morph_slides.append(slide_name)
