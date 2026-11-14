@@ -139,10 +139,12 @@ def choose_design_reference(topic: str, archetype: str = "concept_explainer",
             tags.update(re.findall(r"[a-z0-9]+", str(tag).casefold()))
         title_words = set(re.findall(r"[a-z0-9]+", str(item.get("title") or "").casefold()))
         topic_overlap = len(topic_words & (tags | title_words))
-        # A generic archetype match is not enough: require at least one topic-relevant term.
-        if not topic_overlap:
+        profile_overlap = len(tags & terms)
+        # Generic concept decks require direct topic overlap; explicit domain profiles may
+        # also use a clearly matching category template (e.g. supply-chain -> business strategy).
+        if not topic_overlap and (archetype == "concept_explainer" or not profile_overlap):
             continue
-        score = 3 * len(tags & terms) + 2 * topic_overlap
+        score = 3 * profile_overlap + 2 * topic_overlap
         if score:
             ranked.append((score, str(item.get("slug") or item.get("title") or ""), item))
     if not ranked:
