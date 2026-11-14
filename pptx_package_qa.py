@@ -11,6 +11,7 @@ import zipfile
 from xml.etree import ElementTree as ET
 
 from pptx import Presentation
+from ppt_visual_qa import is_decorative_shape_name
 
 MAX_PPTX_BYTES = 45 * 1024 * 1024
 MAX_ZIP_ENTRIES = 4000
@@ -96,9 +97,8 @@ def inspect_pptx_bytes(data: bytes, expected_slides: int | None = None) -> dict:
                 for shape in shapes:
                     name_node = shape.find(".//p:cNvPr", NS)
                     shape_name = (name_node.get("name", "") if name_node is not None else "")
-                    normalized_shape_name = shape_name.casefold().lstrip("!").strip()
                     # These names are deliberate bleed decorations (rings/orbs), not content geometry.
-                    if normalized_shape_name.startswith(("deco", "orb", "orbit")):
+                    if is_decorative_shape_name(shape_name):
                         continue
                     content_shapes += 1
                     text_values.extend((node.text or "").strip() for node in shape.findall(".//a:t", NS))
