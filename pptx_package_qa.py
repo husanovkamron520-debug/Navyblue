@@ -185,7 +185,9 @@ def inspect_pptx_bytes(data: bytes, expected_slides: int | None = None) -> dict:
                                 pass
                 if not content_shapes and not content_pictures and not graphic_frames:
                     empty_slides.append(slide_name)
-                if pictures:
+                # Ignore full-bleed background pictures: only content-sized images
+                # count as meaningful slide visuals in the coverage metric.
+                if content_pictures:
                     image_slides += 1
                 else:
                     slides_without_images.append(slide_name)
