@@ -7,6 +7,7 @@ not semantic image understanding or a substitute for human review.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import shutil
 import subprocess
@@ -43,6 +44,7 @@ def analyze_rendered_slides(
     issues = []
     warnings = []
     hashes = []
+    pixel_digests = []
 
     for index, path in enumerate(image_paths, start=1):
         path = Path(path)
@@ -56,6 +58,7 @@ def analyze_rendered_slides(
                 stddev = round(sum(stat.stddev) / 3, 3)
                 entropy = round(image.convert("L").entropy(), 3)
                 digest = _average_hash(image)
+                pixel_digest = hashlib.sha256(image.tobytes()).hexdigest()
         except Exception as exc:
             issues.append({"slide": index, "code": "invalid_png", "detail": type(exc).__name__})
             continue
@@ -73,8 +76,10 @@ def analyze_rendered_slides(
         if stddev < blank_stddev_threshold and entropy < 0.08:
             issues.append({"slide": index, "code": "near_blank_slide"})
         hashes.append((index, digest))
+        pixel_digests.append((index, pixel_digest))
 
     duplicates = []
+    digest_by_slide = dict(pixel_digests)
     for offset, (left_index, left_hash) in enumerate(hashes):
         for right_index, right_hash in hashes[offset + 1:]:
             distance = _hamming_distance(left_hash, right_hash)
@@ -83,6 +88,12 @@ def analyze_rendered_slides(
                     "slides": [left_index, right_index],
                     "hash_distance": distance,
                 })
+                if digest_by_slide.get(left_index) == digest_by_slide.get(right_index):
+                    issues.append({
+                        "slide": right_index,
+                        "code": "duplicate_rendered_slide",
+                        "detail": f"Pixel-identical to slide {left_index}",
+                    })
     if duplicates:
         warnings.append("Potentially repeated rendered slides detected; review the PNGs.")
 
