@@ -41,7 +41,7 @@ from ppt_remus_lupin_visuals import (remus_lupin_topic, remus_lupin_visual_kind,
                                      render_remus_lupin_visual, sanitize_remus_lupin_slide,
                                      apply_remus_lupin_visual_coverage)
 from ppt_visual_relevance import metadata_relevant, contextually_irrelevant
-from ppt_visual_style import build_photorealistic_query, is_nonphotographic_metadata
+from ppt_visual_style import (build_photorealistic_query, is_nonphotographic_metadata,\n                              needs_english_stock_translation)
 from ppt_visual_qa import visual_integrity_issues, package_qa_blockers, VisualIntegrityError
 
 from telegram import (
@@ -4597,10 +4597,20 @@ async def _ppt_attach_images(outline: dict, owner_ai: bool = False):
             anchor = ""
     outline["topic_en"] = anchor
 
+    translated_queries = {}
+
     async def stock(q, historical=False):
         search_query = (q or outline.get("title") or "").strip()
         if not search_query:
             return None
+        # Stock APIs perform much better with English keywords. Translate Uzbek/Russian
+        # slide queries individually; cache identical queries to avoid duplicate AI calls.
+        if needs_english_stock_translation(search_query):
+            cache_key = search_query.casefold()
+            if cache_key not in translated_queries:
+                translated, ok = await _pxb_to_english(search_query, "photo")
+                translated_queries[cache_key] = translated if ok and translated else search_query
+            search_query = translated_queries[cache_key]
         try:
             return await asyncio.to_thread(_ppt_find_photo_sync, search_query, anchor, used, historical)
         except Exception as exc:
@@ -4716,7 +4726,7 @@ async def _ppt_attach_images(outline: dict, owner_ai: bool = False):
         sl["_imgs"] = imgs
         sl["_assets"] = assets
 
-    await asyncio.gather(
+    tasks = [
         *(one(sl) for sl in outline.get("slides", [])
           if sl.get("photo_query") or sl.get("map_query") or sl.get("layout") in ("hero", "image_text", "text_image", "banner_cards", "split", "image_story", "map")
           or fantasy_visual_kind(outline.get("title") or outline.get("topic_en") or "", sl.get("title") or "", _ppt_slide_text(sl))
@@ -4725,7 +4735,14 @@ async def _ppt_attach_images(outline: dict, owner_ai: bool = False):
           or lupin_topic
           or (isinstance(sl.get("_visual_plan"), dict) and sl["_visual_plan"].get("requires_external_asset"))),
         *(many(sl) for sl in outline.get("slides", []) if sl.get("collage_queries"))
-    )
+    ]
+    # One malformed collage or failed provider must not cancel every other slide's
+    # successful image lookup. Keep valid assets and report failures per slide.
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    for result in results:
+        if isinstance(result, BaseException):
+            logger.exception("Bitta slayd rasmi qidiruvida xato; qolgan rasmlar saqlanadi",
+                             exc_info=(type(result), result, result.__traceback__))
     outline["_credits"] = credits
     outline["_img_generation_disabled"] = True
 
