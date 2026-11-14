@@ -71,6 +71,15 @@ class PPTXPackageQATests(unittest.TestCase):
         self.assertTrue(report["text_fit_warnings"])
         self.assertTrue(any("matn qutisida" in warning for warning in report["warnings"]))
 
+    def test_detects_morph_inside_alternate_content(self):
+        from pptx.oxml import parse_xml
+        prs = Presentation(io.BytesIO(sample_deck()))
+        prs.slides[1]._element.append(parse_xml("<mc:AlternateContent xmlns:mc=\"http://schemas.openxmlformats.org/markup-compatibility/2006\" xmlns:p=\"http://schemas.openxmlformats.org/presentationml/2006/main\"><mc:Choice xmlns:p159=\"http://schemas.microsoft.com/office/powerpoint/2015/09/main\" Requires=\"p159\"><p:transition spd=\"med\"><p159:morph option=\"byObject\"/></p:transition></mc:Choice><mc:Fallback><p:transition><p:fade/></p:transition></mc:Fallback></mc:AlternateContent>"))
+        out = io.BytesIO()
+        prs.save(out)
+        report = inspect_pptx_bytes(out.getvalue(), expected_slides=2)
+        self.assertEqual(report["morph_slides"], 1)
+
     def test_rejects_invalid_bytes(self):
         with self.assertRaises(PPTXPackageError):
             inspect_pptx_bytes(b"not a pptx")
