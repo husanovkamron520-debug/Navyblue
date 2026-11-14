@@ -7958,7 +7958,7 @@ def _sanitize_outline_classic(data, topic: str, n: int, with_images: bool) -> di
                 if lay == "text":
                     out["text"] = _ppt_s(" ".join(_ppt_s(c, 60) for c in (s.get("captions") or [])), 400) or title
         if lay in ("image_text", "text_image", "banner_cards", "hero", "split", "image_story"):
-            if with_images and (prompt or pquery) and img_count < img_cap:
+            if with_images and pquery and img_count < img_cap:
                 out["photo_query"] = pquery
                 img_count += 1
         if lay == "agenda":
