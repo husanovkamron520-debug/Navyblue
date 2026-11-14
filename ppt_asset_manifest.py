@@ -60,10 +60,10 @@ def build_asset_manifest(slides):
                                "code": "missing_asset_credit",
                                "message": "Tashqi rasm uchun attribution ma'lumoti yo'q"})
             digest = record["asset_id"]
-            if digest and digest in seen and seen[digest] != index:
-                issues.append({"slide": index + 1, "severity": "medium",
+            if digest and digest in seen:
+                issues.append({"slide": index + 1, "severity": "high",
                                "code": "duplicate_asset",
-                               "message": f"Rasm {seen[digest] + 1}-slaydda ham ishlatilgan"})
+                               "message": f"Rasm oldingi asset bilan takrorlangan (birinchi slayd: {seen[digest] + 1})"})
             elif digest:
                 seen[digest] = index
         slide["_asset_manifest_count"] = len(per_slide)
