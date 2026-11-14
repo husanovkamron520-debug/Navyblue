@@ -59,6 +59,33 @@ class TemplateLibraryTests(unittest.TestCase):
         self.assertTrue(report["has_morph"])
         self.assertEqual(report["morph_slide_count"], 1)
 
+    def test_philosophy_topic_does_not_select_finance_template(self):
+        catalog = [
+            {
+                "slug": "finance-webinar",
+                "title": "Finance Webinar Slides for Clear Money Talks",
+                "tags": ["finance", "business", "webinar", "education"],
+                "pptx_url": "https://cdn.ppttemplate.ai/finance.pptx",
+            },
+            {
+                "slug": "philosophy-lecture",
+                "title": "Philosophy Lecture and Humanities Research",
+                "tags": ["philosophy", "academic", "humanities", "ethics"],
+                "pptx_url": "https://cdn.ppttemplate.ai/philosophy.pptx",
+            },
+        ]
+        selected = choose_design_reference("Falsafiy izlanishlar", catalog=catalog)
+        self.assertEqual(selected["slug"], "philosophy-lecture")
+
+    def test_unmatched_topic_uses_no_unrelated_template(self):
+        catalog = [{
+            "slug": "finance-webinar",
+            "title": "Finance Webinar Slides for Clear Money Talks",
+            "tags": ["finance", "business", "webinar", "education"],
+            "pptx_url": "https://cdn.ppttemplate.ai/finance.pptx",
+        }]
+        self.assertIsNone(choose_design_reference("Falsafiy izlanishlar", catalog=catalog))
+
     def test_guidance_does_not_claim_morph_without_inspection(self):
         item = {"title": "Academic Theme"}
         guidance = build_template_guidance("Research", "research_evidence", item, {"has_morph": False})
