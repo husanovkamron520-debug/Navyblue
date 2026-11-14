@@ -9704,7 +9704,7 @@ async def _ppt_ask_count(msg, context, topic):
     context.user_data.setdefault("_ppt_img", True)
     mode = context.user_data.get("_ppt_mode", "premium")
     await msg.reply_text(
-        f"📊 {'⚡ Common' if mode == 'common' else '💎 Premium'}\nMavzu: «{topic[:80]}»\n\nNechta slayd kerak? Tugmani bosing.\n🎨 Dizaynni rasmda ko'rib tanlash uchun pastdagi tugmani bosing:",
+        f"📊 {'⚡ Common' if mode == 'common' else '💎 Premium'}\nMavzu: «{topic[:80]}»\n\nNechta slayd kerak? Tanlangan son muqova bilan jami hisoblanadi. Tugmani bosing.\n🎨 Dizaynni rasmda ko'rib tanlash uchun pastdagi tugmani bosing:",
         reply_markup=_ppt_count_keyboard(context.user_data["_ppt_img"], context.user_data.get("_ppt_theme", "auto"), mode,
                                          is_bot_owner(msg.chat.id), bool(context.user_data.get("_ppt_ai"))),
     )
@@ -9831,8 +9831,10 @@ def _ppt_apply_template_palette(theme: dict, reference: dict | None) -> dict:
 async def _ppt_generate_and_send(msg, context, topic, n, with_images, author, mode=None):
     mode = mode or context.user_data.get("_ppt_mode", "premium")
     mode = "common" if mode == "common" else "premium"
-    if mode == "common":
-        n = min(int(n), PPT_MAX_SLIDES)   # Common ham foydalanuvchi so'ragan to'liq sonni qo'llaydi
+    # Telegramdagi tanlov — yakuniy PPTX faylidagi JAMI slaydlar soni, muqova bilan.
+    requested_total = max(PPT_MIN_SLIDES, min(PPT_MAX_SLIDES, int(n)))
+    outline_n = max(1, requested_total - 1)  # generator faqat muqovadan keyingi kontent slaydlarini tuzadi
+    n = requested_total
     quota_feature = "slide_common" if mode == "common" else "slide_premium"
     _ok, _why = quota_check(context, quota_feature)
     if not _ok:
@@ -9850,9 +9852,9 @@ async def _ppt_generate_and_send(msg, context, topic, n, with_images, author, mo
         template_task = asyncio.create_task(asyncio.to_thread(_ppt_prepare_template_reference, topic, {}))
         async with ai_gate:
             if mode == "common":
-                outline = await asyncio.to_thread(_gemini_outline_sync_classic, topic, n, with_images)
+                outline = await asyncio.to_thread(_gemini_outline_sync_classic, topic, outline_n, with_images)
             else:
-                outline = await asyncio.to_thread(_gemini_outline_sync, topic, n, with_images)
+                outline = await asyncio.to_thread(_gemini_outline_sync, topic, outline_n, with_images)
         outline["author"] = cover.get("name", "")     # Telegram ismi endi avtomatik qo'yilmaydi
         outline["cover"] = cover
         outline["_source_topic"] = topic
@@ -9965,6 +9967,10 @@ async def _ppt_generate_and_send(msg, context, topic, n, with_images, author, mo
             inspect_pptx_bytes, data, len(outline.get("slides", [])) + 1
         )
         outline.setdefault("_qa", {})["package"] = package_qa
+        if int(package_qa.get("slides") or 0) != requested_total:
+            raise VisualIntegrityError(
+                f"SLIDE_COUNT_FINAL_GATE: requested {requested_total}, rendered {package_qa.get('slides', 0)}"
+            )
         package_blockers = package_qa_blockers(package_qa)
         if package_blockers:
             raise VisualIntegrityError("VISUAL_INTEGRITY_GATE: serialized PPTX contains empty slides: " +
