@@ -89,6 +89,11 @@ def harden(builder_class, title_fn):
 
     builder_class.new_slide = new_slide
     builder_class._build_one = build_one
+    try:
+        from ppt_user_fixes import schedule
+        schedule(builder_class)
+    except Exception as exc:
+        log.warning("ppt_user_fixes not scheduled: %s", exc)
 
 
 def _safe_slide(self, sl, title_fn):
