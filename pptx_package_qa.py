@@ -11,6 +11,7 @@ import zipfile
 from xml.etree import ElementTree as ET
 
 from pptx import Presentation
+from ppt_visual_qa import is_decorative_shape_name
 
 MAX_PPTX_BYTES = 45 * 1024 * 1024
 MAX_ZIP_ENTRIES = 4000
@@ -69,7 +70,7 @@ def inspect_pptx_bytes(data: bytes, expected_slides: int | None = None) -> dict:
                     root = ET.fromstring(archive.read(slide_name))
                 except ET.ParseError as exc:
                     raise PPTXPackageError(f"Slayd XML buzilgan: {slide_name}") from exc
-                transition = root.find("p:transition", NS)
+                transition = root.find(".//p:transition", NS)
                 transition_xml = ET.tostring(transition, encoding="unicode") if transition is not None else ""
                 if "morph" in transition_xml.casefold() or "p159/morph" in transition_xml.casefold():
                     morph_slides.append(slide_name)
@@ -96,7 +97,8 @@ def inspect_pptx_bytes(data: bytes, expected_slides: int | None = None) -> dict:
                 for shape in shapes:
                     name_node = shape.find(".//p:cNvPr", NS)
                     shape_name = (name_node.get("name", "") if name_node is not None else "")
-                    if shape_name.casefold().startswith("deco"):
+                    # These names are deliberate bleed decorations (rings/orbs), not content geometry.
+                    if is_decorative_shape_name(shape_name):
                         continue
                     content_shapes += 1
                     text_values.extend((node.text or "").strip() for node in shape.findall(".//a:t", NS))
@@ -185,7 +187,9 @@ def inspect_pptx_bytes(data: bytes, expected_slides: int | None = None) -> dict:
                                 pass
                 if not content_shapes and not content_pictures and not graphic_frames:
                     empty_slides.append(slide_name)
-                if pictures:
+                # Ignore full-bleed background pictures: only content-sized images
+                # count as meaningful slide visuals in the coverage metric.
+                if content_pictures:
                     image_slides += 1
                 else:
                     slides_without_images.append(slide_name)

@@ -29,7 +29,7 @@ import museum
 import supply_chain
 from ppt_media_sources import find_commons_photo
 from ppt_story_engine import STORY_ROLES, build_story_guidance, infer_story_role, story_quality_report, enforce_story_quality
-from ppt_visual_director import build_visual_direction_guidance, apply_visual_direction
+from ppt_visual_director import build_visual_direction_guidance, apply_visual_direction, classify_visual_domain
 from ppt_content_critic import critique_content
 from ppt_asset_manifest import build_asset_manifest
 from pptx_package_qa import inspect_pptx_bytes
@@ -41,7 +41,10 @@ from ppt_remus_lupin_visuals import (remus_lupin_topic, remus_lupin_visual_kind,
                                      render_remus_lupin_visual, sanitize_remus_lupin_slide,
                                      apply_remus_lupin_visual_coverage)
 from ppt_visual_relevance import metadata_relevant, contextually_irrelevant
-from ppt_visual_qa import visual_integrity_issues, package_qa_blockers, VisualIntegrityError
+from ppt_visual_style import (build_photorealistic_query, is_nonphotographic_metadata,
+                              needs_english_stock_translation)
+from ppt_visual_qa import (visual_integrity_issues, package_qa_blockers, VisualIntegrityError,
+                           is_decorative_shape_name, hard_slide_issues, content_slide_target)
 
 from telegram import (
     Update,
@@ -3484,8 +3487,34 @@ def _ppt_proofread_outline(outline):
     return outline
 
 
+def _ppt_trim_outline_to_count(outline, requested_nonexecutive):
+    """Trim surplus content while preserving executive, agenda, closing, and references slides."""
+    slides = list(outline.get("slides") or [])
+    def layout_of(item):
+        return str(item.get("layout") or "") if isinstance(item, dict) else ""
+    def nonexecutive_count():
+        return sum(1 for item in slides if layout_of(item) != "executive")
+    while nonexecutive_count() > int(requested_nonexecutive):
+        candidates = [
+            index for index, item in enumerate(slides)
+            if layout_of(item) not in {"executive", "agenda", "closing", "references"}
+        ]
+        if not candidates:
+            candidates = [
+                index for index, item in enumerate(slides)
+                if layout_of(item) not in {"executive", "closing", "references"}
+            ]
+        if not candidates:
+            candidates = [index for index, item in enumerate(slides) if layout_of(item) != "executive"]
+        if not candidates:
+            break
+        slides.pop(candidates[-1])
+    outline["slides"] = slides
+    return outline
+
+
 def _ppt_expand_missing_slides(outline, topic, requested, with_images, sanitizer):
-    """Gemini yetkazmagan slaydlarni mavzu oqimiga mos, yangi mazmun bilan davom ettiradi."""
+    """Gemini yetkazmagan slaydlarni kichik partiyalarda davom ettirib, so'ralgan songa yetkazadi."""
     try:
         slides = list(outline.get("slides") or [])
         def is_special(item):
@@ -3502,34 +3531,44 @@ def _ppt_expand_missing_slides(outline, topic, requested, with_images, sanitizer
                             "story_role": item.get("story_role", ""), "story_beat": item.get("story_beat", ""),
                             "layout": item.get("layout", "")})
         added = []
-        for attempt in range(2):
+        # Small batches avoid truncating long JSON responses when a large deck is short.
+        # A single large completion request often gets truncated or loses slides during
+        # layout validation. Retry in smaller batches, then use safe editorial slides.
+        max_attempts = min(8, max(5, missing + 1))
+        for attempt in range(max_attempts):
             remaining = missing - len(added)
             if remaining <= 0:
                 break
+            emergency_editorial = attempt >= max(5, math.ceil(missing / 3) + 1)
+            batch_size = 1 if emergency_editorial else min(3, remaining)
+            available_models = PPT_AI_MODELS or [AI_MODEL_NAME]
+            model = available_models[attempt % len(available_models)]
             prompt = (
-                "Sen professional prezentatsiya muharririsan. Oldingi reja kerakli slaydlar soniga yetmadi. "
-                "Quyidagi taqdimotni aynan davom ettir: FAQAT yetishmayotgan yangi mazmunli slaydlarni yarat. "
+                ("Sen professional prezentatsiya muharririsan. FAQAT BITTA yangi, mazmunli editorial slayd yarat. "
+                 "layout='editorial', title aniq, text 70-100 so'z bo'lsin. Murakkab diagramma, jadval, chart yoki kollaj ishlatma. "
+                 "Mavjud slaydlarning sarlavhasi va mazmunini takrorlama.\n" if emergency_editorial else
+                 "Sen professional prezentatsiya muharririsan. Oldingi reja kerakli slaydlar soniga yetmadi. ")
+                + "Quyidagi taqdimotni aynan davom ettir: FAQAT yetishmayotgan yangi mazmunli slaydlarni yarat. "
                 "Mavjud slaydlarni takrorlama, sarlavhalarni qayta yozma, umumiy gap bilan son to'ldirma. "
                 "Har bir yangi slayd alohida yangi savol, sabab, mexanizm, dalil, taqqoslash, amaliy misol yoki yechimni ochsin. "
                 "Mantiqiy ketma-ketlik va kuchli storytelling saqlansin; har slaydning aniq xulosasi bo'lsin. "
                 "Mavzuga aloqasiz bezak, uydirma fakt, statistik raqam yoki manba qo'shma. "
                 "Raqamli dalil berilmagan bo'lsa, raqam to'qima; sifatli tahlil, jarayon yoki misol ishlat. "
                 "Slaydlar mazmunan to'liq, vizual jihatdan xilma-xil va professional bo'lsin. "
-                "Rasm yaratish prompti yozma; faqat kerak bo'lsa 2-4 inglizcha kalit so'zdan iborat photo_query ber. "
+                "photo_query faqat kerak bo'lsa 2-4 ta ANIQ INGLIZCHA kalit so'z bo'lsin. "
                 f"Til: mavzu tilida. Mavzu: {str(topic)[:500]}\n"
                 f"{build_story_guidance(topic, requested)}\n"
                 "Oldingi slaydlarning story_role va story_beat vazifalarini takrorlama; yangi mazmuniy yo'nalish tanla. "
-                f"Kerakli yangi kontent slaydlari soni: {remaining}. JSON slides massivida aynan {remaining} ta yangi slayd qaytar. "
+                f"Bu partiyada aynan {batch_size} ta yangi kontent slaydi qaytar. "
                 "Mavjud slaydlar mazmuni (takrorlamaslik uchun): "
                 + json.dumps(context, ensure_ascii=False)[:6500]
                 + '\nJSON format: {"slides":[{"layout":"text|image_text|text_image|cards|timeline|compare|chart|table|matrix|hub|funnel|bento|kpi|pyramid|venn|orbit|chain|iceberg|before_after|statement|editorial|waterfall|swimlane|network|quote","title":"aniq sarlavha","text":"mazmunli izoh","photo_query":"2-4 English keywords","story_role":"analysis","story_beat":"keyingi fikrga ko\'prik","notes":""}]}'
             )
             try:
-                model = PPT_AI_MODELS[min(attempt, len(PPT_AI_MODELS) - 1)]
                 raw = _json_loads_loose(_ai_generate_text_sync(
-                    prompt, 0.45, min(8500, 1800 + remaining * 650), True, [model]
+                    prompt, 0.35, min(5200, 1600 + batch_size * 1100), True, [model]
                 ))
-                expanded_outline = sanitizer(raw, topic, remaining, with_images)
+                expanded_outline = sanitizer(raw, topic, batch_size, with_images)
                 candidates = [
                     item for item in (expanded_outline.get("slides") or [])
                     if item.get("layout") not in ("executive", "agenda", "closing")
@@ -3540,23 +3579,41 @@ def _ppt_expand_missing_slides(outline, topic, requested, with_images, sanitizer
                     if key and key not in seen and len(added) < missing:
                         added.append(item)
                         seen.add(key)
+                        context.append({"title": item.get("title", ""),
+                                        "key_content": _ppt_clip(_ppt_slide_text(item), 260),
+                                        "story_role": item.get("story_role", ""),
+                                        "story_beat": item.get("story_beat", ""),
+                                        "layout": item.get("layout", "")})
             except Exception as exc:
-                logger.warning("Yetishmagan slaydlarni davom ettirish xatosi (%s): %s", model, exc)
+                logger.warning("Yetishmagan slaydlar partiyasi xatosi (%s, %s/%s): %s",
+                               model, attempt + 1, max_attempts, exc)
                 continue
         if added:
             closing_index = next((i for i, item in enumerate(slides) if item.get("layout") == "closing"), len(slides))
             slides[closing_index:closing_index] = added
             outline["slides"] = slides
         outline["_expanded"] = len(added)
-        if len(added) < missing:
-            logger.warning("Taqdimot: %s ta slayd yetishmadi, %s ta qo'shimcha slayd yaratildi", missing, len(added))
-        else:
-            logger.info("Taqdimot: yetishmagan %s ta slayd sifatli davom ettirildi", len(added))
+        final_content_count = sum(1 for item in (outline.get("slides") or [])
+                                  if item.get("layout") != "executive")
+        if final_content_count < int(requested):
+            logger.error("SLIDE_COUNT_GATE: so'ralgan=%s, tayyor=%s; qisqa deck yuborilmaydi",
+                         requested, final_content_count)
+            raise RuntimeError(f"Slaydlar soni yetarli emas: {final_content_count}/{requested}")
+        logger.info("SLIDE_COUNT_GATE passed: requested=%s actual=%s",
+                    requested, final_content_count)
         return outline
-    except Exception:
+    except Exception as exc:
         logger.exception("Yetishmagan slaydlarni to'ldirish jarayoni ishlamadi")
+        current_slides = outline.get("slides") or [] if isinstance(outline, dict) else []
+        current_count = sum(
+            1 for item in current_slides
+            if isinstance(item, dict) and item.get("layout") != "executive"
+        )
+        if current_count < int(requested):
+            raise RuntimeError(
+                f"Slaydlar soni yetarli emas: {current_count}/{requested}"
+            ) from exc
         return outline
-
 
 def _gemini_outline_sync(topic: str, n_slides: int, with_images: bool = True) -> dict:
     """Birinchi navbatda yengil model; zarur bo'lsa zaxira model/prompt. Imlo AI tekshiruvi ixtiyoriy."""
@@ -3569,7 +3626,22 @@ def _gemini_outline_sync(topic: str, n_slides: int, with_images: bool = True) ->
             try:
                 text = _ai_generate_text_sync(build(topic, n_slides, with_images), temp, mx, True, [model])
                 outline = _sanitize_outline(_json_loads_loose(text), topic, n_slides, with_images)
-                outline = _ppt_expand_missing_slides(outline, topic, n_slides, with_images, _sanitize_outline)
+                has_reference_slide = any(
+                    isinstance(item, dict) and item.get("layout") == "references"
+                    for item in (outline.get("slides") or [])
+                )
+                has_references = bool(outline.get("refs")) and not has_reference_slide
+                has_executive = any(
+                    isinstance(item, dict) and item.get("layout") == "executive"
+                    for item in (outline.get("slides") or [])
+                )
+                target_nonexecutive = content_slide_target(
+                    n_slides + 1, has_references=has_references, has_executive=has_executive
+                )
+                outline = _ppt_trim_outline_to_count(outline, target_nonexecutive)
+                outline = _ppt_expand_missing_slides(
+                    outline, topic, target_nonexecutive, with_images, _sanitize_outline
+                )
                 # Ikkinchi to'liq Gemini proofreading chaqiruvi odatda vaqtni oshiradi.
                 # Asosiy generator allaqachon imlo va grammatika talablariga ega; kerak bo'lsa env orqali yoqiladi.
                 if os.environ.get("PPT_AI_PROOFREAD", "").strip().lower() in ("1", "true", "yes"):
@@ -3757,30 +3829,27 @@ def _bg_make_sync(theme: dict, strength=None, used=None):
 
 
 def _ppt_make_backgrounds_sync(theme: dict, cover_query: str = "", cover_visual_kind: str | None = None):
-    """Taqdimot uchun ikkita fon: asosiy slaydlar va sarlavha slaydi."""
+    """Create slide backgrounds; all topic covers use retrieved photographic assets, never forced 2D art."""
+    used = set()
     if theme.get("file"):
         with open(PPT_BG_PATH, "rb") as f:
-            raw = f.read()
-        if cover_visual_kind == "cardiovascular_heart":
-            return raw, render_cardiovascular_visual("heart"), "Navyblue original cardiovascular educational illustration"
-        return raw, raw, ""
-    used = set()
-    main, credit = _bg_make_sync(theme, None, used)
-    title, _ = _bg_make_sync(theme, max(0.5, theme.get("wash", 0.8) - 0.18), used)
-    if cover_visual_kind == "hogwarts_castle":
-        title = render_fantasy_visual("hogwarts_castle")
-        credit = credit or "Navyblue original illustration: gothic wizarding castle"
-    elif cover_visual_kind == "cardiovascular_heart":
-        title = render_cardiovascular_visual("heart")
-        credit = credit or "Navyblue original cardiovascular educational illustration"
-    elif (PIXABAY_API_KEY) and (cover_query or "").strip():
+            main = raw = f.read()
+        title = raw
+        credit = ""
+    else:
+        main, credit = _bg_make_sync(theme, None, used)
+        title, _ = _bg_make_sync(theme, max(0.5, theme.get("wash", 0.8) - 0.18), used)
+
+    if (cover_query or "").strip():
         try:
-            got = _pixabay_photo_sync(cover_query, used, min_width=1920)
+            got = _ppt_find_photo_sync(cover_query, cover_query, used, historical=False)
             if got:
                 title = _bg_wash(got[0], theme, 0.62)
                 credit = credit or f"Muqova: {got[1] or got[2]} / {got[2]}"
+            else:
+                logger.info("Muqova uchun mos fotografiya topilmadi; mavzuga aloqasiz 2D tasvir qo'yilmadi: %r", cover_query)
         except Exception as exc:
-            logger.warning("Muqova rasmi olinmadi: %s", exc)
+            logger.warning("Muqova fotografiyasi olinmadi: %s", exc)
     return main, title, credit
 
 
@@ -3889,7 +3958,9 @@ def _slug_words(url: str) -> str:
 def _pixabay_photo_hits(q, kind="photo", page=1, per_page=20, orientation="all", min_width=0):
     hits = _pxb_search_sync(q, kind, orientation=orientation, min_width=min_width, page=page, per_page=per_page)
     return [{"id": "pb%s" % h.get("id"), "user": h.get("user") or "", "pageURL": h.get("pageURL") or "",
-             "tags": h.get("tags") or "", "img": h.get("largeImageURL") or h.get("webformatURL"), "provider": "Pixabay"}
+             "tags": h.get("tags") or "", "width": int(h.get("imageWidth") or 0),
+             "height": int(h.get("imageHeight") or 0),
+             "img": h.get("largeImageURL") or h.get("webformatURL"), "provider": "Pixabay"}
             for h in hits if h.get("largeImageURL") or h.get("webformatURL")]
 
 
@@ -4242,18 +4313,19 @@ def _ppt_historical_visual_query(outline: dict, sl: dict):
         return "Ottoman historical mosque architecture"
     if military:
         if re.search(r"janissar|yenicheri", slide):
-            return "Ottoman Janissary soldiers historical miniature"
+            return "photorealistic historical reenactment photograph Ottoman Janissary soldiers period accurate costumes"
         if re.search(r"akinci|akinji|g'azo|ghazi", slide):
-            return "Ottoman Akıncı cavalry historical miniature"
-        return "Ottoman army soldiers historical miniature"
+            return "photorealistic historical reenactment photograph Ottoman Akıncı cavalry horses period accurate equipment"
+        return "photorealistic historical reenactment photograph Ottoman army soldiers period accurate uniforms and equipment"
     if map_geo:
         return "Ottoman Empire 16th century historical map"
-    return "Ottoman Empire historical miniature 16th century"
+    return "photorealistic documentary photograph Ottoman historical artifacts museum collection 16th century"
 
 
 _PPT_BAD_TAGS = {
     "portrait", "face", "faces", "makeup", "beauty", "fashion", "model", "selfie", "costume", "mask", "halloween",
     "witch", "fantasy", "cosplay", "doll", "tattoo", "bikini", "lingerie", "cartoon", "painting", "drawing",
+    "vector", "anime", "manga", "comic", "comics", "flat", "sticker", "storybook", "2d", "sketch",
     "abstract", "wallpaper", "texture", "pattern", "background", "architecture", "historic", "historical",
     "facade", "brick", "bricks", "speicherstadt", "hamburg", "castle", "church", "monument", "statue", "vintage",
     "retro", "antique", "illustration", "clipart", "icon", "dragon", "goblin", "elf", "wizard", "magic",
@@ -4261,7 +4333,9 @@ _PPT_BAD_TAGS = {
 
 
 def _ppt_semantic_metadata_match(query: str, metadata: str, minimum: int = 2) -> bool:
-    """Require exact semantic tokens and reject known cross-domain stock-photo traps."""
+    """Require semantic relevance and reject cartoon/vector assets for photographic slots."""
+    if is_nonphotographic_metadata(metadata):
+        return False
     if contextually_irrelevant(query, metadata):
         return False
     return metadata_relevant(query, metadata, minimum=minimum)
@@ -4396,7 +4470,8 @@ def _ppt_find_photo_sync(query: str, anchor: str, used: set, historical: bool = 
     if not (query or anchor or "").strip():
         return None
     an = _kw_stems(anchor)
-    qtext = (anchor or "").lower()  # unrelated generated query terms must not whitelist bad stock-photo tags
+    # Query terms explicitly authorize relevant fantasy/scene tags; anchor alone was too restrictive.
+    qtext = (str(anchor or "") + " " + str(query or "")).lower()
     # Topic anchor always leads. A generated slide-level photo_query can be wrong
     # (e.g. a modern office for an Ottoman history slide), so never search it alone
     # when it has no meaningful overlap with the presentation topic.
@@ -4459,6 +4534,10 @@ def _ppt_find_photo_sync(query: str, anchor: str, used: set, historical: bool = 
                     continue
                 t = (h.get("tags") or "").lower().strip()
                 words = set(re.findall(r"[a-z]+", t))
+                # Pixabay image_type=photo is not sufficient by itself: reject
+                # illustration/cartoon-labelled assets for every subject family.
+                if is_nonphotographic_metadata(t):
+                    continue
                 if contextually_irrelevant(anchor or query, t):
                     continue
                 # Tarixiy tasvirlarda painting/illustration/castle/architecture kabi
@@ -4481,7 +4560,7 @@ def _ppt_find_photo_sync(query: str, anchor: str, used: set, historical: bool = 
                         # slaydning aniq qidiruv iborasidan kamida ikki mazmunli so'z mos bo'lsin.
                         if not t or (qs and qn_ < min(2, len(qs))):
                             continue
-                    elif not t or (an and an[0] not in words) or (qs and qn_ < min(2, len(qs))):
+                    elif not t or (qs and qn_ < min(2, len(qs))):
                         continue
                 else:                      # yumshoq: kamida bitta so'z mos kelsa yetadi
                     if t and (qs or an) and (qn_ + an_) == 0:
@@ -4489,9 +4568,23 @@ def _ppt_find_photo_sync(query: str, anchor: str, used: set, historical: bool = 
                 scored.append((qn_ * 2 + an_, h))
             if not scored:
                 continue
-            scored.sort(key=lambda x: -x[0])
+            # Compare the three strongest semantically relevant candidates instead
+            # of randomly selecting one: prefer richer photographic metadata and
+            # higher-resolution assets, while keeping subject relevance dominant.
+            def _candidate_quality(item):
+                score, hit = item
+                tags = (hit.get("tags") or "").casefold()
+                photo_signals = sum(term in tags for term in (
+                    "photograph", "photography", "documentary", "real", "realistic",
+                    "macro", "closeup", "close-up", "landscape", "architecture",
+                ))
+                width = int(hit.get("width") or 0)
+                height = int(hit.get("height") or 0)
+                return (score, photo_signals, min(width * height, 5000000))
+            scored.sort(key=_candidate_quality, reverse=True)
             top = [h for sc, h in scored if sc >= scored[0][0] - 1][:3]
-            got = _download(random.choice(top))
+            # Deterministic best-of-three selection makes QA reproducible.
+            got = _download(top[0])
             if got:
                 return got
     # Filtrsiz Pixabay fallback ataylab olib tashlandi: mavzuga aloqasiz rasm qo'yishdan ko'ra
@@ -4505,6 +4598,7 @@ def _ppt_find_photo_sync(query: str, anchor: str, used: set, historical: bool = 
                 got = find_commons_photo(
                     qy, used, _ppt_valid_image,
                     relevance=lambda metadata: metadata_relevant(qy, metadata, minimum=1)
+                    and not is_nonphotographic_metadata(metadata)
                     and not contextually_irrelevant(anchor or query, metadata),
                 )
             except Exception as exc:
@@ -4542,6 +4636,7 @@ def _ppt_find_photo_sync(query: str, anchor: str, used: set, historical: bool = 
                 got = find_commons_photo(
                     qy, used, _ppt_valid_image,
                     relevance=lambda metadata: metadata_relevant(qy, metadata, minimum=1)
+                    and not is_nonphotographic_metadata(metadata)
                     and not contextually_irrelevant(anchor or query, metadata),
                 )
             except Exception as exc:
@@ -4554,8 +4649,8 @@ def _ppt_find_photo_sync(query: str, anchor: str, used: set, historical: bool = 
 
 
 async def _ppt_attach_images(outline: dict, owner_ai: bool = False):
-    """Pixabay, Unsplash, Openverse va Wikimedia Commons'dan foto yoki xarita qidiradi.
-    Gemini image generation ishlatilmaydi; topilmasa mahalliy vektor vizual qo'llanadi."""
+    """Search photographic assets from Pixabay, Unsplash, Openverse and Wikimedia Commons.
+    No hand-drawn, vector or cartoon fallback is permitted for photo slots."""
     used, credits = set(), []
     lupin_subject = " ".join(str(outline.get(k) or "") for k in ("_source_topic", "title", "topic_en"))
     lupin_topic = remus_lupin_topic(lupin_subject)
@@ -4567,16 +4662,33 @@ async def _ppt_attach_images(outline: dict, owner_ai: bool = False):
     anchor = "heart cardiovascular system" if cardio_topic else " ".join(re.findall(r"[A-Za-z]+", str(outline.get("topic_en") or ""))[:4])
     if not anchor and not cardio_topic:
         try:
-            tr, ok = await _pxb_to_english(outline.get("title") or "", "photo")
+            tr, ok = await _pxb_to_english(outline.get("_source_topic") or outline.get("title") or "", "photo")
             anchor = " ".join(re.findall(r"[A-Za-z]+", tr if ok else "")[:4])
         except Exception:
             anchor = ""
+    elif anchor and needs_english_stock_translation(anchor):
+        try:
+            tr, ok = await _pxb_to_english(anchor, "photo")
+            if ok and tr:
+                anchor = " ".join(re.findall(r"[A-Za-z]+", tr)[:4])
+        except Exception:
+            pass
     outline["topic_en"] = anchor
+
+    translated_queries = {}
 
     async def stock(q, historical=False):
         search_query = (q or outline.get("title") or "").strip()
         if not search_query:
             return None
+        # Stock APIs perform much better with English keywords. Translate Uzbek/Russian
+        # slide queries individually; cache identical queries to avoid duplicate AI calls.
+        if needs_english_stock_translation(search_query):
+            cache_key = search_query.casefold()
+            if cache_key not in translated_queries:
+                translated, ok = await _pxb_to_english(search_query, "photo")
+                translated_queries[cache_key] = translated if ok and translated else search_query
+            search_query = translated_queries[cache_key]
         try:
             return await asyncio.to_thread(_ppt_find_photo_sync, search_query, anchor, used, historical)
         except Exception as exc:
@@ -4584,73 +4696,98 @@ async def _ppt_attach_images(outline: dict, owner_ai: bool = False):
             return None
 
     async def one(sl):
-        if lupin_topic:
-            lupin_kind = remus_lupin_visual_kind(lupin_subject, sl.get("title") or "", _ppt_slide_text(sl))
-            sl["_img"] = await asyncio.to_thread(render_remus_lupin_visual, lupin_kind)
-            sl["_visual_kind"] = "remus_lupin_" + lupin_kind
-            sl["_asset"] = {"source_type": "original", "provider": "Navyblue",
-                            "license_status": "original_project_art", "visual_kind": sl["_visual_kind"]}
-            credits.append(f"Original Remus Lupin illustratsiyasi: {lupin_kind} / Navyblue")
-            logger.info("Remus Lupin uchun maxsus vizual: title=%r kind=%s", sl.get("title"), lupin_kind)
-            return
         clone_subject = " ".join(str(outline.get(k) or "") for k in ("_source_topic", "title", "topic_en"))
         if cloning_topic(clone_subject):
+            # Cloning needs a labelled explanatory schematic; it is not a decorative photo.
             clone_kind = cloning_visual_kind(clone_subject, sl.get("title") or "", _ppt_slide_text(sl))
             sl["_img"] = await asyncio.to_thread(render_cloning_visual, clone_kind)
             sl["_visual_kind"] = "cloning_" + clone_kind
             sl["_asset"] = {"source_type": "original", "provider": "Navyblue",
                             "license_status": "original_project_art", "visual_kind": sl["_visual_kind"]}
             credits.append(f"Original biologik klonlash sxemasi: {clone_kind} / Navyblue")
-            logger.info("Klonlash uchun aniq o'quv vizuali ishlatildi: title=%r kind=%s", sl.get("title"), clone_kind)
+            logger.info("Klonlash uchun maxsus o'quv sxemasi ishlatildi: title=%r kind=%s", sl.get("title"), clone_kind)
             return
-        kind = fantasy_visual_kind(outline.get("title") or outline.get("topic_en") or "",
-                                   sl.get("title") or "", _ppt_slide_text(sl))
-        if kind:
-            sl["_img"] = await asyncio.to_thread(render_fantasy_visual, kind)
-            sl["_visual_kind"] = kind
-            sl["_asset"] = {"source_type": "original", "provider": "Navyblue",
-                            "license_status": "original_project_art", "visual_kind": kind}
-            credits.append(f"Original vizual: {kind.replace('_', ' ')} / Navyblue")
-            logger.info("Aniq fantasy vizual ishlatildi: title=%r kind=%s", sl.get("title"), kind)
-            return
-        if cardio_topic:
-            medical_kind = cardiovascular_visual_kind(outline.get("_source_topic") or outline.get("title") or outline.get("topic_en") or "",
-                                                       sl.get("title") or "", _ppt_slide_text(sl)) or "heart"
-            sl["_img"] = await asyncio.to_thread(render_cardiovascular_visual, medical_kind)
-            sl["_visual_kind"] = "cardiovascular_" + medical_kind
-            sl["_asset"] = {"source_type": "original", "provider": "Navyblue",
-                            "license_status": "original_project_art", "visual_kind": sl["_visual_kind"]}
-            credits.append(f"Original tibbiy sxema: {medical_kind} / Navyblue")
-            logger.info("Yurak-qon tomir vizuali yaratildi: title=%r kind=%s", sl.get("title"), medical_kind)
-            return
-        historical_query = _ppt_historical_visual_query(outline, sl)
-        if historical_query:
-            got = await stock(historical_query, historical=True)
+
+        title = str(sl.get("title") or "")
+        body = _ppt_slide_text(sl)
+        plan = sl.get("_visual_plan") if isinstance(sl.get("_visual_plan"), dict) else {}
+        visual_domain = ("fiction" if lupin_topic else
+                         "medical" if cardio_topic else
+                         classify_visual_domain(" ".join(str(outline.get(k) or "") for k in ("_source_topic", "title", "topic_en"))))
+
+        if lupin_topic:
+            query = build_photorealistic_query("fiction", lupin_subject, title, body)
+        elif cardio_topic:
+            query = build_photorealistic_query("medical", outline.get("_source_topic") or outline.get("title") or "", title, body)
         else:
-            plan = sl.get("_visual_plan") if isinstance(sl.get("_visual_plan"), dict) else {}
-            query = (sl.get("map_query") if sl.get("layout") == "map" or plan.get("visual_type") == "map"
-                     else (sl.get("photo_query") or plan.get("asset_query") or sl.get("title")))
-            got = await stock(query)
+            fantasy_kind = fantasy_visual_kind(outline.get("title") or outline.get("topic_en") or "",
+                                               title, body)
+            if fantasy_kind:
+                query = build_photorealistic_query("fiction", outline.get("title") or "", title, body)
+                visual_domain = "fiction"
+            else:
+                historical_query = _ppt_historical_visual_query(outline, sl)
+                is_map_visual = sl.get("layout") == "map" or plan.get("visual_type") == "map"
+                if is_map_visual:
+                    query = sl.get("map_query") or plan.get("asset_query") or title
+                elif historical_query:
+                    # Keep the curated historical subject, but explicitly request a real photograph.
+                    query = historical_query + " photorealistic documentary photograph"
+                else:
+                    # One shared photo-first policy for every non-special topic.
+                    query = build_photorealistic_query(
+                        visual_domain,
+                        outline.get("_source_topic") or outline.get("title") or "",
+                        title,
+                        body,
+                    )
+                got = await stock(query, historical=bool(historical_query))
+                if got:
+                    sl["_img"] = got[0]
+                    credit, provider = str(got[1] or ""), str(got[2] or "unknown")
+                    license_status = ("license_and_source_in_credit" if any(
+                        marker in credit.casefold() for marker in ("cc by", "cc0", "public domain", "pdm")
+                    ) else "provider_license_not_individually_recorded")
+                    sl["_asset"] = {"source_type": "retrieved", "provider": provider, "credit": credit,
+                                    "license_status": license_status, "query": query,
+                                    "visual_kind": plan.get("visual_type", "photo")}
+                    sl["_visual_kind"] = "photographic_" + str(plan.get("visual_type", "photo"))
+                    credits.append(f"Rasm: {credit or provider} / {provider}")
+                    logger.info("Slayd rasmi topildi: title=%r provider=%s", title, provider)
+                else:
+                    logger.info("Mavzuga mos foto topilmadi; slayd fotosiz editorial ko'rinishga o'tkaziladi: title=%r", title)
+                return
+
+        # Lupin, fantasy and cardiovascular topics now use the same photo-first providers.
+        got = await stock(query)
         if got:
             sl["_img"] = got[0]
-            credit = str(got[1] or "")
-            provider = str(got[2] or "unknown")
+            credit, provider = str(got[1] or ""), str(got[2] or "unknown")
             license_status = ("license_and_source_in_credit" if any(
                 marker in credit.casefold() for marker in ("cc by", "cc0", "public domain", "pdm")
             ) else "provider_license_not_individually_recorded")
             sl["_asset"] = {"source_type": "retrieved", "provider": provider, "credit": credit,
                             "license_status": license_status, "query": query,
-                            "visual_kind": (sl.get("_visual_plan") or {}).get("visual_type", "photo")}
-            credits.append(f"Rasm: {got[1] or got[2]} / {got[2]}")
-            logger.info("Slayd rasmi topildi: title=%r provider=%s", sl.get("title"), got[2])
+                            "visual_kind": "photographic_" + visual_domain}
+            sl["_visual_kind"] = "photographic_" + visual_domain
+            credits.append(f"Rasm: {credit or provider} / {provider}")
+            logger.info("Fotorealistik vizual topildi: title=%r provider=%s query=%r", title, provider, query)
         else:
-            logger.info("Slayd rasmi topilmadi; mahalliy vizual ishlatiladi: title=%r", sl.get("title"))
+            logger.info("Fotorealistik vizual topilmadi; 2D fallback qo'yilmaydi: title=%r", title)
 
     async def many(sl):
         imgs, assets = [], []
         for qy in sl.get("collage_queries") or []:
             historical_query = _ppt_historical_visual_query(outline, sl)
-            query = historical_query or qy
+            if historical_query:
+                query = historical_query + " photorealistic documentary photograph"
+            else:
+                query = build_photorealistic_query(
+                    classify_visual_domain(" ".join(str(outline.get(k) or "") for k in ("_source_topic", "title", "topic_en"))),
+                    outline.get("_source_topic") or outline.get("title") or "",
+                    str(qy or ""),
+                    _ppt_slide_text(sl),
+                )
             got = await stock(query, historical=bool(historical_query))
             if got:
                 imgs.append(got[0])
@@ -4667,7 +4804,7 @@ async def _ppt_attach_images(outline: dict, owner_ai: bool = False):
         sl["_imgs"] = imgs
         sl["_assets"] = assets
 
-    await asyncio.gather(
+    tasks = [
         *(one(sl) for sl in outline.get("slides", [])
           if sl.get("photo_query") or sl.get("map_query") or sl.get("layout") in ("hero", "image_text", "text_image", "banner_cards", "split", "image_story", "map")
           or fantasy_visual_kind(outline.get("title") or outline.get("topic_en") or "", sl.get("title") or "", _ppt_slide_text(sl))
@@ -4676,7 +4813,14 @@ async def _ppt_attach_images(outline: dict, owner_ai: bool = False):
           or lupin_topic
           or (isinstance(sl.get("_visual_plan"), dict) and sl["_visual_plan"].get("requires_external_asset"))),
         *(many(sl) for sl in outline.get("slides", []) if sl.get("collage_queries"))
-    )
+    ]
+    # One malformed collage or failed provider must not cancel every other slide's
+    # successful image lookup. Keep valid assets and report failures per slide.
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    for result in results:
+        if isinstance(result, BaseException):
+            logger.exception("Bitta slayd rasmi qidiruvida xato; qolgan rasmlar saqlanadi",
+                             exc_info=(type(result), result, result.__traceback__))
     outline["_credits"] = credits
     outline["_img_generation_disabled"] = True
 
@@ -4849,39 +4993,86 @@ def _ppt_valid_image(raw) -> bool:
         return False
 
 
+def _ppt_demote_missing_visual(sl: dict) -> None:
+    """Remove an unavailable photo slot instead of filling it with unrelated flat clip-art."""
+    old_layout = str(sl.get("layout") or "")
+    if old_layout == "collage":
+        captions = sl.get("captions") if isinstance(sl.get("captions"), list) else []
+        cards = []
+        for caption in captions[:3]:
+            if isinstance(caption, str) and caption.strip():
+                cards.append({"head": caption.strip()[:48], "text": ""})
+        if cards:
+            sl["cards"] = cards
+            sl["layout"] = "cards"
+        else:
+            sl["layout"] = "editorial"
+    elif old_layout == "banner_cards":
+        sl["layout"] = "cards"
+    elif old_layout == "hero":
+        sl["layout"] = "statement"
+    else:
+        sl["layout"] = "editorial"
+    if not str(sl.get("text") or "").strip():
+        detail = sl.get("notes") or sl.get("subtitle") or sl.get("final") or ""
+        if detail:
+            sl["text"] = str(detail)[:1200]
+    design = dict(sl.get("design") or {})
+    design["visual_type"] = "typography"
+    design["visual_focus"] = str(sl.get("title") or "Asosiy fikr")[:100]
+    design["composition"] = "editorial_split"
+    sl["design"] = design
+    for key in ("_img", "_imgs", "_assets", "collage_queries"):
+        sl.pop(key, None)
+
+
 def _ppt_fix_missing_images(outline: dict) -> int:
-    """Yo'q yoki buzilgan rasmlarni tekshiradi va mahalliy vizual bilan to'ldiradi; bo'sh rasm bloklari qolmaydi."""
-    fixed = 0
+    """Demote missing photo layouts to clean editorial layouts; never synthesize cartoon fallback art."""
+    demoted = 0
     for sl in outline.get("slides", []):
+        if not isinstance(sl, dict):
+            continue
         lay = sl.get("layout")
         if lay not in _PPT_IMG_LAYOUTS:
             continue
         if lay == "collage":
-            raw_imgs = sl.get("_imgs") or []
-            raw_meta = sl.get("_assets") or []
-            imgs, assets = [], []
-            for i, image in enumerate(raw_imgs):
-                if _ppt_valid_image(image):
-                    imgs.append(image)
-                    assets.append(raw_meta[i] if i < len(raw_meta) and isinstance(raw_meta[i], dict) else {})
-            while len(imgs) < 3:
-                fallback = _ppt_fallback_visual(sl, outline, len(imgs))
-                imgs.append(fallback)
-                assets.append({"source_type": "original_fallback", "provider": "Navyblue",
-                               "license_status": "original_project_art", "visual_kind": "fallback"})
-                fixed += 1
-            sl["_imgs"] = imgs[:3]
-            sl["_assets"] = assets[:3]
+            raw_images = list(sl.get("_imgs") or [])
+            raw_assets = list(sl.get("_assets") or [])
+            valid_pairs = [
+                (image, raw_assets[index] if index < len(raw_assets) else {})
+                for index, image in enumerate(raw_images) if _ppt_valid_image(image)
+            ]
+            if len(valid_pairs) >= 3:
+                sl["_imgs"] = [pair[0] for pair in valid_pairs[:3]]
+                sl["_assets"] = [pair[1] for pair in valid_pairs[:3]]
+                continue
+            if valid_pairs:
+                # A partial collage must not discard photos that were successfully found.
+                # Fall back to a single-photo editorial layout instead of dropping all assets.
+                sl["_img"], sl["_asset"] = valid_pairs[0]
+                sl["layout"] = "image_text"
+                captions = [str(x).strip() for x in (sl.get("captions") or []) if str(x).strip()]
+                if not str(sl.get("text") or "").strip() and captions:
+                    sl["text"] = " · ".join(captions)
+                design = dict(sl.get("design") or {})
+                design["visual_type"] = "photo"
+                design["visual_focus"] = design.get("visual_focus") or str(sl.get("title") or "")
+                sl["design"] = design
+                for key in ("_imgs", "_assets", "collage_queries"):
+                    sl.pop(key, None)
+                demoted += 1
+                continue
+            _ppt_demote_missing_visual(sl)
+            demoted += 1
             continue
         if _ppt_valid_image(sl.get("_img")):
             continue
-        sl["_img"] = _ppt_fallback_visual(sl, outline, fixed)
-        sl["_asset"] = {"source_type": "original_fallback", "provider": "Navyblue",
-                        "license_status": "original_project_art", "visual_kind": "fallback"}
-        fixed += 1
-    if fixed:
-        outline["_img_fallback_count"] = fixed
-    return fixed
+        _ppt_demote_missing_visual(sl)
+        demoted += 1
+    if demoted:
+        outline["_missing_photo_layouts_demoted"] = demoted
+        logger.info("Rasm topilmagan %s ta slayd editorial/card layoutga o'tkazildi; multfilm fallback ishlatilmadi", demoted)
+    return demoted
 
 
 def _ppt_order_images(outline: dict):
@@ -4948,64 +5139,15 @@ def _ppt_visual_body(sl):
 
 
 def _ppt_apply_cardiovascular_visuals(outline: dict) -> int:
-    """Heart-topic deck: replace generic stock with custom medical scenes and require visible art."""
+    """Report actual medical photos; never manufacture a repeated flat illustration to hit a quota."""
     topic = str(outline.get("_source_topic") or outline.get("title") or outline.get("topic_en") or "")
     if not cardiovascular_topic(topic):
         return 0
     slides = [s for s in outline.get("slides", []) if isinstance(s, dict)]
-    if not slides:
-        return 0
-    # Every content slide gets a scene-specific original illustration; no skull/portrait stock fallback.
-    for index, sl in enumerate(slides):
-        kind = cardiovascular_visual_kind(topic, sl.get("title") or "", _ppt_slide_text(sl)) or "heart"
-        if not (_ppt_valid_image(sl.get("_img")) and str(sl.get("_visual_kind") or "").startswith("cardiovascular_")):
-            sl["_img"] = render_cardiovascular_visual(kind, index)
-        sl["_visual_kind"] = "cardiovascular_" + kind
-    target = max(1, int(math.ceil(len(slides) * 0.65)))
-    current = sum(1 for sl in slides if sl.get("layout") in _PPT_IMG_LAYOUTS)
-    # Card/stat blocks become a photo-led banner while retaining their structured information.
-    for sl in slides:
-        if current >= target:
-            break
-        lay = sl.get("layout")
-        if lay == "cards":
-            sl["layout"] = "banner_cards"
-            current += 1
-        elif lay in ("stats", "kpi") and isinstance(sl.get("stats") or sl.get("kpis"), list):
-            items = sl.get("stats") or sl.get("kpis") or []
-            sl["cards"] = [{"head": str(x.get("label") or x.get("name") or "Ko'rsatkich"),
-                            "text": str(x.get("value") or x.get("text") or "")}
-                           for x in items if isinstance(x, dict)]
-            if sl["cards"]:
-                sl["layout"] = "banner_cards"
-                current += 1
-    # Then convert text-only/editorial layouts. Structural charts remain intact unless needed.
-    convertible = ("editorial", "statement", "section", "agenda", "plain_text", "text",
-                   "bignumber", "stats", "kpi", "bento", "executive", "compare",
-                   "timeline", "matrix", "funnel", "hub", "chain", "isometric",
-                   "venn", "pyramid", "orbit", "before_after", "table", "chart")
-    for index, sl in enumerate(slides):
-        if current >= target:
-            break
-        if sl.get("layout") in _PPT_IMG_LAYOUTS or sl.get("layout") in ("closing", "references"):
-            continue
-        if sl.get("layout") not in convertible:
-            continue
-        body = _ppt_visual_body(sl) or str(sl.get("text") or "").strip()
-        if not body:
-            continue
-        sl["text"] = body
-        sl["layout"] = "image_text" if index % 2 == 0 else "text_image"
-        design = sl.get("design") if isinstance(sl.get("design"), dict) else {}
-        design = dict(design)
-        design["visual_type"] = "photo"
-        design["visual_focus"] = sl.get("_visual_kind", "yurak anatomiyasi").replace("cardiovascular_", "").replace("_", " ")
-        design["composition"] = ("asym_grid", "editorial_split", "full_bleed")[index % 3]
-        sl["design"] = design
-        current += 1
-    logger.info("Cardiovascular visual QA: %s/%s kontent slaydida ko'rinadigan rasm; maqsad=%s",
-                current, len(slides), target)
-    return sum(1 for sl in slides if sl.get("layout") in _PPT_IMG_LAYOUTS and _ppt_valid_image(sl.get("_img")))
+    actual = sum(1 for sl in slides if _ppt_valid_image(sl.get("_img"))
+                 and str((sl.get("_asset") or {}).get("source_type") or "") == "retrieved")
+    logger.info("Cardiovascular photo coverage: %s/%s; no synthetic 2D image quota applied", actual, len(slides))
+    return actual
 
 
 def _ppt_apply_general_visual_coverage(outline: dict, target_ratio: float = 0.55) -> int:
@@ -5078,6 +5220,14 @@ def _ppt_finalize_images(outline: dict):
     outline["_asset_manifest"] = asset_report
     if asset_report.get("issues"):
         logger.warning("Asset provenance critic: %s", json.dumps(asset_report.get("issues"), ensure_ascii=False))
+    duplicate_assets = [
+        issue for issue in (asset_report.get("issues") or [])
+        if isinstance(issue, dict) and issue.get("code") == "duplicate_asset"
+    ]
+    if duplicate_assets:
+        raise VisualIntegrityError(
+            "ASSET_DUPLICATE_GATE: " + json.dumps(duplicate_assets, ensure_ascii=False)
+        )
     logger.info("Asset manifest: assets=%s slides=%s sources=%s",
                 asset_report.get("asset_count"), asset_report.get("slide_count_with_assets"),
                 asset_report.get("source_counts"))
@@ -5103,9 +5253,15 @@ def _ppt_stepper_labels(data):
 
 
 def _ppt_with_executive(slides, data, title, topic):
-    """1 sahifalik Executive Summary slaydini tuzadi (3 ko'rsatkich, muammo, yechim, maqsad) va boshiga qo'yadi.
-    Raqamlar faqat AI bergan yoki slaydlarda bor bo'lsa ishlatiladi; bo'lmasa — asosiy yo'nalishlar kartochkalari."""
+    """Add a separate executive-summary slide only when the user explicitly requests one."""
     try:
+        request_text = (str(title or "") + " " + str(topic or "")).casefold()
+        explicit_request = any(term in request_text for term in (
+            "executive summary", "management summary",
+            "rahbarlar uchun xulosa", "boshqaruv xulosasi", "ijro xulosasi",
+        ))
+        if not explicit_request:
+            return slides
         raw = data.get("executive") if isinstance(data.get("executive"), dict) else {}
         if raw.get("enabled") is not True:
             return slides
@@ -5658,20 +5814,17 @@ class _PptBuilder:
 
     def image_or_placeholder(self, slide, sl, x, y, w, h):
         raw = sl.get("_img")
-        if not _ppt_valid_image(raw):
-            raw = _ppt_fallback_visual(sl, {"art_direction": {"palette": self.pal}})
-        try:
-            return self.picture_cover(slide, raw, x, y, w, h)
-        except Exception:
-            logger.exception("Asosiy rasm joylanmadi; zaxira vizual ishlatiladi")
+        if _ppt_valid_image(raw):
             try:
-                fallback = _ppt_fallback_visual(sl, {"art_direction": {"palette": self.pal}}, 1)
-                return self.picture_cover(slide, fallback, x, y, w, h)
+                return self.picture_cover(slide, raw, x, y, w, h)
             except Exception:
-                logger.exception("Zaxira vizual ham joylanmadi")
-                self.box(slide, x, y, w, h, fill="card", line="line", rounded=False)
-                self.text(slide, x + 0.2, y + h * 0.42, w - 0.4, 0.5,
-                          str(sl.get("title") or "Vizual"), 16, "dark", True, "c", "m")
+                logger.exception("Tasdiqlangan rasmni joylashda xato")
+        # No synthetic vector/cartoon fallback: the surrounding slide remains clean and readable.
+        self.box(slide, x, y, w, h, fill="card", line="line", rounded=False)
+        focus = str((sl.get("design") or {}).get("visual_focus") or sl.get("title") or "").strip()
+        if focus:
+            self.text(slide, x + 0.25, y + h * 0.40, w - 0.5, 0.55,
+                      focus[:70], 15, "dark", True, "c", "m")
 
     def icon(self, slide, name, x, y, d, color="white"):
         I = self.Inches
@@ -6331,7 +6484,7 @@ class _PptBuilder:
                 l, t, w, h = shp.left, shp.top, shp.width, shp.height
             except Exception:
                 continue
-            if str(getattr(shp, "name", "")).startswith("deco"):
+            if is_decorative_shape_name(getattr(shp, "name", "")):
                 continue
             is_pic = shp.shape_type == 13
             if is_pic:
@@ -6361,7 +6514,7 @@ class _PptBuilder:
             ((getattr(shp, "shape_type", None) == 13) and
              not (shp.width >= W * 0.96 and shp.height >= H * 0.96)) or
             getattr(shp, "has_chart", False) or getattr(shp, "has_table", False)
-            for shp in slide.shapes if not str(getattr(shp, "name", "")).startswith("deco")
+            for shp in slide.shapes if not is_decorative_shape_name(getattr(shp, "name", ""))
         )
         if not texts and not has_nontext_content:
             issues.append("mazmun bo'sh")
@@ -6370,7 +6523,7 @@ class _PptBuilder:
             visible_chars = sum(len(str(getattr(shp, "text", "")).strip()) for shp in slide.shapes
                                 if getattr(shp, "has_text_frame", False))
             meaningful_visuals = sum(1 for shp in slide.shapes
-                                     if not str(getattr(shp, "name", "")).startswith("deco")
+                                     if not is_decorative_shape_name(getattr(shp, "name", ""))
                                      and not (getattr(shp, "shape_type", None) == 13
                                               and shp.width >= W * 0.96 and shp.height >= H * 0.96)
                                      and (getattr(shp, "shape_type", None) == 13
@@ -6515,7 +6668,7 @@ class _PptBuilder:
                 self.qa_slide_issues.append({"title": sl.get("title", "")[:80], "issues": unique_issues})
                 # Geometrik xato va sig'magan matn — jiddiy; ataylab qatlamlangan dizayndagi
                 # kesishish esa yumshoq ogohlantirish bo'lib, butun slaydni buzib yubormaydi.
-                hard = [x for x in unique_issues if x in ("xato", "chegaradan chiqdi", "matn sig'madi", "mazmun bo'sh", "mazmun kam")]
+                hard = hard_slide_issues(unique_issues)
                 if hard:
                     logger.warning("Avto-tekshiruv: %s slaydi qayta tiklanadi: %s", sl.get("layout"), hard)
                     try:
@@ -6532,7 +6685,12 @@ class _PptBuilder:
                     rebuilt_slide._jarvis_visual_type = rebuilt_design.get("visual_type", "typography")
                     self._apply_blueprint_accessibility(rebuilt_slide, fallback)
                     remaining = self._qa_slide(rebuilt_slide)
+                    remaining_hard = hard_slide_issues(remaining)
                     self.qa_slide_issues.append({"title": sl.get("title", "")[:80], "repair_issues": sorted(set(remaining))})
+                    if remaining_hard:
+                        raise VisualIntegrityError(
+                            "SLIDE_REPAIR_FAILED: " + sl.get("title", "")[:80] + " — " + ", ".join(remaining_hard)
+                        )
                     self.repaired += 1
                     self.qa_hard_repairs += 1
                 else:
@@ -6566,11 +6724,13 @@ class _PptBuilder:
             qa_warnings.append(f"vizual fokus takrorlangan: {repeated_focus}")
         if len(set(compositions)) < min(4, max(1, len(compositions) // 4)):
             qa_warnings.append("kompozitsiya xilma-xilligi yetarli emas")
-        if layouts and layouts[-1] != "closing":
-            qa_warnings.append("yakuniy slayd closing maketida emas")
         _core_layouts = [x for x in layouts if x != "executive"]
-        if _core_layouts and _core_layouts[0] != "agenda":
-            qa_warnings.append("birinchi mazmuniy slayd agenda maketida emas")
+        has_agenda = "agenda" in _core_layouts
+        has_closing = "closing" in _core_layouts
+        if has_agenda and _core_layouts[0] != "agenda":
+            qa_warnings.append("agenda slaydi birinchi mazmuniy slaydda emas")
+        if has_closing and _core_layouts[-1] != "closing":
+            qa_warnings.append("closing slaydi oxirgi mazmuniy slaydda emas")
         if len(self.prs.slides) != len(slide_specs) + 1:
             qa_warnings.append("slaydlar soni reja bilan mos kelmadi")
         soft_issue_count = sum(1 for item in self.qa_slide_issues for issue in item.get("issues", [])
@@ -6601,7 +6761,7 @@ class _PptBuilder:
                           "empty_slides": empty_slide_count, "sparse_slides": sparse_slide_count,
                           "soft_issue_count": soft_issue_count,
                           "warnings": qa_warnings,
-                          "story_order_ok": bool(layouts and layouts[0] == "agenda" and layouts[-1] == "closing"),
+                          "story_order_ok": bool(_core_layouts) and (not has_agenda or _core_layouts[0] == "agenda") and (not has_closing or _core_layouts[-1] == "closing"),
                           "slide_count_ok": len(self.prs.slides) == len(slide_specs) + 1}
         try:
             self._v8_post(outline)
@@ -7777,9 +7937,7 @@ _install_ppt_visual_engine(_PptBuilder, PPT_LAYOUTS, PPT_COMPOSITIONS)
 # ============================================================
 def _ppt_outline_prompt_classic(topic: str, n: int, with_images: bool) -> str:
     img_rule = (
-        f"- Rasmli slaydlar (image_text, text_image, banner_cards) uchun ikkita maydon yoz: "
-        f"'photo_query' (INGLIZ tilida 2-4 ta kalit so'z, stok foto qidiruvi uchun, masalan \"warehouse workers forklift\") va "
-        f"'photo_query' (INGLIZ tilida 1 gaplik sahna tavsifi, matnsiz, logotipsiz). Jami {_ppt_img_budget(n)} tadan oshmasin. MUHIM: 'photo_query' ning BIRINCHI so'zi taqdimotning asosiy obyekti yoki joyi bo'lsin (masalan ombor avtomatlashtirish haqida bo'lsa 'warehouse robot conveyor', 'warehouse shelves scanner'); 'automation', 'process', 'system', 'machine' kabi ko'p ma'noli so'zni yolg'iz yozma. Rasm slayd mazmunini AYNAN ko'rsatsin.\n"
+        f"- Rasmli slaydlar uchun faqat bitta 'photo_query' maydoni yoz: INGLIZ tilida 2-4 ta aniq kalit so'z, stok foto qidiruvi uchun (masalan \"warehouse workers forklift\"). Jami {_ppt_img_budget(n)} ta rasm so'rovidan oshmasin. MUHIM: birinchi so'z asosiy obyekt yoki joy bo'lsin; umumiy 'automation/process/system' so'zlarini yolg'iz yozma. Rasm slayd mazmunini aynan ko'rsatsin.\n"
         if with_images else
         "- 'photo_query' maydonini yozma; rasmli maketlardan (image_text, text_image, banner_cards) foydalanma.\n"
     )
@@ -7860,7 +8018,6 @@ def _sanitize_outline_classic(data, topic: str, n: int, with_images: bool) -> di
             motion = "auto"
         out = {"layout": lay, "title": title, "notes": _ppt_s(s.get("notes"), 600),
                "motion": motion}
-        prompt = _ppt_s(s.get("photo_query"), 400)
         pquery = _ppt_s(s.get("photo_query"), 80)
         if lay == "collage":
             qs = [_ppt_s(x, 80) for x in (s.get("collage_queries") or []) if _ppt_s(x, 80)][:3]
@@ -7872,9 +8029,8 @@ def _sanitize_outline_classic(data, topic: str, n: int, with_images: bool) -> di
                 if lay == "text":
                     out["text"] = _ppt_s(" ".join(_ppt_s(c, 60) for c in (s.get("captions") or [])), 400) or title
         if lay in ("image_text", "text_image", "banner_cards", "hero", "split", "image_story"):
-            if with_images and (prompt or pquery) and img_count < img_cap:
-                out["photo_query"] = prompt or pquery
-                out["photo_query"] = pquery or prompt[:80]
+            if with_images and pquery and img_count < img_cap:
+                out["photo_query"] = pquery
                 img_count += 1
         if lay == "agenda":
             items = [_ppt_s(x, 90) for x in (s.get("items") or []) if _ppt_s(x, 90)][:4]
@@ -8015,7 +8171,7 @@ def _sanitize_outline_classic(data, topic: str, n: int, with_images: bool) -> di
             "art_direction": {"mood": _ppt_s(ad.get("mood"), 100), "palette": palette,
                               "motif": motif if motif in ("none", "circles", "arcs", "grid", "editorial", "organic", "geometric") else "none",
                               "transition": transition if transition in ("fade", "wipe", "push") else "fade"},
-            "slides": slides[:n + 2]}
+            "slides": slides[:n]}
 
 
 def _ppt_outline_prompt_compact_classic(topic: str, n: int, with_images: bool) -> str:
@@ -8048,7 +8204,22 @@ def _gemini_outline_sync_classic(topic: str, n_slides: int, with_images: bool = 
             try:
                 text = _ai_generate_text_sync(build(topic, n_slides, with_images), temp, mx, True, [model])
                 outline = _sanitize_outline_classic(_json_loads_loose(text), topic, n_slides, with_images)
-                return _ppt_expand_missing_slides(outline, topic, n_slides, with_images, _sanitize_outline_classic)
+                has_reference_slide = any(
+                    isinstance(item, dict) and item.get("layout") == "references"
+                    for item in (outline.get("slides") or [])
+                )
+                has_references = bool(outline.get("refs")) and not has_reference_slide
+                has_executive = any(
+                    isinstance(item, dict) and item.get("layout") == "executive"
+                    for item in (outline.get("slides") or [])
+                )
+                target_nonexecutive = content_slide_target(
+                    n_slides + 1, has_references=has_references, has_executive=has_executive
+                )
+                outline = _ppt_trim_outline_to_count(outline, target_nonexecutive)
+                return _ppt_expand_missing_slides(
+                    outline, topic, target_nonexecutive, with_images, _sanitize_outline_classic
+                )
             except Exception as exc:
                 last_exc = exc
                 logger.warning("Taqdimot rejasi xatosi (%s, %s): %s", build.__name__, model, exc)
@@ -8197,14 +8368,18 @@ class _PptBuilderClassic:
         return pic
 
     def image_or_placeholder(self, slide, sl, x, y, w, h):
-        if sl.get("_img"):
+        raw = sl.get("_img")
+        if _ppt_valid_image(raw):
             try:
-                return self.picture_cover(slide, sl["_img"], x, y, w, h)
+                return self.picture_cover(slide, raw, x, y, w, h)
             except Exception:
                 logger.exception("Rasmni joylashda xato")
-        # rasm bo'lmasa — bezakli blok
+        # No clip-art, vector or cartoon substitute when a real photo is unavailable.
         self.box(slide, x, y, w, h, fill="card", line="line", rounded=False)
-        self.box(slide, x + w * 0.44, y + h * 0.48, w * 0.12, 0.045, fill="brown", line=None, rounded=False)
+        focus = str((sl.get("design") or {}).get("visual_focus") or sl.get("title") or "").strip()
+        if focus:
+            self.text(slide, x + 0.22, y + h * 0.40, w - 0.44, 0.52,
+                      focus[:70], 14, "dark", True, "c", "m")
 
     def icon(self, slide, name, x, y, d, color="white"):
         I = self.Inches
@@ -8992,9 +9167,10 @@ def _ppt_genre_rule(topic):
             "joylar, sirlar va hikoyadagi rolini och. Har slayd bir xil ro'yxat bo'lmasin: mavjudot portreti, "
             "afsonaviy kelib chiqish, sehr/jodu namoyishi, Hogwarts yoki boshqa joy sahnasi, sirli topilma, "
             "qahramonlar bilan munosabat va vizual hikoya kabi turli usullarni tanla. "
-            "Rasm qidiruvlari aynan nomlangan mavjudot yoki buyumga yo'nalsin: masalan 'hippogriff fantasy illustration', "
-            "'fantasy dragon illustration', 'phoenix magical bird illustration', 'house elf fantasy illustration', "
-            "'thestral winged horse illustration', 'basilisk fantasy serpent'. Oddiy fern, butterfly, ray fish, "
+            "Rasm qidiruvlari aynan nomlangan mavjudot yoki buyumga yo'nalsin va fotorealistik kino kadri sifatida tasvirlansin: "
+            "masalan 'cinematic photorealistic hippogriff film still', 'photorealistic fantasy dragon film still', "
+            "'cinematic phoenix magical bird', 'photorealistic thestral winged horse', 'cinematic basilisk serpent'. "
+            "Illustration, cartoon, anime, vector, clipart yoki bolalar kitobi uslubini so'rama. Oddiy fern, butterfly, ray fish, "
             "generic bird yoki tumanli o'rmonni sehrli mavjudot o'rniga qo'yma. "
             "Kanonik fakt bilan talqinni ajrat; bilmagan detallarni to'qima. "
             "Foiz, statistik ko'rsatkich va rasmiy protokol faqat asl manbada mavjud bo'lsa ishlatiladi.\n"
@@ -9584,7 +9760,7 @@ async def _ppt_ask_count(msg, context, topic):
     context.user_data.setdefault("_ppt_img", True)
     mode = context.user_data.get("_ppt_mode", "premium")
     await msg.reply_text(
-        f"📊 {'⚡ Common' if mode == 'common' else '💎 Premium'}\nMavzu: «{topic[:80]}»\n\nNechta slayd kerak? Tugmani bosing.\n🎨 Dizaynni rasmda ko'rib tanlash uchun pastdagi tugmani bosing:",
+        f"📊 {'⚡ Common' if mode == 'common' else '💎 Premium'}\nMavzu: «{topic[:80]}»\n\nNechta slayd kerak? Tanlangan son muqova bilan jami hisoblanadi. Tugmani bosing.\n🎨 Dizaynni rasmda ko'rib tanlash uchun pastdagi tugmani bosing:",
         reply_markup=_ppt_count_keyboard(context.user_data["_ppt_img"], context.user_data.get("_ppt_theme", "auto"), mode,
                                          is_bot_owner(msg.chat.id), bool(context.user_data.get("_ppt_ai"))),
     )
@@ -9711,8 +9887,10 @@ def _ppt_apply_template_palette(theme: dict, reference: dict | None) -> dict:
 async def _ppt_generate_and_send(msg, context, topic, n, with_images, author, mode=None):
     mode = mode or context.user_data.get("_ppt_mode", "premium")
     mode = "common" if mode == "common" else "premium"
-    if mode == "common":
-        n = min(int(n), 15)   # Common: ko'pi bilan 15 slayd
+    # Telegramdagi tanlov — yakuniy PPTX faylidagi JAMI slaydlar soni, muqova bilan.
+    requested_total = max(PPT_MIN_SLIDES, min(PPT_MAX_SLIDES, int(n)))
+    outline_n = content_slide_target(requested_total)  # generator faqat muqovadan keyingi kontent slaydlarini tuzadi
+    n = requested_total
     quota_feature = "slide_common" if mode == "common" else "slide_premium"
     _ok, _why = quota_check(context, quota_feature)
     if not _ok:
@@ -9730,9 +9908,9 @@ async def _ppt_generate_and_send(msg, context, topic, n, with_images, author, mo
         template_task = asyncio.create_task(asyncio.to_thread(_ppt_prepare_template_reference, topic, {}))
         async with ai_gate:
             if mode == "common":
-                outline = await asyncio.to_thread(_gemini_outline_sync_classic, topic, n, with_images)
+                outline = await asyncio.to_thread(_gemini_outline_sync_classic, topic, outline_n, with_images)
             else:
-                outline = await asyncio.to_thread(_gemini_outline_sync, topic, n, with_images)
+                outline = await asyncio.to_thread(_gemini_outline_sync, topic, outline_n, with_images)
         outline["author"] = cover.get("name", "")     # Telegram ismi endi avtomatik qo'yilmaydi
         outline["cover"] = cover
         outline["_source_topic"] = topic
@@ -9746,6 +9924,14 @@ async def _ppt_generate_and_send(msg, context, topic, n, with_images, author, mo
                            content_qa.get("score"), json.dumps(content_qa.get("issues"), ensure_ascii=False))
         else:
             logger.info("Content Critic passed: score=%s/100", content_qa.get("score"))
+        high_content_issues = [
+            issue for issue in (content_qa.get("issues") or [])
+            if isinstance(issue, dict) and issue.get("severity") == "high"
+        ]
+        if high_content_issues:
+            raise VisualIntegrityError(
+                "CONTENT_QA_GATE: " + json.dumps(high_content_issues, ensure_ascii=False)
+            )
         if visual_warnings:
             logger.warning("Visual Director critic: %s", visual_warnings)
         logger.info("Visual Director: domain=%s slides=%s distribution=%s",
@@ -9780,10 +9966,25 @@ async def _ppt_generate_and_send(msg, context, topic, n, with_images, author, mo
         cover_visual_kind = ("hogwarts_castle" if any(x in cover_context for x in
             ("harry potter", "hogwarts", "xogvarts", "hogvarts")) else None)
         is_cardio_topic = cardiovascular_topic(topic + " " + str(outline.get("title") or ""))
+        is_lupin_topic = remus_lupin_topic(topic + " " + str(outline.get("title") or ""))
         if is_cardio_topic:
             cover_visual_kind = "cardiovascular_heart"
+            cover_query = build_photorealistic_query(
+                "medical", topic, outline.get("title") or "Human cardiovascular anatomy",
+                outline.get("subtitle") or "")
+        elif is_lupin_topic:
+            cover_visual_kind = None
+            cover_query = build_photorealistic_query(
+                "fiction", topic, outline.get("title") or "Remus Lupin",
+                outline.get("subtitle") or "Cinematic character introduction")
+        else:
+            cover_query = str(outline.get("cover_query") or "")
+            if needs_english_stock_translation(cover_query):
+                translated_cover, translated_ok = await _pxb_to_english(cover_query, "photo")
+                if translated_ok and translated_cover:
+                    cover_query = translated_cover
         bg_task = asyncio.create_task(asyncio.to_thread(
-            _ppt_make_backgrounds_sync, theme, outline.get("cover_query", ""), cover_visual_kind))
+            _ppt_make_backgrounds_sync, theme, cover_query, cover_visual_kind))
         if with_images and not is_cardio_topic:
             outline["_general_visual_slides"] = _ppt_apply_general_visual_coverage(outline)
         if with_images and remus_lupin_topic(" ".join(str(outline.get(k) or "") for k in ("_source_topic", "title", "topic_en"))):
@@ -9830,6 +10031,10 @@ async def _ppt_generate_and_send(msg, context, topic, n, with_images, author, mo
             inspect_pptx_bytes, data, len(outline.get("slides", [])) + 1
         )
         outline.setdefault("_qa", {})["package"] = package_qa
+        if int(package_qa.get("slides") or 0) != requested_total:
+            raise VisualIntegrityError(
+                f"SLIDE_COUNT_FINAL_GATE: requested {requested_total}, rendered {package_qa.get('slides', 0)}"
+            )
         package_blockers = package_qa_blockers(package_qa)
         if package_blockers:
             raise VisualIntegrityError("VISUAL_INTEGRITY_GATE: serialized PPTX contains empty slides: " +
@@ -9845,9 +10050,22 @@ async def _ppt_generate_and_send(msg, context, topic, n, with_images, author, mo
     except Exception as exc:
         logger.exception("Taqdimot yaratish xatosi")
         if isinstance(exc, VisualIntegrityError):
-            answer = ("Taqdimot yakuniy sifat tekshiruvidan o'tmadi. Bo'sh vizual, bo'sh slayd "
-                      "yoki jiddiy matn sig'ishi muammosi aniqlandi. Noto'g'ri fayl yuborilmadi; "
-                      "xatoni tuzatib qayta urinib ko'ring.")
+            reason_text = str(exc)
+            if "SLIDE_COUNT" in reason_text:
+                answer = ("Slaydlar soni talabga mos kelmadi. Qisqa yoki ortiqcha slaydli fayl yuborilmadi; "
+                          "qayta urinib ko'ring.")
+            elif "CONTENT_QA_GATE" in reason_text:
+                answer = ("Kontent tekshiruvida juda qisqa yoki takroriy slayd aniqlandi. "
+                          "Sifatsiz fayl yuborilmadi; mavzuni qayta ishlab urinib ko'ring.")
+            elif "ASSET_DUPLICATE_GATE" in reason_text:
+                answer = ("Bir xil rasm bir necha joyda takrorlandi. Takroriy vizualli fayl yuborilmadi; qayta urinib ko'ring.")
+            elif "SLIDE_REPAIR_FAILED" in reason_text:
+                answer = ("Matn joylashuvi yoki ustma-ust tushish xatosini avtomatik tuzatib bo'lmadi. "
+                          "Xatoli fayl yuborilmadi.")
+            else:
+                answer = ("Taqdimot yakuniy sifat tekshiruvidan o'tmadi. Bo'sh vizual, bo'sh slayd "
+                          "yoki jiddiy matn sig'ishi muammosi aniqlandi. Noto'g'ri fayl yuborilmadi; "
+                          "xatoni tuzatib qayta urinib ko'ring.")
         else:
             reason = _ai_err_reason(exc)
             answer = "Taqdimot yaratilmadi." + (f" Sabab: {reason}." if reason else "") + \

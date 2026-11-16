@@ -4,12 +4,16 @@ import unittest
 try:
     from pptx import Presentation
     from pptx.util import Inches
+    from pptx.enum.shapes import MSO_SHAPE
+    from PIL import Image
     from pptx_package_qa import PPTXPackageError, inspect_pptx_bytes
     HAS_PPTX = True
 except ImportError:
     HAS_PPTX = False
     Presentation = None
     Inches = None
+    MSO_SHAPE = None
+    Image = None
     PPTXPackageError = ValueError
     inspect_pptx_bytes = None
 
@@ -32,6 +36,48 @@ class PPTXPackageQATests(unittest.TestCase):
         self.assertTrue(report["valid"])
         self.assertEqual(report["slides"], 2)
         self.assertEqual(len(report["empty_slides"]), 1)
+
+    def test_full_bleed_background_does_not_count_as_content_photo(self):
+        prs = Presentation()
+        background_slide = prs.slides.add_slide(prs.slide_layouts[6])
+        content_slide = prs.slides.add_slide(prs.slide_layouts[6])
+        image_bytes = io.BytesIO()
+        Image.new("RGB", (320, 180), "navy").save(image_bytes, format="PNG")
+        raw = image_bytes.getvalue()
+        background_slide.shapes.add_picture(
+            io.BytesIO(raw), 0, 0, prs.slide_width, prs.slide_height
+        )
+        content_slide.shapes.add_picture(
+            io.BytesIO(raw), Inches(1), Inches(1), Inches(3), Inches(2)
+        )
+        out = io.BytesIO()
+        prs.save(out)
+        report = inspect_pptx_bytes(out.getvalue(), expected_slides=2)
+        self.assertEqual(report["image_slides"], 1)
+        self.assertEqual(report["image_coverage_ratio"], 0.5)
+        self.assertEqual(len(report["slides_without_images"]), 1)
+
+    def test_intentional_bleed_decorations_are_not_bounds_errors(self):
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        prs.slides.add_slide(prs.slide_layouts[6])
+        title = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(5), Inches(1))
+        title.text_frame.text = "Bounds test"
+        decoration = slide.shapes.add_shape(
+            MSO_SHAPE.OVAL, Inches(-1), Inches(1), Inches(2), Inches(2)
+        )
+        decoration.name = "!!orb_1"
+        bad_content = slide.shapes.add_shape(
+            MSO_SHAPE.RECTANGLE, Inches(-1), Inches(4), Inches(2), Inches(1)
+        )
+        bad_content.name = "content_bad"
+        out = io.BytesIO()
+        prs.save(out)
+        report = inspect_pptx_bytes(out.getvalue(), expected_slides=2)
+        self.assertEqual(
+            [item["shape"] for item in report["out_of_bounds_shapes"]],
+            ["content_bad"],
+        )
 
     def test_reports_ellipsis_truncation(self):
         report = inspect_pptx_bytes(
@@ -70,6 +116,15 @@ class PPTXPackageQATests(unittest.TestCase):
         report = inspect_pptx_bytes(out.getvalue(), expected_slides=2)
         self.assertTrue(report["text_fit_warnings"])
         self.assertTrue(any("matn qutisida" in warning for warning in report["warnings"]))
+
+    def test_detects_morph_inside_alternate_content(self):
+        from pptx.oxml import parse_xml
+        prs = Presentation(io.BytesIO(sample_deck()))
+        prs.slides[1]._element.append(parse_xml("<mc:AlternateContent xmlns:mc=\"http://schemas.openxmlformats.org/markup-compatibility/2006\" xmlns:p=\"http://schemas.openxmlformats.org/presentationml/2006/main\"><mc:Choice xmlns:p159=\"http://schemas.microsoft.com/office/powerpoint/2015/09/main\" Requires=\"p159\"><p:transition spd=\"med\"><p159:morph option=\"byObject\"/></p:transition></mc:Choice><mc:Fallback><p:transition><p:fade/></p:transition></mc:Fallback></mc:AlternateContent>"))
+        out = io.BytesIO()
+        prs.save(out)
+        report = inspect_pptx_bytes(out.getvalue(), expected_slides=2)
+        self.assertEqual(report["morph_slides"], 1)
 
     def test_rejects_invalid_bytes(self):
         with self.assertRaises(PPTXPackageError):

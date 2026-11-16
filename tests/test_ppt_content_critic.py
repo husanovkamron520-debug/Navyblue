@@ -18,6 +18,37 @@ class ContentCriticTests(unittest.TestCase):
         self.assertIn("repeated_title", codes)
         self.assertIn("repeated_content", codes)
 
+    def test_short_agenda_is_not_misclassified_as_thin(self):
+        result = critique_content("Project overview", [{
+            "layout": "agenda",
+            "title": "Presentation roadmap",
+            "items": ["Context", "Challenges", "Options", "Conclusion"],
+        }])
+        self.assertNotIn("thin_content", {issue["code"] for issue in result["issues"]})
+
+    def test_structured_matrix_content_is_not_misclassified_as_thin(self):
+        result = critique_content("Decision matrix", [{
+            "layout": "matrix",
+            "title": "Four decision dimensions",
+            "quadrants": [
+                {"head": "Cost", "text": "Initial and ongoing financial burden"},
+                {"head": "Risk", "text": "Operational and compliance exposure"},
+                {"head": "Speed", "text": "Time required to implement"},
+                {"head": "Impact", "text": "Long-term effect on service quality"},
+            ],
+        }])
+        self.assertNotIn("thin_content", {issue["code"] for issue in result["issues"]})
+
+    def test_chart_and_comparison_nested_fields_are_counted(self):
+        result = critique_content("Operations analysis", [{
+            "layout": "compare",
+            "title": "Two operating models",
+            "left": {"head": "Centralized", "items": ["Lower unit cost", "Consistent controls", "Longer response time"]},
+            "right": {"head": "Distributed", "items": ["Local flexibility", "Faster response", "Higher coordination cost"]},
+            "chart": {"data": [{"label": "Cost", "value": 42}, {"label": "Speed", "value": 68}]},
+        }])
+        self.assertNotIn("thin_content", {issue["code"] for issue in result["issues"]})
+
     def test_warns_about_unsourced_metrics(self):
         result = critique_content("State budget", [
             {"title": "Budget share", "text": "The budget share is 42% of the total amount in this example."}
