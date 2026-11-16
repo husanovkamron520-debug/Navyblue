@@ -500,3 +500,8 @@ def install(builder_class, layout_set, composition_set):
     def chart(self, sl):
         return render_extended_chart(self, sl, old_chart)
     builder_class.chart = chart
+    try:
+        from ppt_recovery import harden
+        harden(builder_class, _title)
+    except Exception:
+        pass
