@@ -12936,6 +12936,76 @@ async def _qa_watch_run(bot, chat_id: int, run_id: int):
 
 
 SUPPLYCHAIN14_WEB_URL = "https://digital-supply-chain-360.husanovkamron520.workers.dev/"
+SUPABASE_LINK_URL = (os.environ.get("SUPABASE_URL") or "https://otkdwzvzsqhzicwbaeng.supabase.co").strip().rstrip("/")
+SUPABASE_LINK_ANON_KEY = (os.environ.get("SUPABASE_ANON_KEY") or "sb_publishable_JLgEM0OHQCdN6CHMDufVCg_WoVkVgPO").strip()
+
+
+def _complete_supplychain_telegram_link(code: str, telegram_user_id: int, username: str = ""):
+    if not SUPABASE_LINK_URL.startswith("https://") or not SUPABASE_LINK_ANON_KEY:
+        raise RuntimeError("SupplyChain14 ulash xizmati sozlanmagan")
+    payload = {
+        "p_code": code,
+        "p_telegram_user_id": int(telegram_user_id),
+        "p_telegram_username": username or None,
+    }
+    req = urllib.request.Request(
+        SUPABASE_LINK_URL + "/rest/v1/rpc/complete_telegram_link",
+        data=json.dumps(payload).encode("utf-8"),
+        method="POST",
+        headers={
+            "apikey": SUPABASE_LINK_ANON_KEY,
+            "Authorization": "Bearer " + SUPABASE_LINK_ANON_KEY,
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=15) as response:
+            raw = response.read().decode("utf-8", errors="replace")
+            return json.loads(raw) if raw.strip() else {}
+    except Exception as exc:
+        detail = ""
+        try:
+            detail = exc.read().decode("utf-8", errors="replace")[:350]
+        except Exception:
+            detail = str(exc)[:250]
+        raise RuntimeError(detail or "Ulash serveriga ulanib bo‘lmadi") from exc
+
+
+async def telegram_link_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    msg = update.effective_message
+    user = update.effective_user
+    if not msg or not user:
+        return
+    code = (context.args[0].strip() if context.args else "")
+    if not re.fullmatch(r"[A-Fa-f0-9]{48}", code):
+        await msg.reply_text(
+            "🔗 SupplyChain14 akkauntini ulash uchun saytdagi "
+            "“Telegramni ulash kodini yaratish” tugmasini bosing, "
+            "so‘ng shu yerga /link KOD yuboring. Kod 10 daqiqa amal qiladi."
+        )
+        return
+    try:
+        await msg.reply_text("🔐 Akkauntlar tekshirilmoqda…")
+        result = await asyncio.to_thread(
+            _complete_supplychain_telegram_link,
+            code,
+            user.id,
+            user.username or "",
+        )
+        if isinstance(result, dict) and result.get("success") is True:
+            await msg.reply_text(
+                "✅ SupplyChain14 akkauntingiz Telegram bilan muvaffaqiyatli bog‘landi!\n\n"
+                "Keyingi bosqichda musobaqa xabarnomalari shu chatga yuboriladi."
+            )
+        else:
+            await msg.reply_text("⚠️ Ulanish tasdiqlanmadi. Saytda yangi kod yarating va qayta urinib ko‘ring.")
+    except Exception as exc:
+        safe_error = str(exc).replace("\n", " ")[:350]
+        await msg.reply_text("⚠️ Akkauntni ulab bo‘lmadi: " + safe_error)
+
+
+async def competition_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def competition_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -12950,7 +13020,7 @@ async def competition_command(update: Update, context: ContextTypes.DEFAULT_TYPE
         "1. Platformani oching va akkauntingizga kiring.\n"
         "2. O‘qituvchi bergan guruh kodidan foydalanib sinfga qo‘shiling.\n"
         "3. Musobaqa boshlanganida jamoangiz, rolingiz va topshiriqlaringiz platformada ko‘rinadi.\n\n"
-        "Eslatma: Telegram xabarnomalari uchun akkauntni bog‘lash bosqichi keyingi integratsiya vazifasi; hozircha musobaqa amallari platformada bajariladi.",
+        "Telegramni ulash: saytda kod yarating va botga /link KOD yuboring. Musobaqa amallari platformada bajariladi.",
         reply_markup=keyboard,
         disable_web_page_preview=True,
     )
@@ -13124,6 +13194,7 @@ def main():
     app.add_handler(CommandHandler("myid", myid_command))
     app.add_handler(CommandHandler("qa", qa_command, filters=filters.ChatType.PRIVATE))
     app.add_handler(CommandHandler(["qa_status", "qastatus"], qa_status_command, filters=filters.ChatType.PRIVATE))
+    app.add_handler(CommandHandler("link", telegram_link_command, filters=filters.ChatType.PRIVATE))
     app.add_handler(CommandHandler(["musobaqa", "competition"], competition_command, filters=filters.ChatType.PRIVATE))
     app.add_handler(CommandHandler("october", october_command, filters=filters.ChatType.PRIVATE))
     app.add_handler(CommandHandler("october_off", october_off_command, filters=filters.ChatType.PRIVATE))
