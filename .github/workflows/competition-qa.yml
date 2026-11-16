@@ -1,6 +1,11 @@
 name: SupplyChain14 virtual competition QA
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/competition-qa.yml'
+      - 'bot.py'
   workflow_dispatch:
     inputs:
       scenario:
