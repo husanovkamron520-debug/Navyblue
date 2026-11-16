@@ -12817,6 +12817,209 @@ BTN_MAIN_MENU = "⬅️ Asosiy menyu"
 # ============================================================
 # MAIN
 # ============================================================
+
+# ============================================================
+# SUPPLYCHAIN14 COMPETITION QA CONTROL (OWNER ONLY)
+# ============================================================
+QA_GITHUB_TOKEN = (os.environ.get("QA_GITHUB_TOKEN") or "").strip()
+QA_GITHUB_REPO = (os.environ.get("QA_GITHUB_REPO") or "husanovkamron520-debug/Navyblue").strip()
+QA_WORKFLOW_FILE = (os.environ.get("QA_WORKFLOW_FILE") or "competition-qa.yml").strip()
+
+
+def _qa_github_request(method: str, path: str, payload=None):
+    if not QA_GITHUB_TOKEN:
+        raise RuntimeError("QA_GITHUB_TOKEN sozlanmagan")
+    url = "https://api.github.com/repos/" + QA_GITHUB_REPO + "/" + path.lstrip("/")
+    data = json.dumps(payload).encode("utf-8") if payload is not None else None
+    req = urllib.request.Request(
+        url, data=data, method=method,
+        headers={
+            "Accept": "application/vnd.github+json",
+            "Authorization": "Bearer " + QA_GITHUB_TOKEN,
+            "X-GitHub-Api-Version": "2022-11-28",
+            "User-Agent": "Navyblue-SupplyChain14-QA",
+            "Content-Type": "application/json",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=25) as response:
+            raw = response.read().decode("utf-8", errors="replace")
+            return json.loads(raw) if raw.strip() else {}
+    except Exception as exc:
+        detail = ""
+        try:
+            detail = exc.read().decode("utf-8", errors="replace")[:500]
+        except Exception:
+            detail = str(exc)[:300]
+        raise RuntimeError(f"GitHub API xatosi ({getattr(exc, 'code', '?')}): {detail}") from exc
+
+
+def _qa_list_runs():
+    data = _qa_github_request(
+        "GET",
+        f"actions/workflows/{QA_WORKFLOW_FILE}/runs?event=workflow_dispatch&branch=main&per_page=10",
+    )
+    return data.get("workflow_runs") or []
+
+
+def _qa_dispatch(scenario: str):
+    started = datetime.now(timezone.utc)
+    _qa_github_request(
+        "POST",
+        f"actions/workflows/{QA_WORKFLOW_FILE}/dispatches",
+        {"ref": "main", "inputs": {"scenario": scenario}},
+    )
+    for _ in range(12):
+        time.sleep(2)
+        for run in _qa_list_runs():
+            try:
+                created = datetime.fromisoformat((run.get("created_at") or "").replace("Z", "+00:00"))
+            except Exception:
+                continue
+            if created >= started - timedelta(seconds=10):
+                return run
+    raise RuntimeError("Workflow yuborildi, ammo GitHub run ID hali topilmadi. /qa_status bilan tekshiring.")
+
+
+def _qa_get_run(run_id):
+    return _qa_github_request("GET", f"actions/runs/{int(run_id)}")
+
+
+def _qa_failed_steps(run_id):
+    try:
+        data = _qa_github_request("GET", f"actions/runs/{int(run_id)}/jobs?per_page=20")
+        failures = []
+        for job in data.get("jobs") or []:
+            for step in job.get("steps") or []:
+                if step.get("conclusion") == "failure":
+                    failures.append(f"{job.get('name', 'Job')}: {step.get('name', 'step')}")
+        return failures[:6]
+    except Exception:
+        return []
+
+
+def _qa_status_text(run):
+    status = run.get("status", "unknown")
+    conclusion = run.get("conclusion")
+    labels = {"queued": "navbatda", "in_progress": "bajarilmoqda", "completed": "yakunlandi"}
+    result = labels.get(status, status)
+    if status == "completed":
+        result += " — " + ("MUVAFFAQIYATLI" if conclusion == "success" else f"XATO ({conclusion or 'noma’lum'})")
+    return result
+
+
+async def _qa_watch_run(bot, chat_id: int, run_id: int):
+    try:
+        for _ in range(90):
+            run = await asyncio.to_thread(_qa_get_run, run_id)
+            if run.get("status") == "completed":
+                lines = [
+                    "🧪 SupplyChain14 QA yakunlandi.",
+                    f"Natija: {_qa_status_text(run)}",
+                    f"Run: #{run_id}",
+                    run.get("html_url") or "",
+                ]
+                if run.get("conclusion") != "success":
+                    failed = await asyncio.to_thread(_qa_failed_steps, run_id)
+                    if failed:
+                        lines.append("Xato bosqichlari:\n• " + "\n• ".join(failed))
+                await bot.send_message(chat_id=chat_id, text="\n".join(x for x in lines if x))
+                return
+            await asyncio.sleep(10)
+        await bot.send_message(
+            chat_id=chat_id,
+            text=f"⏳ QA hali davom etyapti. Run #{run_id}\n{run.get('html_url', '')}\nHolatni /qa_status bilan tekshiring.",
+        )
+    except Exception as exc:
+        logger.exception("QA monitoring xatosi")
+        await bot.send_message(chat_id=chat_id, text=f"⚠️ QA monitoringda xato: {str(exc)[:500]}")
+
+
+async def qa_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    msg = update.effective_message
+    chat = update.effective_chat
+    if not msg or not chat:
+        return
+    if not is_bot_owner(chat.id):
+        await msg.reply_text("⛔ QA buyruqlari faqat bot egasi uchun.")
+        return
+    scenario = (context.args[0].strip().lower() if context.args else "full")
+    if scenario not in {"full", "15", "16", "19", "20"}:
+        await msg.reply_text("Foydalanish: /qa yoki /qa 15, /qa 16, /qa 19, /qa 20")
+        return
+    if not QA_GITHUB_TOKEN:
+        await msg.reply_text(
+            "⚙️ QA integratsiyasi uchun Render → Navyblue → Environment bo‘limiga "
+            "QA_GITHUB_TOKEN qo‘shish kerak.\n"
+            "GitHub fine-grained token: faqat Navyblue reposiga Actions: Read and write "
+            "ruxsati yetarli. Tokenni chatga yubormang."
+        )
+        return
+    active = context.application.bot_data.get("qa_active_run")
+    if active:
+        try:
+            active_run = await asyncio.to_thread(_qa_get_run, active)
+            if active_run.get("status") != "completed":
+                await msg.reply_text(f"⏳ Oldingi QA hali ishlayapti: #{active}\n/qa_status")
+                return
+        except Exception:
+            pass
+    status_msg = await msg.reply_text(f"🧪 SupplyChain14 QA ishga tushirilmoqda ({scenario})...")
+    try:
+        run = await asyncio.to_thread(_qa_dispatch, scenario)
+        run_id = int(run["id"])
+        context.application.bot_data["qa_active_run"] = run_id
+        context.application.bot_data["qa_last_run"] = run_id
+        await status_msg.edit_text(
+            f"🚀 QA ishga tushdi!\nScenario: {scenario}\nRun: #{run_id}\n"
+            f"Holat: {_qa_status_text(run)}\n{run.get('html_url', '')}\n\n"
+            "Yakunlanganda natijani shu chatga yuboraman. /qa_status — joriy holat."
+        )
+        asyncio.create_task(_qa_watch_run(context.bot, chat.id, run_id))
+    except Exception as exc:
+        logger.exception("QA workflow ishga tushmadi")
+        await status_msg.edit_text(f"⚠️ QA ishga tushmadi: {str(exc)[:700]}")
+
+
+async def qa_status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    msg = update.effective_message
+    chat = update.effective_chat
+    if not msg or not chat:
+        return
+    if not is_bot_owner(chat.id):
+        await msg.reply_text("⛔ QA holati faqat bot egasiga ko‘rinadi.")
+        return
+    if not QA_GITHUB_TOKEN:
+        await msg.reply_text("QA_GITHUB_TOKEN sozlanmagan. Render Environment bo‘limini tekshiring.")
+        return
+    try:
+        run_id = context.application.bot_data.get("qa_last_run")
+        if run_id:
+            run = await asyncio.to_thread(_qa_get_run, run_id)
+        else:
+            runs = await asyncio.to_thread(_qa_list_runs)
+            if not runs:
+                await msg.reply_text("Hali QA ishga tushirilmagan. /qa")
+                return
+            run = runs[0]
+            run_id = int(run["id"])
+            context.application.bot_data["qa_last_run"] = run_id
+        lines = [
+            f"🧪 SupplyChain14 QA — #{run_id}",
+            f"Holat: {_qa_status_text(run)}",
+            run.get("html_url") or "",
+        ]
+        if run.get("status") == "completed" and run.get("conclusion") != "success":
+            failed = await asyncio.to_thread(_qa_failed_steps, run_id)
+            if failed:
+                lines.append("Xato bosqichlari:\n• " + "\n• ".join(failed))
+        await msg.reply_text("\n".join(x for x in lines if x))
+    except Exception as exc:
+        logger.exception("QA status olish xatosi")
+        await msg.reply_text(f"⚠️ Holatni olib bo‘lmadi: {str(exc)[:500]}")
+
+
+
 def main():
     if not TELEGRAM_BOT_TOKEN:
         logger.error("TELEGRAM_BOT_TOKEN topilmadi!")
@@ -12898,6 +13101,8 @@ def main():
     app.add_handler(CommandHandler("rol", role_command))
     app.add_handler(CommandHandler("role", role_command))
     app.add_handler(CommandHandler("myid", myid_command))
+    app.add_handler(CommandHandler("qa", qa_command, filters=filters.ChatType.PRIVATE))
+    app.add_handler(CommandHandler(["qa_status", "qastatus"], qa_status_command, filters=filters.ChatType.PRIVATE))
     app.add_handler(CommandHandler("october", october_command, filters=filters.ChatType.PRIVATE))
     app.add_handler(CommandHandler("october_off", october_off_command, filters=filters.ChatType.PRIVATE))
     app.add_handler(CommandHandler("xotira", october_memory_command, filters=filters.ChatType.PRIVATE))
