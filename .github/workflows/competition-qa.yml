@@ -137,7 +137,7 @@ jobs:
 
       - name: Run virtual student roster and permission tests
         env:
-          QA_SCENARIO: ${{ inputs.scenario }}
+          QA_SCENARIO: ${{ inputs.scenario || 'full' }}
         run: |
           set -euo pipefail
           psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
@@ -152,7 +152,7 @@ jobs:
           {
             echo "## SupplyChain14 virtual competition QA"
             echo ""
-            echo "- Scenario: \`${{ inputs.scenario }}\`"
+            echo "- Scenario: \`${{ inputs.scenario || 'full' }}\`"
             echo "- Result: **${{ job.status }}**"
             echo "- Environment: isolated local Supabase (no production credentials)"
             echo "- Coverage: 15/16/19/20 student balancing, five core roles, minimum-roster guard, anonymous RPC permissions"
