@@ -8,7 +8,12 @@ Every patch is wrapped so that any failure falls back to the original behaviour.
    asks with the count buttons instead of silently making 10 slides.
 2. Photos: more editorial slides are promoted to photo layouts (default target 80%, set
    PPT_VISUAL_TARGET to change it). Slides with no photo found still fall back to clean card layouts.
+3. Photo search language: Uzbek written in Latin letters is plain ASCII, so the original
+   _pxb_to_english() treated it as "already English" and never translated it. Every slide then
+   searched the same untranslated query and the stock providers ran out of results (1 photo on a
+   30-slide deck). Uzbek-looking ASCII queries are now translated to English keywords.
 """
+import asyncio
 import logging
 import os
 import re
@@ -18,6 +23,7 @@ import time
 
 log = logging.getLogger("ppt_user_fixes")
 
+_FILLER = re.compile(r"\b(?:photorealistic|editorial|photograph|photography|natural|cinematic|lighting|documentary|render)\b", re.I)
 _NOUNS = r"(?:slayd|slayt|slide|slaid|sahifa|bet|varoq|taqdimot|prezentatsiya|presentatsiya|prezentatsiyasi|ppt|pptx)"
 _COUNT_PATTERNS = (
     re.compile(r"(?<!\d)(\d{1,2})\s*(?:ta|talik|tali)?\s*" + _NOUNS, re.I),
@@ -95,6 +101,32 @@ def apply(mod):
             return orig_cov(outline, target_ratio)
         mod._ppt_apply_general_visual_coverage = coverage
         done.append("_ppt_apply_general_visual_coverage")
+
+    orig_pxb = getattr(mod, "_pxb_to_english", None)
+    needs = getattr(mod, "needs_english_stock_translation", None)
+    if callable(orig_pxb) and callable(needs):
+        async def to_english(text, kind="photo"):
+            raw = (text or "").strip()
+            try:
+                if raw and re.fullmatch(r"[A-Za-z0-9 ,.\-]+", raw) and needs(raw):
+                    cleaned = re.sub(r"\s+", " ", _FILLER.sub(" ", raw)).strip()
+                    if cleaned:
+                        what = "video" if kind == "video" else "photo"
+                        prompt = (f"Convert this stock-{what} search request (Uzbek written in Latin letters) into 2-4 concise, "
+                                  "SPECIFIC ENGLISH keywords for a stock website. Keep the main subject noun first and keep every "
+                                  "important detail (object, place, action). Do not add words that were not requested. "
+                                  f"Return ONLY JSON: {{\"q\": \"...\"}}.\nRequest: {cleaned[:200]}")
+                        async with mod.ai_gate:
+                            out = await asyncio.wait_for(
+                                asyncio.to_thread(mod._ai_generate_text_sync, prompt, 0.1, 200, True), timeout=45)
+                        q = str((mod._json_loads_loose(out) or {}).get("q") or "").strip()
+                        if q and re.search(r"[A-Za-z]", q):
+                            return q[:100], True
+            except Exception as exc:
+                log.warning("uzbek->english translation failed, using original flow: %s", exc)
+            return await orig_pxb(text, kind)
+        mod._pxb_to_english = to_english
+        done.append("_pxb_to_english")
 
     mod._ppt_user_fixes_applied = True
     log.info("ppt_user_fixes applied: %s", ", ".join(done) or "nothing")
