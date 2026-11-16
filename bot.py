@@ -12935,6 +12935,27 @@ async def _qa_watch_run(bot, chat_id: int, run_id: int):
         await bot.send_message(chat_id=chat_id, text=f"⚠️ QA monitoringda xato: {str(exc)[:500]}")
 
 
+SUPPLYCHAIN14_WEB_URL = "https://digital-supply-chain-360.husanovkamron520.workers.dev/"
+
+
+async def competition_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    msg = update.effective_message
+    if not msg:
+        return
+    keyboard = InlineKeyboardMarkup([[
+        InlineKeyboardButton("🌐 SupplyChain14 platformasini ochish", url=SUPPLYCHAIN14_WEB_URL)
+    ]])
+    await msg.reply_text(
+        "🏭 SupplyChain14 — musobaqa va ta’minot zanjiri simulyatsiyasi.\\n\\n"
+        "1. Platformani oching va akkauntingizga kiring.\\n"
+        "2. O‘qituvchi bergan guruh kodidan foydalanib sinfga qo‘shiling.\\n"
+        "3. Musobaqa boshlanganida jamoangiz, rolingiz va topshiriqlaringiz platformada ko‘rinadi.\\n\\n"
+        "Eslatma: Telegram xabarnomalari uchun akkauntni bog‘lash bosqichi keyingi integratsiya vazifasi; hozircha musobaqa amallari platformada bajariladi.",
+        reply_markup=keyboard,
+        disable_web_page_preview=True,
+    )
+
+
 async def qa_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.effective_message
     chat = update.effective_chat
