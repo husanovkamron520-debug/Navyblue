@@ -1,0 +1,159 @@
+name: SupplyChain14 virtual competition QA
+
+on:
+  workflow_dispatch:
+    inputs:
+      scenario:
+        description: "Roster scenario to test"
+        required: true
+        type: choice
+        options:
+          - full
+          - "15"
+          - "16"
+          - "19"
+          - "20"
+        default: full
+
+permissions:
+  contents: read
+
+concurrency:
+  group: supplychain14-competition-qa
+  cancel-in-progress: false
+
+jobs:
+  virtual-competition-qa:
+    name: Virtual competition QA
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout Navyblue control panel
+        uses: actions/checkout@v4
+
+      - name: Checkout SupplyChain14
+        uses: actions/checkout@v4
+        with:
+          repository: husanovkamron520-debug/Digital-Supply-Chain-360
+          ref: main
+          path: supplychain
+
+      - name: Set up Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Prepare isolated local Supabase project
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p supplychain/supabase/migrations
+          cat > supplychain/supabase/config.toml <<'TOML'
+          project_id = "supplychain14-qa"
+
+          [api]
+          enabled = true
+          port = 54321
+          schemas = ["public", "graphql_public"]
+          extra_search_path = ["public", "extensions"]
+          max_rows = 1000
+
+          [db]
+          port = 54322
+          shadow_port = 54320
+          major_version = 15
+
+          [studio]
+          enabled = false
+
+          [inbucket]
+          enabled = false
+
+          [storage]
+          enabled = false
+
+          [auth]
+          enabled = true
+          site_url = "http://127.0.0.1:3000"
+
+          [analytics]
+          enabled = false
+
+          [edge_runtime]
+          enabled = false
+          TOML
+
+          i=1
+          while IFS= read -r file; do
+            [ -z "$file" ] && continue
+            printf -v version "2026111600%02d00" "$i"
+            cp "supplychain/supabase/$file" "supplychain/supabase/migrations/$version"_"$file"
+            i=$((i + 1))
+          done <<'FILES'
+          schema.sql
+          competition_engine.sql
+          competition_operations.sql
+          company_case_profiles.sql
+          competition_rpc_row_loading_fix.sql
+          competition_balanced_teams_fix.sql
+          competition_core_role_start_guard.sql
+          company_specific_task_pack.sql
+          competition_seven_day_rounds.sql
+          competition_five_round_schedule.sql
+          competition_production_round_capacity.sql
+          competition_customer_due_date_clock.sql
+          competition_customer_price_bounds.sql
+          competition_supplier_negotiation_bounds.sql
+          competition_transport_cost_bounds.sql
+          competition_inventory_adjustment_bounds.sql
+          competition_kpi_scoring.sql
+          competition_foreign_key_indexes.sql
+          competition_clock_serialization_guards.sql
+          competition_member_reassignment.sql
+          competition_final_evaluation_guard.sql
+          competition_advanced_case_pack.sql
+          competition_task_scoring_and_combined_individual_grades.sql
+          competition_case_pack_precision_clarification.sql
+          competition_task_review_requires_score.sql
+          competition_task_finalization_guard.sql
+          competition_finalization_requires_all_role_tasks.sql
+          competition_individual_role_case_tasks.sql
+          competition_weighted_individual_grades.sql
+          competition_finalization_requires_each_student_assessment.sql
+          FILES
+
+      - name: Start isolated Supabase stack
+        working-directory: supplychain
+        run: supabase start -x studio,edge-runtime,logflare,vector,supavisor
+
+      - name: Apply competition schema and migrations
+        working-directory: supplychain
+        run: supabase db reset --local --yes
+
+      - name: Run virtual student roster and permission tests
+        env:
+          QA_SCENARIO: ${{ inputs.scenario }}
+        run: |
+          set -euo pipefail
+          psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
+            -v ON_ERROR_STOP=1 \
+            -v scenario="$QA_SCENARIO" \
+            -f supplychain/tests/competition_virtual_qa.sql
+
+      - name: Write QA summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## SupplyChain14 virtual competition QA"
+            echo ""
+            echo "- Scenario: \`${{ inputs.scenario }}\`"
+            echo "- Result: **${{ job.status }}**"
+            echo "- Environment: isolated local Supabase (no production credentials)"
+            echo "- Coverage: 15/16/19/20 student balancing, five core roles, minimum-roster guard, anonymous RPC permissions"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Stop local Supabase stack
+        if: always()
+        working-directory: supplychain
+        run: supabase stop --no-backup || true
