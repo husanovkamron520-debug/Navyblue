@@ -13124,6 +13124,7 @@ def main():
     app.add_handler(CommandHandler("myid", myid_command))
     app.add_handler(CommandHandler("qa", qa_command, filters=filters.ChatType.PRIVATE))
     app.add_handler(CommandHandler(["qa_status", "qastatus"], qa_status_command, filters=filters.ChatType.PRIVATE))
+    app.add_handler(CommandHandler(["musobaqa", "competition"], competition_command, filters=filters.ChatType.PRIVATE))
     app.add_handler(CommandHandler("october", october_command, filters=filters.ChatType.PRIVATE))
     app.add_handler(CommandHandler("october_off", october_off_command, filters=filters.ChatType.PRIVATE))
     app.add_handler(CommandHandler("xotira", october_memory_command, filters=filters.ChatType.PRIVATE))
