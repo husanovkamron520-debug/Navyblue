@@ -510,11 +510,10 @@ def _storage_key(filepath):
 def _db_request(method, path, body=None, prefer=None):
     headers = {
         "apikey": SUPABASE_KEY,
+        "Authorization": f"Bearer {SUPABASE_KEY}",
         "Content-Type": "application/json",
         "User-Agent": "log324exambot/1.0",
     }
-    if SUPABASE_KEY.startswith("eyJ"):  # eski JWT ko'rinishidagi kalit
-        headers["Authorization"] = f"Bearer {SUPABASE_KEY}"
     if prefer:
         headers["Prefer"] = prefer
     data = json.dumps(body, ensure_ascii=False).encode("utf-8") if body is not None else None
