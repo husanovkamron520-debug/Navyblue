@@ -1,5 +1,6 @@
 name: SupplyChain14 virtual competition QA
 # Integration tests use the SQL fixture in the public SupplyChain14 repository.
+# The fixture covers individual submissions, teacher grading, weighted results and completion.
 
 on:
   push:
