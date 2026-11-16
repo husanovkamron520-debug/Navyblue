@@ -1,4 +1,5 @@
 name: SupplyChain14 virtual competition QA
+# Integration tests use the SQL fixture in the public SupplyChain14 repository.
 
 on:
   push:
