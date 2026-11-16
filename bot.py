@@ -13006,9 +13006,6 @@ async def telegram_link_command(update: Update, context: ContextTypes.DEFAULT_TY
 
 
 async def competition_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
-
-async def competition_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.effective_message
     if not msg:
         return
