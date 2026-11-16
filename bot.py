@@ -637,10 +637,28 @@ def init_storage():
     for fp in (CASES_FILE, TEACHERS_FILE, STUDENTS_FILE, RESULTS_FILE, TESTS_FILE, TEST_RESULTS_FILE, FEEDBACKS_FILE, USAGE_FILE, OMBOR_FILE, PUZZLE_FILE, JARVIS_FILE, OCT_FILE, supply_chain.DATA_FILE):
         _ensure_loaded(_storage_key(fp), fp)
     if not _writer_started:
-        threading.Thread(target=_writer_loop, daemon=True).start()
+        threading.Thread(target=_writer_loop, daemon=True, name="supabase-writer").start()
         _writer_started = True
     atexit.register(flush_storage)
     logger.info("Supabase ulandi, ma'lumotlar yuklandi.")
+
+
+def init_storage_with_retry():
+    """Supabase vaqtincha ishlamasa, jarayonni qulatmaydi; ma'lumotlar tiklanguncha xavfsiz qayta urinadi."""
+    attempt = 0
+    while True:
+        try:
+            init_storage()
+            return
+        except Exception:
+            attempt += 1
+            delay = min(300, 5 * (2 ** min(attempt - 1, 6)))
+            logger.exception(
+                "Storage initialization failed (attempt %s). Bot ma'lumotlar bazasisiz ishga tushmaydi; %s soniyadan keyin qayta uriniladi.",
+                attempt,
+                delay,
+            )
+            time.sleep(delay)
 
 
 def load_json(filepath, default):
@@ -13187,7 +13205,7 @@ def main():
     threading.Thread(target=run_health_server, daemon=True).start()
     threading.Thread(target=run_keep_alive, daemon=True).start()
 
-    init_storage()  # Supabase'dan ma'lumotni yuklaydi (ulanmasa, bot ataylab to'xtaydi)
+    init_storage_with_retry()  # DB vaqtincha uzilsa, process qulamaydi va ma'lumotlar tiklanguncha qayta urinadi.
     threading.Thread(target=_usage_flush_loop, daemon=True).start()
     atexit.register(_usage_flush)
 
@@ -13292,7 +13310,8 @@ def main():
 
     logger.info("Bot ishga tushmoqda...")
     try:
-        app.run_polling()
+        # Telegram getUpdates boshlanishidagi vaqtinchalik tarmoq xatolarida ham cheksiz qayta urinadi.
+        app.run_polling(bootstrap_retries=-1, drop_pending_updates=False)
     finally:
         flush_storage()
 
