@@ -518,8 +518,14 @@ def _db_request(method, path, body=None, prefer=None):
         headers["Prefer"] = prefer
     data = json.dumps(body, ensure_ascii=False).encode("utf-8") if body is not None else None
     req = urllib.request.Request(f"{SUPABASE_URL}/rest/v1/{path}", data=data, headers=headers, method=method)
-    with urllib.request.urlopen(req, timeout=20) as resp:
-        raw = resp.read()
+    try:
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            raw = resp.read()
+    except urllib.error.HTTPError as exc:
+        # Javob matnini yozamiz, lekin hech qachon API kalitlarini log qilmaymiz.
+        detail = exc.read().decode("utf-8", errors="replace")[:500]
+        logger.error("Supabase HTTP %s (%s): %s", exc.code, path.split("?")[0], detail)
+        raise
     return json.loads(raw) if raw else None
 
 
