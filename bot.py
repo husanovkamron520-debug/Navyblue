@@ -12012,6 +12012,7 @@ _PERF = _deque(maxlen=60)
 _cpu_gate = asyncio.Semaphore(2)
 _LAG = {"last": 0.0, "max": 0.0, "max_ts": 0.0, "cpu": 0.0, "started": time.time()}
 _LAG_TASK = None
+_COMP_NOTIFY_TASK = None
 
 
 def _perf_note(kind, secs, detail=""):
@@ -12123,14 +12124,23 @@ async def holat_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def _post_init(app):
-    global _LAG_TASK
+    global _LAG_TASK, _COMP_NOTIFY_TASK
     _LAG_TASK = asyncio.create_task(_lag_monitor(), name="lag-monitor")
+    _COMP_NOTIFY_TASK = asyncio.create_task(_supplychain_notification_loop(app), name="supplychain-notifications")
 
 
 async def _post_shutdown(app):
-    global _LAG_TASK
+    global _LAG_TASK, _COMP_NOTIFY_TASK
     task = _LAG_TASK
     _LAG_TASK = None
+    notify_task = _COMP_NOTIFY_TASK
+    _COMP_NOTIFY_TASK = None
+    if notify_task and not notify_task.done():
+        notify_task.cancel()
+        try:
+            await notify_task
+        except asyncio.CancelledError:
+            pass
     if task and not task.done():
         task.cancel()
         try:
@@ -12938,6 +12948,55 @@ async def _qa_watch_run(bot, chat_id: int, run_id: int):
 SUPPLYCHAIN14_WEB_URL = "https://digital-supply-chain-360.husanovkamron520.workers.dev/"
 SUPABASE_LINK_URL = (os.environ.get("SUPABASE_URL") or "https://otkdwzvzsqhzicwbaeng.supabase.co").strip().rstrip("/")
 SUPABASE_LINK_ANON_KEY = (os.environ.get("SUPABASE_ANON_KEY") or "sb_publishable_JLgEM0OHQCdN6CHMDufVCg_WoVkVgPO").strip()
+SUPPLYCHAIN14_NOTIFY_SECRET = (os.environ.get("SUPPLYCHAIN14_NOTIFY_SECRET") or "").strip()
+
+
+def _supplychain_notification_rpc(function_name: str, payload: dict):
+    if not SUPPLYCHAIN14_NOTIFY_SECRET:
+        return None
+    body = dict(payload)
+    body["p_secret"] = SUPPLYCHAIN14_NOTIFY_SECRET
+    req = urllib.request.Request(
+        SUPABASE_LINK_URL + "/rest/v1/rpc/" + function_name,
+        data=json.dumps(body).encode("utf-8"), method="POST",
+        headers={"apikey": SUPABASE_LINK_ANON_KEY,"Authorization": "Bearer " + SUPABASE_LINK_ANON_KEY,
+                 "Content-Type": "application/json","Accept": "application/json"},
+    )
+    with urllib.request.urlopen(req, timeout=15) as response:
+        raw=response.read().decode("utf-8",errors="replace")
+        return json.loads(raw) if raw.strip() else None
+
+
+async def _supplychain_notification_loop(app):
+    if not SUPPLYCHAIN14_NOTIFY_SECRET:
+        logger.warning("SupplyChain14 notifications disabled: secret is not configured")
+        return
+    logger.info("SupplyChain14 Telegram notification worker started")
+    while True:
+        try:
+            rows=await asyncio.to_thread(_supplychain_notification_rpc,"fetch_telegram_competition_notifications",{})
+            if not isinstance(rows,list): rows=[]
+            for row in rows:
+                try:
+                    await app.bot.send_message(chat_id=int(row["telegram_user_id"]),
+                        text=str(row.get("message") or "")[:3500],disable_web_page_preview=True)
+                except Forbidden:
+                    logger.info("Competition notification recipient %s blocked the bot",row.get("telegram_user_id"))
+                except Exception:
+                    logger.exception("Competition notification delivery failed for %s",row.get("id"))
+                    continue
+                try:
+                    await asyncio.to_thread(_supplychain_notification_rpc,"ack_telegram_competition_notification",
+                                            {"p_notification_id":row["id"]})
+                except Exception:
+                    logger.exception("Competition notification acknowledgement failed for %s",row.get("id"))
+            await asyncio.sleep(20)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("SupplyChain14 notification polling failed")
+            await asyncio.sleep(30)
+
 
 
 def _complete_supplychain_telegram_link(code: str, telegram_user_id: int, username: str = ""):
