@@ -10,6 +10,8 @@ import asyncio
 import threading
 import uuid
 import hashlib
+import secrets
+from urllib.parse import quote
 import html
 import copy
 import ast
@@ -1711,12 +1713,18 @@ def student_menu(chat_id=None):
 
 
 async def show_role_picker(message):
-    keyboard = [[
-        InlineKeyboardButton("👨‍🏫 O'qituvchi sifatida kirish", callback_data="role_teacher"),
-        InlineKeyboardButton("👨‍🎓 Talaba sifatida kirish", callback_data="role_student"),
-    ]]
+    keyboard = [
+        [InlineKeyboardButton("🎓 SupplyChain14 ro'yxatdan o'tish", callback_data="sc14_register")],
+        [
+            InlineKeyboardButton("👨‍🏫 O'qituvchi sifatida kirish", callback_data="role_teacher"),
+            InlineKeyboardButton("👨‍🎓 Talaba sifatida kirish", callback_data="role_student"),
+        ],
+    ]
     await message.reply_text(
-        "👋 Assalomu alaykum! Botga xush kelibsiz.\n\nQaysi rejimda foydalanmoqchisiz?",
+        "👋 Assalomu alaykum! Botga xush kelibsiz.\n\n"
+        "SupplyChain14 platformasiga kirish uchun yuqoridagi ro'yxatdan o'tish tugmasini bosing. "
+        "Emailingiz tasdiqlangach, sayt va Telegram bitta akkaunt bo'ladi.\n\n"
+        "Pastdagi eski bot rejimlari ham saqlangan.",
         reply_markup=InlineKeyboardMarkup(keyboard),
     )
 
@@ -11254,6 +11262,56 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     user_id = str(chat_id)
     text = (update.message.text or "").strip()
+
+    # SupplyChain14 Telegram-first registration takes priority over the legacy bot menu.
+    reg = context.user_data.get("_sc14_registration")
+    if reg:
+        if time.time() - float(reg.get("started_at", 0)) > 900:
+            context.user_data.pop("_sc14_registration", None)
+            await update.message.reply_text("⏳ Ro'yxatdan o'tish vaqti tugadi. Qayta boshlash: /sc14")
+            return
+        if reg.get("step") == "name":
+            full_name = " ".join(text.split())
+            if text.startswith("/") or len(full_name) < 2 or len(full_name) > 120:
+                await update.message.reply_text("Ism-familiyangizni 2–120 belgi oralig'ida kiriting.")
+                return
+            reg["full_name"] = full_name
+            reg["step"] = "email"
+            await update.message.reply_text("📧 Endi email manzilingizni kiriting. Tasdiqlash havolasi shu manzilga yuboriladi.")
+            return
+        if reg.get("step") == "email":
+            email = text.strip().lower()
+            if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email) or len(email) > 320:
+                await update.message.reply_text("Email manzil noto'g'ri ko'rinadi. Masalan: name@example.com")
+                return
+            last_sent = float(context.user_data.get("_sc14_last_email_sent", 0))
+            if time.time() - last_sent < 60:
+                await update.message.reply_text("⏳ Xavfsizlik uchun email yuborishdan oldin 60 soniya kuting.")
+                return
+            context.user_data["_sc14_last_email_sent"] = time.time()
+            await update.message.reply_text("🔐 Email tasdiqlash havolasi tayyorlanmoqda…")
+            try:
+                await asyncio.to_thread(
+                    _start_telegram_email_registration,
+                    update.effective_user.id,
+                    update.effective_user.username or "",
+                    reg["full_name"],
+                    email,
+                )
+            except Exception:
+                logger.exception("SupplyChain14 Telegram registration email request failed")
+                await update.message.reply_text("⚠️ Hozir tasdiqlash xatini yuborib bo'lmadi. Emailni tekshirib, birozdan keyin qayta urinib ko'ring.")
+                return
+            context.user_data.pop("_sc14_registration", None)
+            await update.message.reply_text(
+                "📩 Tasdiqlash havolasi emailingizga yuborildi.\n\n"
+                "1. Emaildagi SupplyChain14 havolasini oching.\n"
+                "2. Ochilgan sahifada «Tasdiqlash va Telegramni ulash» tugmasini bosing.\n"
+                "3. Shundan keyin shu Telegram profilingiz sayt akkauntingizga ulanadi.\n\n"
+                "Havola 30 daqiqa amal qiladi. Xat ko'rinmasa Spam papkasini ham tekshiring."
+            )
+            return
+
     _is_btn = text in {v for k, v in globals().items() if k.startswith("BTN_") and isinstance(v, str)}
     if _is_btn:
         for _k in ("_dg_wait", "_src_wait", "_sc_wait"):
@@ -13022,6 +13080,88 @@ async def _supplychain_notification_loop(app):
 
 
 
+def _start_telegram_email_registration(telegram_user_id: int, username: str, full_name: str, email: str):
+    """Create a short-lived Telegram pairing intent, then request Supabase email magic-link verification."""
+    if not SUPABASE_LINK_URL.startswith("https://") or not SUPABASE_LINK_ANON_KEY or not SUPABASE_KEY:
+        raise RuntimeError("SupplyChain14 Auth integration is not configured")
+
+    token = secrets.token_hex(32)
+    pending_payload = {
+        "p_token": token,
+        "p_telegram_user_id": int(telegram_user_id),
+        "p_telegram_username": username or None,
+        "p_full_name": full_name,
+        "p_email": email,
+    }
+    pending_req = urllib.request.Request(
+        SUPABASE_LINK_URL + "/rest/v1/rpc/create_telegram_registration_pending",
+        data=json.dumps(pending_payload).encode("utf-8"),
+        method="POST",
+        headers={
+            "apikey": SUPABASE_KEY,
+            "Authorization": "Bearer " + SUPABASE_KEY,
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        },
+    )
+    with urllib.request.urlopen(pending_req, timeout=15) as response:
+        response.read()
+        if response.status < 200 or response.status >= 300:
+            raise RuntimeError("Could not create pending registration")
+
+    redirect_to = SUPPLYCHAIN14_WEB_URL.rstrip("/") + "/?tg_reg=" + token
+    auth_url = SUPABASE_LINK_URL + "/auth/v1/otp?redirect_to=" + quote(redirect_to, safe="")
+    auth_payload = {
+        "email": email,
+        "create_user": True,
+        "data": {"full_name": full_name},
+    }
+    auth_req = urllib.request.Request(
+        auth_url,
+        data=json.dumps(auth_payload).encode("utf-8"),
+        method="POST",
+        headers={
+            "apikey": SUPABASE_LINK_ANON_KEY,
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        },
+    )
+    try:
+        with urllib.request.urlopen(auth_req, timeout=20) as response:
+            response.read()
+    except Exception as exc:
+        # Do not return provider details or reveal whether an email is registered.
+        raise RuntimeError("Email verification request failed") from exc
+
+
+async def telegram_registration_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if query:
+        await query.answer()
+        message = query.message
+    else:
+        message = update.effective_message
+    if not message or not update.effective_user:
+        return
+    if update.effective_chat and update.effective_chat.type != ChatType.PRIVATE:
+        await message.reply_text("SupplyChain14 ro'yxatdan o'tishi faqat bot bilan shaxsiy chatda ishlaydi.")
+        return
+    context.user_data["_sc14_registration"] = {
+        "step": "name",
+        "started_at": time.time(),
+    }
+    await message.reply_text(
+        "🎓 SupplyChain14 ro'yxatdan o'tish\n\n"
+        "Avval ism-familiyangizni kiriting (2–120 belgi).\n"
+        "Bekor qilish uchun /cancel yuboring."
+    )
+
+
+async def telegram_registration_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data.pop("_sc14_registration", None)
+    await update.effective_message.reply_text("Ro'yxatdan o'tish bekor qilindi.")
+
+
 def _complete_supplychain_telegram_link(code: str, telegram_user_id: int, username: str = ""):
     if not SUPABASE_LINK_URL.startswith("https://") or not SUPABASE_LINK_ANON_KEY:
         raise RuntimeError("SupplyChain14 ulash xizmati sozlanmagan")
@@ -13287,6 +13427,9 @@ def main():
     app.add_handler(CommandHandler("qa", qa_command, filters=filters.ChatType.PRIVATE))
     app.add_handler(CommandHandler(["qa_status", "qastatus"], qa_status_command, filters=filters.ChatType.PRIVATE))
     app.add_handler(CommandHandler("link", telegram_link_command, filters=filters.ChatType.PRIVATE))
+    app.add_handler(CommandHandler("sc14", telegram_registration_start, filters=filters.ChatType.PRIVATE))
+    app.add_handler(CommandHandler("cancel", telegram_registration_cancel, filters=filters.ChatType.PRIVATE))
+    app.add_handler(CallbackQueryHandler(telegram_registration_start, pattern=r"^sc14_register$"))
     app.add_handler(CommandHandler(["musobaqa", "competition"], competition_command, filters=filters.ChatType.PRIVATE))
     app.add_handler(CommandHandler("october", october_command, filters=filters.ChatType.PRIVATE))
     app.add_handler(CommandHandler("october_off", october_off_command, filters=filters.ChatType.PRIVATE))
