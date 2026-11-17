@@ -1693,7 +1693,7 @@ def collapsed_menu(chat_id=None):
 def teacher_menu(chat_id=None):
     if chat_id is None or int(chat_id) not in MENU_OPEN:
         return collapsed_menu(chat_id)
-    rows = [[BTN_NEW_CASE, BTN_GEN_CASE], [BTN_MY_CASES, BTN_STUDENTS], [BTN_FEEDBACK, BTN_ROLE]]
+    rows = [[BTN_SC14], [BTN_NEW_CASE, BTN_GEN_CASE], [BTN_MY_CASES, BTN_STUDENTS], [BTN_FEEDBACK, BTN_ROLE]]
     if OWNER_CHAT_ID is not None and chat_id is not None and int(chat_id) == OWNER_CHAT_ID:
         rows.insert(-1, [BTN_FEEDBACK_INBOX, BTN_STATS])
         rows.insert(-1, [BTN_SUPPLY])
@@ -1704,7 +1704,7 @@ def teacher_menu(chat_id=None):
 def student_menu(chat_id=None):
     if chat_id is None or int(chat_id) not in MENU_OPEN:
         return collapsed_menu(chat_id)
-    rows = [[BTN_START_CASE], [BTN_FEEDBACK]]
+    rows = [[BTN_SC14], [BTN_START_CASE], [BTN_FEEDBACK]]
     if OWNER_CHAT_ID is not None and chat_id is not None and int(chat_id) == OWNER_CHAT_ID:
         rows.append([BTN_FEEDBACK_INBOX, BTN_STATS])
         rows.append([BTN_SUPPLY])
