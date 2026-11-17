@@ -11276,40 +11276,32 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if text.startswith("/") or len(full_name) < 2 or len(full_name) > 120:
                 await update.message.reply_text("Ism-familiyangizni 2–120 belgi oralig'ida kiriting.")
                 return
-            reg["full_name"] = full_name
-            reg["step"] = "email"
-            await update.message.reply_text("📧 Endi email manzilingizni kiriting. Tasdiqlash havolasi shu manzilga yuboriladi.")
-            return
-        if reg.get("step") == "email":
-            email = text.strip().lower()
-            if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email) or len(email) > 320:
-                await update.message.reply_text("Email manzil noto'g'ri ko'rinadi. Masalan: name@example.com")
+            last_created = float(context.user_data.get("_sc14_last_link_created", 0))
+            if time.time() - last_created < 60:
+                await update.message.reply_text("⏳ Xavfsizlik uchun yangi havola yaratishdan oldin biroz kuting.")
                 return
-            last_sent = float(context.user_data.get("_sc14_last_email_sent", 0))
-            if time.time() - last_sent < 60:
-                await update.message.reply_text("⏳ Xavfsizlik uchun email yuborishdan oldin 60 soniya kuting.")
-                return
-            context.user_data["_sc14_last_email_sent"] = time.time()
-            await update.message.reply_text("🔐 Email tasdiqlash havolasi tayyorlanmoqda…")
+            await update.message.reply_text("🔐 Telegram akkauntingiz tekshirilmoqda va ro'yxatdan o'tish havolasi yaratilmoqda…")
             try:
-                await asyncio.to_thread(
-                    _start_telegram_email_registration,
+                registration_url = await asyncio.to_thread(
+                    _start_telegram_password_registration,
                     update.effective_user.id,
                     update.effective_user.username or "",
-                    reg["full_name"],
-                    email,
+                    full_name,
                 )
             except Exception:
-                logger.exception("SupplyChain14 Telegram registration email request failed")
-                await update.message.reply_text("⚠️ Hozir tasdiqlash xatini yuborib bo'lmadi. Emailni tekshirib, birozdan keyin qayta urinib ko'ring.")
+                logger.exception("SupplyChain14 Telegram-first registration link creation failed")
+                await update.message.reply_text("⚠️ Hozir ro'yxatdan o'tish havolasini yaratib bo'lmadi. Birozdan keyin /sc14 orqali qayta urinib ko'ring.")
                 return
+            context.user_data["_sc14_last_link_created"] = time.time()
             context.user_data.pop("_sc14_registration", None)
             await update.message.reply_text(
-                "📩 Tasdiqlash havolasi emailingizga yuborildi.\n\n"
-                "1. Emaildagi SupplyChain14 havolasini oching.\n"
-                "2. Ochilgan sahifada «Tasdiqlash va Telegramni ulash» tugmasini bosing.\n"
-                "3. Shundan keyin shu Telegram profilingiz sayt akkauntingizga ulanadi.\n\n"
-                "Havola 30 daqiqa amal qiladi. Xat ko'rinmasa Spam papkasini ham tekshiring."
+                "✅ Telegram akkauntingiz tasdiqlandi.\n\n"
+                "1. Quyidagi havolani oching.\n"
+                "2. Ism-familiyangiz va parol bilan SupplyChain14 hisobini yarating.\n"
+                "3. Saytda Telegram akkauntingizni ulashni tasdiqlang.\n\n"
+                "Email yoki SMS kerak emas. Havola 30 daqiqa ichida bir marta ishlatiladi.\n\n"
+                + registration_url,
+                disable_web_page_preview=True,
             )
             return
 
@@ -13084,10 +13076,10 @@ async def _supplychain_notification_loop(app):
 
 
 
-def _start_telegram_email_registration(telegram_user_id: int, username: str, full_name: str, email: str):
-    """Create a short-lived Telegram pairing intent, then request Supabase email magic-link verification."""
-    if not SUPABASE_LINK_URL.startswith("https://") or not SUPABASE_LINK_ANON_KEY or not SUPABASE_KEY:
-        raise RuntimeError("SupplyChain14 Auth integration is not configured")
+def _start_telegram_password_registration(telegram_user_id: int, username: str, full_name: str):
+    """Create a short-lived Telegram pairing intent and return its one-time website URL."""
+    if not SUPABASE_LINK_URL.startswith("https://") or not SUPABASE_KEY:
+        raise RuntimeError("SupplyChain14 registration integration is not configured")
 
     token = secrets.token_hex(32)
     pending_payload = {
@@ -13095,7 +13087,6 @@ def _start_telegram_email_registration(telegram_user_id: int, username: str, ful
         "p_telegram_user_id": int(telegram_user_id),
         "p_telegram_username": username or None,
         "p_full_name": full_name,
-        "p_email": email,
     }
     pending_req = urllib.request.Request(
         SUPABASE_LINK_URL + "/rest/v1/rpc/create_telegram_registration_pending",
@@ -13113,29 +13104,11 @@ def _start_telegram_email_registration(telegram_user_id: int, username: str, ful
         if response.status < 200 or response.status >= 300:
             raise RuntimeError("Could not create pending registration")
 
-    redirect_to = SUPPLYCHAIN14_WEB_URL.rstrip("/") + "/?tg_reg=" + token
-    auth_url = SUPABASE_LINK_URL + "/auth/v1/otp?redirect_to=" + quote(redirect_to, safe="")
-    auth_payload = {
-        "email": email,
-        "create_user": True,
-        "data": {"full_name": full_name},
-    }
-    auth_req = urllib.request.Request(
-        auth_url,
-        data=json.dumps(auth_payload).encode("utf-8"),
-        method="POST",
-        headers={
-            "apikey": SUPABASE_LINK_ANON_KEY,
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-        },
+    return (
+        SUPPLYCHAIN14_WEB_URL.rstrip("/")
+        + "/?tg_reg=" + token
+        + "&tg_user=" + str(int(telegram_user_id))
     )
-    try:
-        with urllib.request.urlopen(auth_req, timeout=20) as response:
-            response.read()
-    except Exception as exc:
-        # Do not return provider details or reveal whether an email is registered.
-        raise RuntimeError("Email verification request failed") from exc
 
 
 async def telegram_registration_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
