@@ -12,6 +12,10 @@ Every patch is wrapped so that any failure falls back to the original behaviour.
    _pxb_to_english() treated it as "already English" and never translated it. Every slide then
    searched the same untranslated query and the stock providers ran out of results (1 photo on a
    30-slide deck). Uzbek-looking ASCII queries are now translated to English keywords.
+4. Fantasy/fiction decks: the rule table in build_photorealistic_query() also matched the *deck
+   topic* ("Hogwarts" -> the same "wizard professor classroom" query for every slide), so after ~8
+   photos the stock results were exhausted. Rules now see only each slide's own title/body and the
+   slide title is appended, so every slide searches for something different.
 """
 import asyncio
 import logging
@@ -127,6 +131,24 @@ def apply(mod):
             return await orig_pxb(text, kind)
         mod._pxb_to_english = to_english
         done.append("_pxb_to_english")
+
+    orig_bpq = getattr(mod, "build_photorealistic_query", None)
+    if callable(orig_bpq):
+        def build_query(domain, topic, title, body=""):
+            try:
+                key = re.sub(r"[^a-z0-9]+", " ", str(domain or "").lower()).strip()
+                if key in ("fiction", "fantasy", "remus", "remus lupin"):
+                    base = orig_bpq(domain, "", title, body)
+                    if not base.startswith("cinematic photorealistic live action film still"):
+                        slide_part = re.sub(r"[^A-Za-z0-9 ]+", " ", str(title or "")).strip()
+                        if slide_part:
+                            base = f"{base} {slide_part}"
+                    return base
+            except Exception as exc:
+                log.warning("fiction query patch skipped: %s", exc)
+            return orig_bpq(domain, topic, title, body)
+        mod.build_photorealistic_query = build_query
+        done.append("build_photorealistic_query")
 
     mod._ppt_user_fixes_applied = True
     log.info("ppt_user_fixes applied: %s", ", ".join(done) or "nothing")
