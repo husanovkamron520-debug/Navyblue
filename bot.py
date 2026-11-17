@@ -13088,19 +13088,32 @@ async def telegram_link_command(update: Update, context: ContextTypes.DEFAULT_TY
 
 
 async def competition_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Open the same SupplyChain14 workspace inside Telegram (Mini App)."""
     msg = update.effective_message
     if not msg:
         return
-    keyboard = InlineKeyboardMarkup([[
-        InlineKeyboardButton("🌐 SupplyChain14 platformasini ochish", url=SUPPLYCHAIN14_WEB_URL)
-    ]])
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton(
+            "🚀 SupplyChain14 menyusini ochish",
+            web_app=WebAppInfo(url=SUPPLYCHAIN14_WEB_URL),
+        )],
+        [InlineKeyboardButton(
+            "🌐 Brauzerda ochish",
+            url=SUPPLYCHAIN14_WEB_URL,
+        )],
+    ])
     await msg.reply_text(
-        "🏭 SupplyChain14 — musobaqa va ta’minot zanjiri simulyatsiyasi.\n\n"
-        "1. Platformani oching va akkauntingizga kiring.\n"
-        "2. O‘qituvchi bergan guruh kodidan foydalanib sinfga qo‘shiling.\n"
-        "3. Musobaqa boshlanganida jamoangiz, rolingiz va topshiriqlaringiz platformada ko‘rinadi.\n\n"
-        "Telegramni ulash: saytda kod yarating va botga /link KOD yuboring. Musobaqa amallari platformada bajariladi.",
+        "🏭 *SupplyChain14 — yagona musobaqa menyusi*\n\n"
+        "Telegram ichida ochish tugmasini bosing. Sayt va bot bir xil "
+        "musobaqa ma’lumotlaridan foydalanadi.\n\n"
+        "1. Akkauntingizga kiring.\n"
+        "2. Jamoangiz va lavozimingizni oching.\n"
+        "3. Case topshirig‘ini bajaring va javobingizni yuboring.\n"
+        "4. AI bahosi va izohini shu platformada ko‘ring.\n\n"
+        "Agar akkaunt hali bog‘lanmagan bo‘lsa, saytda Telegram ulash kodini "
+        "yarating va botga /link KOD yuboring.",
         reply_markup=keyboard,
+        parse_mode="Markdown",
         disable_web_page_preview=True,
     )
 
