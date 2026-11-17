@@ -11,7 +11,8 @@ Every patch is wrapped so that any failure falls back to the original behaviour.
 3. Photo search language: Uzbek written in Latin letters is plain ASCII, so the original
    _pxb_to_english() treated it as "already English" and never translated it. Every slide then
    searched the same untranslated query and the stock providers ran out of results (1 photo on a
-   30-slide deck). Uzbek-looking ASCII queries are now translated to English keywords.
+   30-slide deck). Uzbek-looking ASCII queries are now translated to English keywords, all of a
+   deck's queries in ONE batched AI request (the Gemini free tier allows only a few per minute).
 4. Fantasy/fiction decks: the rule table in build_photorealistic_query() also matched the *deck
    topic* ("Hogwarts" -> the same "wizard professor classroom" query for every slide), so after ~8
    photos the stock results were exhausted. Rules now see only each slide's own title/body and the
@@ -134,23 +135,57 @@ def apply(mod):
     orig_pxb = getattr(mod, "_pxb_to_english", None)
     needs = getattr(mod, "needs_english_stock_translation", None)
     if callable(orig_pxb) and callable(needs):
+        cache, pending, state = {}, [], {"scheduled": False}
+
+        async def flush():
+            await asyncio.sleep(0.8)          # let all slides of the deck queue up first
+            batch = list(pending)
+            pending.clear()
+            state["scheduled"] = False
+            keys = []
+            for key, _kind, _fut in batch:
+                if key not in keys and key not in cache:
+                    keys.append(key)
+            if keys:
+                try:
+                    keys = keys[:40]
+                    lines = "\n".join(f"{i + 1}. {k[:200]}" for i, k in enumerate(keys))
+                    prompt = ("Each numbered line is a stock-photo search request (Uzbek written in Latin letters). "
+                              "Convert EACH one into 2-4 concise, SPECIFIC ENGLISH keywords for a stock website. "
+                              "Keep the main subject noun first and keep important details (object, place, action). "
+                              "Do not add words that were not requested. "
+                              "Return ONLY JSON mapping the line number to the keywords, e.g. {\"1\": \"...\", \"2\": \"...\"}.\n"
+                              + lines)
+                    async with mod.ai_gate:
+                        out = await asyncio.wait_for(
+                            asyncio.to_thread(mod._ai_generate_text_sync, prompt, 0.1, 40 * 40 + 200, True), timeout=60)
+                    data = mod._json_loads_loose(out) or {}
+                    for i, k in enumerate(keys):
+                        q = str(data.get(str(i + 1)) or "").strip()
+                        if q and re.search(r"[A-Za-z]", q):
+                            cache[k] = q[:100]
+                except Exception as exc:
+                    log.warning("uzbek->english batch translation failed, using original flow: %s", exc)
+            for key, _kind, fut in batch:
+                if not fut.done():
+                    fut.set_result(cache.get(key))
+
         async def to_english(text, kind="photo"):
             raw = (text or "").strip()
             try:
                 if raw and re.fullmatch(r"[A-Za-z0-9 ,.\-]+", raw) and needs(raw):
                     cleaned = re.sub(r"\s+", " ", _FILLER.sub(" ", raw)).strip()
                     if cleaned:
-                        what = "video" if kind == "video" else "photo"
-                        prompt = (f"Convert this stock-{what} search request (Uzbek written in Latin letters) into 2-4 concise, "
-                                  "SPECIFIC ENGLISH keywords for a stock website. Keep the main subject noun first and keep every "
-                                  "important detail (object, place, action). Do not add words that were not requested. "
-                                  f"Return ONLY JSON: {{\"q\": \"...\"}}.\nRequest: {cleaned[:200]}")
-                        async with mod.ai_gate:
-                            out = await asyncio.wait_for(
-                                asyncio.to_thread(mod._ai_generate_text_sync, prompt, 0.1, 200, True), timeout=45)
-                        q = str((mod._json_loads_loose(out) or {}).get("q") or "").strip()
-                        if q and re.search(r"[A-Za-z]", q):
-                            return q[:100], True
+                        if cleaned in cache:
+                            return cache[cleaned], True
+                        fut = asyncio.get_running_loop().create_future()
+                        pending.append((cleaned, kind, fut))
+                        if not state["scheduled"]:
+                            state["scheduled"] = True
+                            asyncio.ensure_future(flush())
+                        q = await fut
+                        if q:
+                            return q, True
             except Exception as exc:
                 log.warning("uzbek->english translation failed, using original flow: %s", exc)
             return await orig_pxb(text, kind)
