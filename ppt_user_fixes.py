@@ -16,6 +16,11 @@ Every patch is wrapped so that any failure falls back to the original behaviour.
    topic* ("Hogwarts" -> the same "wizard professor classroom" query for every slide), so after ~8
    photos the stock results were exhausted. Rules now see only each slide's own title/body and the
    slide title is appended, so every slide searches for something different.
+5. Niche topics (e.g. "Remus Lupin character analysis"): stock sites know nothing about the
+   character, and the slide's own scene query ("werewolf silhouette full moon ...") was only
+   searched together with that name, so nothing was found. For fantasy scenes, when the normal
+   search finds nothing, the scene itself is searched.
+6. Texts cut with "..." in the middle of a sentence are now cut at a sentence/clause boundary.
 """
 import asyncio
 import logging
@@ -28,6 +33,26 @@ import time
 log = logging.getLogger("ppt_user_fixes")
 
 _FILLER = re.compile(r"\b(?:photorealistic|editorial|photograph|photography|natural|cinematic|lighting|documentary|render)\b", re.I)
+_SCENE_HINT = re.compile(r"fantasy|wizard|witch|werewolf|gothic|castle|moonlit|spectral|parchment|film still|magic", re.I)
+_SCENE_STOP = {"cinematic", "photorealistic", "film", "still", "natural", "dramatic", "lighting",
+               "live", "action", "with", "and", "the", "light"}
+
+
+def _finish_sentence(out):
+    """Turn 'half a sentence...' into a complete clause when a clean boundary exists."""
+    if not isinstance(out, str) or not out.endswith("\u2026"):
+        return out
+    body = out[:-1].rstrip()
+    for sep in (". ", "! ", "? "):
+        i = body.rfind(sep)
+        if i >= len(body) * 0.4:
+            return body[:i + 1]
+    cut = max(body.rfind(", "), body.rfind("; "), body.rfind(": "), body.rfind(" \u2014 "))
+    if cut >= len(body) * 0.55:
+        return body[:cut].rstrip(" ,;:\u2014-") + "."
+    return out
+
+
 _NOUNS = r"(?:slayd|slayt|slide|slaid|sahifa|bet|varoq|taqdimot|prezentatsiya|presentatsiya|prezentatsiyasi|ppt|pptx)"
 _COUNT_PATTERNS = (
     re.compile(r"(?<!\d)(\d{1,2})\s*(?:ta|talik|tali)?\s*" + _NOUNS, re.I),
@@ -149,6 +174,34 @@ def apply(mod):
             return orig_bpq(domain, topic, title, body)
         mod.build_photorealistic_query = build_query
         done.append("build_photorealistic_query")
+
+    orig_find = getattr(mod, "_ppt_find_photo_sync", None)
+    if callable(orig_find):
+        def find_photo(query, anchor, used, historical=False):
+            res = orig_find(query, anchor, used, historical)
+            if res is not None or historical:
+                return res
+            try:
+                if _SCENE_HINT.search(str(query or "")):
+                    words = [w for w in re.findall(r"[A-Za-z]{4,}", str(query)) if w.lower() not in _SCENE_STOP]
+                    alt = " ".join(words[:3])
+                    if alt:
+                        return orig_find(query, alt, used, historical)
+            except Exception as exc:
+                log.warning("scene photo retry skipped: %s", exc)
+            return res
+        mod._ppt_find_photo_sync = find_photo
+        done.append("_ppt_find_photo_sync")
+
+    for clip_name in ("_ppt_s", "_ppt_clip"):
+        orig_clip = getattr(mod, clip_name, None)
+        if callable(orig_clip):
+            def make(orig):
+                def clip(*args, **kwargs):
+                    return _finish_sentence(orig(*args, **kwargs))
+                return clip
+            setattr(mod, clip_name, make(orig_clip))
+            done.append(clip_name)
 
     mod._ppt_user_fixes_applied = True
     log.info("ppt_user_fixes applied: %s", ", ".join(done) or "nothing")
