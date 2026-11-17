@@ -13104,11 +13104,7 @@ def _start_telegram_password_registration(telegram_user_id: int, username: str, 
         if response.status < 200 or response.status >= 300:
             raise RuntimeError("Could not create pending registration")
 
-    return (
-        SUPPLYCHAIN14_WEB_URL.rstrip("/")
-        + "/?tg_reg=" + token
-        + "&tg_user=" + str(int(telegram_user_id))
-    )
+    return SUPPLYCHAIN14_WEB_URL.rstrip("/") + "/?tg_reg=" + token
 
 
 async def telegram_registration_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
