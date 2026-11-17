@@ -479,6 +479,7 @@ USAGE_FILE = "usage.json"
 OMBOR_FILE = "ombor_results.json"
 PUZZLE_FILE = "puzzle_results.json"
 BTN_EDU = "📚 Ta'lim"
+BTN_SC14 = "🎓 SupplyChain14"
 BTN_SUPPLY = "🚚 Supply Chain"
 BTN_SLIDE = "📊 Slide"
 BTN_CROSS = "🧩 Krossvord"
@@ -1680,7 +1681,7 @@ async def ai_grade(case, answer):
 # ============================================================
 def collapsed_menu(chat_id=None):
     # Foto/video qidiruv tugmalari faqat bot egasiga ko'rsatiladi.
-    rows = [[BTN_EDU], [BTN_SLIDE, BTN_CROSS]]
+    rows = [[BTN_EDU], [BTN_SC14], [BTN_SLIDE, BTN_CROSS]]
     if chat_id is not None and is_bot_owner(chat_id):
         rows.append([BTN_SUPPLY])
         rows.append([BTN_VIDEO, BTN_FOTO])
@@ -11316,6 +11317,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if _is_btn:
         for _k in ("_dg_wait", "_src_wait", "_sc_wait"):
             context.user_data.pop(_k, None)
+    if text == BTN_SC14:
+        await telegram_registration_start(update, context)
+        return
     if text == BTN_SUPPLY:
         await supply_chain.open_supply(update, context)
         return
