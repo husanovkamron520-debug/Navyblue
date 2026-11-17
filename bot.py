@@ -13254,8 +13254,8 @@ async def competition_command(update: Update, context: ContextTypes.DEFAULT_TYPE
         "2. Jamoangiz va lavozimingizni oching.\n"
         "3. Case topshirig‘ini bajaring va javobingizni yuboring.\n"
         "4. AI bahosi va izohini shu platformada ko‘ring.\n\n"
-        "Agar akkaunt hali bog‘lanmagan bo‘lsa, saytda Telegram ulash kodini "
-        "yarating va botga /link KOD yuboring.",
+        "Yangi akkaunt yaratish va emailni tasdiqlash uchun botda /sc14 yuboring. "
+        "Mavjud sayt akkauntini ulash uchun saytdagi Telegram ulash kodini yaratib, botga /link KOD yuboring.",
         reply_markup=keyboard,
         parse_mode="Markdown",
         disable_web_page_preview=True,
