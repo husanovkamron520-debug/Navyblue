@@ -10,6 +10,8 @@ import asyncio
 import threading
 import uuid
 import hashlib
+import secrets
+from urllib.parse import quote
 import html
 import copy
 import ast
@@ -477,6 +479,7 @@ USAGE_FILE = "usage.json"
 OMBOR_FILE = "ombor_results.json"
 PUZZLE_FILE = "puzzle_results.json"
 BTN_EDU = "📚 Ta'lim"
+BTN_SC14 = "🎓 SupplyChain14"
 BTN_SUPPLY = "🚚 Supply Chain"
 BTN_SLIDE = "📊 Slide"
 BTN_CROSS = "🧩 Krossvord"
@@ -1678,7 +1681,7 @@ async def ai_grade(case, answer):
 # ============================================================
 def collapsed_menu(chat_id=None):
     # Foto/video qidiruv tugmalari faqat bot egasiga ko'rsatiladi.
-    rows = [[BTN_EDU], [BTN_SLIDE, BTN_CROSS]]
+    rows = [[BTN_EDU], [BTN_SC14], [BTN_SLIDE, BTN_CROSS]]
     if chat_id is not None and is_bot_owner(chat_id):
         rows.append([BTN_SUPPLY])
         rows.append([BTN_VIDEO, BTN_FOTO])
@@ -1690,7 +1693,7 @@ def collapsed_menu(chat_id=None):
 def teacher_menu(chat_id=None):
     if chat_id is None or int(chat_id) not in MENU_OPEN:
         return collapsed_menu(chat_id)
-    rows = [[BTN_NEW_CASE, BTN_GEN_CASE], [BTN_MY_CASES, BTN_STUDENTS], [BTN_FEEDBACK, BTN_ROLE]]
+    rows = [[BTN_SC14], [BTN_NEW_CASE, BTN_GEN_CASE], [BTN_MY_CASES, BTN_STUDENTS], [BTN_FEEDBACK, BTN_ROLE]]
     if OWNER_CHAT_ID is not None and chat_id is not None and int(chat_id) == OWNER_CHAT_ID:
         rows.insert(-1, [BTN_FEEDBACK_INBOX, BTN_STATS])
         rows.insert(-1, [BTN_SUPPLY])
@@ -1701,7 +1704,7 @@ def teacher_menu(chat_id=None):
 def student_menu(chat_id=None):
     if chat_id is None or int(chat_id) not in MENU_OPEN:
         return collapsed_menu(chat_id)
-    rows = [[BTN_START_CASE], [BTN_FEEDBACK]]
+    rows = [[BTN_SC14], [BTN_START_CASE], [BTN_FEEDBACK]]
     if OWNER_CHAT_ID is not None and chat_id is not None and int(chat_id) == OWNER_CHAT_ID:
         rows.append([BTN_FEEDBACK_INBOX, BTN_STATS])
         rows.append([BTN_SUPPLY])
@@ -1711,12 +1714,19 @@ def student_menu(chat_id=None):
 
 
 async def show_role_picker(message):
-    keyboard = [[
-        InlineKeyboardButton("👨‍🏫 O'qituvchi sifatida kirish", callback_data="role_teacher"),
-        InlineKeyboardButton("👨‍🎓 Talaba sifatida kirish", callback_data="role_student"),
-    ]]
+    keyboard = [
+        [InlineKeyboardButton("🎓 SupplyChain14 ro'yxatdan o'tish", callback_data="sc14_register")],
+        [
+            InlineKeyboardButton("👨‍🏫 O'qituvchi sifatida kirish", callback_data="role_teacher"),
+            InlineKeyboardButton("👨‍🎓 Talaba sifatida kirish", callback_data="role_student"),
+        ],
+    ]
     await message.reply_text(
-        "👋 Assalomu alaykum! Botga xush kelibsiz.\n\nQaysi rejimda foydalanmoqchisiz?",
+        "👋 Assalomu alaykum! Botga xush kelibsiz.\n\n"
+        "SupplyChain14 platformasiga ro'yxatdan o'tish uchun yuqoridagi tugmani bosing. "
+        "Email talab qilinmaydi — sayt akkauntingiz Telegram bilan bog'lanadi.\n\n"
+        "Parolni unutgan bo'lsangiz: /sc14_reset\n\n"
+        "Pastdagi eski bot rejimlari ham saqlangan.",
         reply_markup=InlineKeyboardMarkup(keyboard),
     )
 
@@ -11254,10 +11264,55 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     user_id = str(chat_id)
     text = (update.message.text or "").strip()
+
+    # SupplyChain14 Telegram-first registration takes priority over the legacy bot menu.
+    reg = context.user_data.get("_sc14_registration")
+    if reg:
+        if time.time() - float(reg.get("started_at", 0)) > 900:
+            context.user_data.pop("_sc14_registration", None)
+            await update.message.reply_text("⏳ Ro'yxatdan o'tish vaqti tugadi. Qayta boshlash: /sc14")
+            return
+        if reg.get("step") == "name":
+            full_name = " ".join(text.split())
+            if text.startswith("/") or len(full_name) < 2 or len(full_name) > 120:
+                await update.message.reply_text("Ism-familiyangizni 2–120 belgi oralig'ida kiriting.")
+                return
+            last_created = float(context.user_data.get("_sc14_last_link_created", 0))
+            if time.time() - last_created < 60:
+                await update.message.reply_text("⏳ Xavfsizlik uchun yangi havola yaratishdan oldin biroz kuting.")
+                return
+            await update.message.reply_text("🔐 Telegram akkauntingiz tekshirilmoqda va ro'yxatdan o'tish havolasi yaratilmoqda…")
+            try:
+                registration_url = await asyncio.to_thread(
+                    _start_telegram_password_registration,
+                    update.effective_user.id,
+                    update.effective_user.username or "",
+                    full_name,
+                )
+            except Exception:
+                logger.exception("SupplyChain14 Telegram-first registration link creation failed")
+                await update.message.reply_text("⚠️ Hozir ro'yxatdan o'tish havolasini yaratib bo'lmadi. Birozdan keyin /sc14 orqali qayta urinib ko'ring.")
+                return
+            context.user_data["_sc14_last_link_created"] = time.time()
+            context.user_data.pop("_sc14_registration", None)
+            await update.message.reply_text(
+                "✅ Telegram akkauntingiz tasdiqlandi.\n\n"
+                "1. Quyidagi havolani oching.\n"
+                "2. Ism-familiyangiz va parol bilan SupplyChain14 hisobini yarating.\n"
+                "3. Saytda Telegram akkauntingizni ulashni tasdiqlang.\n\n"
+                "Email yoki SMS kerak emas. Havola 30 daqiqa ichida bir marta ishlatiladi.\n\n"
+                + registration_url,
+                disable_web_page_preview=True,
+            )
+            return
+
     _is_btn = text in {v for k, v in globals().items() if k.startswith("BTN_") and isinstance(v, str)}
     if _is_btn:
         for _k in ("_dg_wait", "_src_wait", "_sc_wait"):
             context.user_data.pop(_k, None)
+    if text == BTN_SC14:
+        await telegram_registration_start(update, context)
+        return
     if text == BTN_SUPPLY:
         await supply_chain.open_supply(update, context)
         return
@@ -13022,6 +13077,121 @@ async def _supplychain_notification_loop(app):
 
 
 
+def _start_telegram_password_recovery(telegram_user_id: int):
+    """Create a 15-minute one-time password reset link for a linked Telegram account."""
+    if not SUPABASE_LINK_URL.startswith("https://") or not SUPABASE_KEY:
+        raise RuntimeError("SupplyChain14 recovery integration is not configured")
+
+    token = secrets.token_hex(32)
+    payload = {"p_token": token, "p_telegram_user_id": int(telegram_user_id)}
+    req = urllib.request.Request(
+        SUPABASE_LINK_URL + "/rest/v1/rpc/create_telegram_password_recovery_pending",
+        data=json.dumps(payload).encode("utf-8"),
+        method="POST",
+        headers={
+            "apikey": SUPABASE_KEY,
+            "Authorization": "Bearer " + SUPABASE_KEY,
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        },
+    )
+    with urllib.request.urlopen(req, timeout=15) as response:
+        response.read()
+        if response.status < 200 or response.status >= 300:
+            raise RuntimeError("Could not create password recovery link")
+    return SUPPLYCHAIN14_WEB_URL.rstrip("/") + "/?tg_reset=" + token
+
+
+async def telegram_password_recovery_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    message = update.effective_message
+    user = update.effective_user
+    if not message or not user or (update.effective_chat and update.effective_chat.type != ChatType.PRIVATE):
+        if message:
+            await message.reply_text("Parolni tiklash faqat botning shaxsiy chatida ishlaydi.")
+        return
+    last_request = float(context.user_data.get("_sc14_recovery_last", 0))
+    if time.time() - last_request < 60:
+        await message.reply_text("⏳ Xavfsizlik uchun parol tiklash havolasini 60 soniyada bir marta so‘rash mumkin.")
+        return
+    context.user_data["_sc14_recovery_last"] = time.time()
+    await message.reply_text("🔐 SupplyChain14 parolni tiklash havolasi tayyorlanmoqda…")
+    try:
+        recovery_url = await asyncio.to_thread(_start_telegram_password_recovery, user.id)
+    except Exception:
+        logger.info("Telegram password recovery request unavailable for user id=%s", user.id)
+        await message.reply_text(
+            "⚠️ Bu Telegram akkauntiga SupplyChain14 hisob bog‘langan bo‘lishi kerak. "
+            "Agar hisobingiz bog‘langan bo‘lsa, keyinroq qayta urinib ko‘ring."
+        )
+        return
+    await message.reply_text(
+        "🔐 Parolni tiklash\\n\\n"
+        "Havolani oching va yangi parol kiriting. Havola 15 daqiqa amal qiladi, "
+        "bir marta ishlatiladi.\\n\\n"
+        + recovery_url,
+        disable_web_page_preview=True,
+    )
+
+
+def _start_telegram_password_registration(telegram_user_id: int, username: str, full_name: str):
+    """Create a short-lived Telegram pairing intent and return its one-time website URL."""
+    if not SUPABASE_LINK_URL.startswith("https://") or not SUPABASE_KEY:
+        raise RuntimeError("SupplyChain14 registration integration is not configured")
+
+    token = secrets.token_hex(32)
+    pending_payload = {
+        "p_token": token,
+        "p_telegram_user_id": int(telegram_user_id),
+        "p_telegram_username": username or None,
+        "p_full_name": full_name,
+    }
+    pending_req = urllib.request.Request(
+        SUPABASE_LINK_URL + "/rest/v1/rpc/create_telegram_registration_pending",
+        data=json.dumps(pending_payload).encode("utf-8"),
+        method="POST",
+        headers={
+            "apikey": SUPABASE_KEY,
+            "Authorization": "Bearer " + SUPABASE_KEY,
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        },
+    )
+    with urllib.request.urlopen(pending_req, timeout=15) as response:
+        response.read()
+        if response.status < 200 or response.status >= 300:
+            raise RuntimeError("Could not create pending registration")
+
+    return SUPPLYCHAIN14_WEB_URL.rstrip("/") + "/?tg_reg=" + token
+
+
+async def telegram_registration_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if query:
+        await query.answer()
+        message = query.message
+    else:
+        message = update.effective_message
+    if not message or not update.effective_user:
+        return
+    if update.effective_chat and update.effective_chat.type != ChatType.PRIVATE:
+        await message.reply_text("SupplyChain14 ro'yxatdan o'tishi faqat bot bilan shaxsiy chatda ishlaydi.")
+        return
+    context.user_data["_sc14_registration"] = {
+        "step": "name",
+        "started_at": time.time(),
+    }
+    await message.reply_text(
+        "🎓 SupplyChain14 ro'yxatdan o'tish\n\n"
+        "Avval ism-familiyangizni kiriting (2–120 belgi).\n"
+        "Bekor qilish uchun /cancel yuboring."
+    )
+
+
+async def telegram_registration_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data.pop("_sc14_registration", None)
+    await update.effective_message.reply_text("Ro'yxatdan o'tish bekor qilindi.")
+
+
 def _complete_supplychain_telegram_link(code: str, telegram_user_id: int, username: str = ""):
     if not SUPABASE_LINK_URL.startswith("https://") or not SUPABASE_LINK_ANON_KEY:
         raise RuntimeError("SupplyChain14 ulash xizmati sozlanmagan")
@@ -13088,19 +13258,32 @@ async def telegram_link_command(update: Update, context: ContextTypes.DEFAULT_TY
 
 
 async def competition_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Open the same SupplyChain14 workspace inside Telegram (Mini App)."""
     msg = update.effective_message
     if not msg:
         return
-    keyboard = InlineKeyboardMarkup([[
-        InlineKeyboardButton("🌐 SupplyChain14 platformasini ochish", url=SUPPLYCHAIN14_WEB_URL)
-    ]])
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton(
+            "🚀 SupplyChain14 menyusini ochish",
+            web_app=WebAppInfo(url=SUPPLYCHAIN14_WEB_URL),
+        )],
+        [InlineKeyboardButton(
+            "🌐 Brauzerda ochish",
+            url=SUPPLYCHAIN14_WEB_URL,
+        )],
+    ])
     await msg.reply_text(
-        "🏭 SupplyChain14 — musobaqa va ta’minot zanjiri simulyatsiyasi.\n\n"
-        "1. Platformani oching va akkauntingizga kiring.\n"
-        "2. O‘qituvchi bergan guruh kodidan foydalanib sinfga qo‘shiling.\n"
-        "3. Musobaqa boshlanganida jamoangiz, rolingiz va topshiriqlaringiz platformada ko‘rinadi.\n\n"
-        "Telegramni ulash: saytda kod yarating va botga /link KOD yuboring. Musobaqa amallari platformada bajariladi.",
+        "🏭 *SupplyChain14 — yagona musobaqa menyusi*\n\n"
+        "Telegram ichida ochish tugmasini bosing. Sayt va bot bir xil "
+        "musobaqa ma’lumotlaridan foydalanadi.\n\n"
+        "1. Akkauntingizga kiring.\n"
+        "2. Jamoangiz va lavozimingizni oching.\n"
+        "3. Case topshirig‘ini bajaring va javobingizni yuboring.\n"
+        "4. AI bahosi va izohini shu platformada ko‘ring.\n\n"
+        "Yangi akkaunt yaratish va emailni tasdiqlash uchun botda /sc14 yuboring. "
+        "Mavjud sayt akkauntini ulash uchun saytdagi Telegram ulash kodini yaratib, botga /link KOD yuboring.",
         reply_markup=keyboard,
+        parse_mode="Markdown",
         disable_web_page_preview=True,
     )
 
@@ -13274,6 +13457,10 @@ def main():
     app.add_handler(CommandHandler("qa", qa_command, filters=filters.ChatType.PRIVATE))
     app.add_handler(CommandHandler(["qa_status", "qastatus"], qa_status_command, filters=filters.ChatType.PRIVATE))
     app.add_handler(CommandHandler("link", telegram_link_command, filters=filters.ChatType.PRIVATE))
+    app.add_handler(CommandHandler("sc14", telegram_registration_start, filters=filters.ChatType.PRIVATE))
+    app.add_handler(CommandHandler("sc14_reset", telegram_password_recovery_start, filters=filters.ChatType.PRIVATE))
+    app.add_handler(CommandHandler("cancel", telegram_registration_cancel, filters=filters.ChatType.PRIVATE))
+    app.add_handler(CallbackQueryHandler(telegram_registration_start, pattern=r"^sc14_register$"))
     app.add_handler(CommandHandler(["musobaqa", "competition"], competition_command, filters=filters.ChatType.PRIVATE))
     app.add_handler(CommandHandler("october", october_command, filters=filters.ChatType.PRIVATE))
     app.add_handler(CommandHandler("october_off", october_off_command, filters=filters.ChatType.PRIVATE))
