@@ -13119,10 +13119,9 @@ async def telegram_password_recovery_start(update: Update, context: ContextTypes
         )
         return
     await message.reply_text(
-        "🔐 Parolni tiklash
-\n"
+        "🔐 Parolni tiklash\\n\\n"
         "Havolani oching va yangi parol kiriting. Havola 15 daqiqa amal qiladi, "
-        "bir marta ishlatiladi.\n\n"
+        "bir marta ishlatiladi.\\n\\n"
         + recovery_url,
         disable_web_page_preview=True,
     )
