@@ -1723,8 +1723,8 @@ async def show_role_picker(message):
     ]
     await message.reply_text(
         "👋 Assalomu alaykum! Botga xush kelibsiz.\n\n"
-        "SupplyChain14 platformasiga kirish uchun yuqoridagi ro'yxatdan o'tish tugmasini bosing. "
-        "Emailingiz tasdiqlangach, sayt va Telegram bitta akkaunt bo'ladi.\n\n"
+        "SupplyChain14 platformasiga ro'yxatdan o'tish uchun yuqoridagi tugmani bosing. "
+        "Email talab qilinmaydi — sayt akkauntingiz Telegram bilan bog'lanadi.\n\n"
         "Pastdagi eski bot rejimlari ham saqlangan.",
         reply_markup=InlineKeyboardMarkup(keyboard),
     )
