@@ -11283,7 +11283,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
             await update.message.reply_text("🔐 Telegram akkauntingiz tekshirilmoqda va ro'yxatdan o'tish havolasi yaratilmoqda…")
             try:
-                registration_url = await asyncio.to_thread(
+                registration_result = await asyncio.to_thread(
                     _start_telegram_password_registration,
                     update.effective_user.id,
                     update.effective_user.username or "",
@@ -11295,15 +11295,25 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
             context.user_data["_sc14_last_link_created"] = time.time()
             context.user_data.pop("_sc14_registration", None)
-            await update.message.reply_text(
-                "✅ Telegram akkauntingiz tasdiqlandi.\n\n"
-                "1. Quyidagi havolani oching.\n"
-                "2. Ism-familiyangiz va parol bilan SupplyChain14 hisobini yarating.\n"
-                "3. Saytda Telegram akkauntingizni ulashni tasdiqlang.\n\n"
-                "Email yoki SMS kerak emas. Havola 30 daqiqa ichida bir marta ishlatiladi.\n\n"
-                + registration_url,
-                disable_web_page_preview=True,
-            )
+            if registration_result.get("mode") == "login":
+                await update.message.reply_text(
+                    "ℹ️ Bu Telegram akkauntingiz SupplyChain14 hisobiga avvaldan ulangan.\n\n"
+                    "Saytni oching va avval ishlatgan emailingiz hamda parolingiz bilan tizimga kiring. "
+                    "Yangi akkaunt yaratishingiz yoki Telegramni qayta ulashingiz shart emas.\n\n"
+                    + registration_result["url"],
+                    disable_web_page_preview=True,
+                )
+            else:
+                await update.message.reply_text(
+                    "✅ Telegram akkauntingiz tasdiqlandi.\n\n"
+                    "1. Quyidagi havolani oching.\n"
+                    "2. Agar saytda akkauntingiz bo'lsa, eski emailingiz va parolingiz bilan kiring; "
+                    "yangi akkaunt yaratmang.\n"
+                    "3. Telegram akkauntingizni ulashni tasdiqlang.\n\n"
+                    "Email yoki SMS kerak emas. Havola 30 daqiqa ichida bir marta ishlatiladi.\n\n"
+                    + registration_result["url"],
+                    disable_web_page_preview=True,
+                )
             return
 
     _is_btn = text in {v for k, v in globals().items() if k.startswith("BTN_") and isinstance(v, str)}
@@ -13156,12 +13166,30 @@ def _start_telegram_password_registration(telegram_user_id: int, username: str, 
             "Accept": "application/json",
         },
     )
-    with urllib.request.urlopen(pending_req, timeout=15) as response:
-        response.read()
-        if response.status < 200 or response.status >= 300:
-            raise RuntimeError("Could not create pending registration")
+    try:
+        with urllib.request.urlopen(pending_req, timeout=15) as response:
+            response.read()
+            if response.status < 200 or response.status >= 300:
+                raise RuntimeError("Could not create pending registration")
+    except Exception as exc:
+        # A Telegram account already linked to an existing SupplyChain14 user
+        # should receive the normal sign-in URL, not a new-registration error.
+        error_body = ""
+        try:
+            error_body = exc.read().decode("utf-8", errors="replace")
+        except Exception:
+            pass
+        if "This Telegram account is already linked" in error_body:
+            return {
+                "mode": "login",
+                "url": SUPPLYCHAIN14_WEB_URL.rstrip("/") + "/",
+            }
+        raise
 
-    return SUPPLYCHAIN14_WEB_URL.rstrip("/") + "/?tg_reg=" + token
+    return {
+        "mode": "register",
+        "url": SUPPLYCHAIN14_WEB_URL.rstrip("/") + "/?tg_reg=" + token,
+    }
 
 
 async def telegram_registration_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
