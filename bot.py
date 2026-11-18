@@ -13109,6 +13109,11 @@ async def telegram_password_recovery_start(update: Update, context: ContextTypes
         if message:
             await message.reply_text("Parolni tiklash faqat botning shaxsiy chatida ishlaydi.")
         return
+    last_request = float(context.user_data.get("_sc14_recovery_last", 0))
+    if time.time() - last_request < 60:
+        await message.reply_text("⏳ Xavfsizlik uchun parol tiklash havolasini 60 soniyada bir marta so‘rash mumkin.")
+        return
+    context.user_data["_sc14_recovery_last"] = time.time()
     await message.reply_text("🔐 SupplyChain14 parolni tiklash havolasi tayyorlanmoqda…")
     try:
         recovery_url = await asyncio.to_thread(_start_telegram_password_recovery, user.id)
