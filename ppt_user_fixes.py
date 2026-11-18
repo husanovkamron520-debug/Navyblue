@@ -22,8 +22,14 @@ Every patch is wrapped so that any failure falls back to the original behaviour.
    searched together with that name, so nothing was found. For fantasy scenes, when the normal
    search finds nothing, the scene itself is searched.
 6. Texts cut with "..." in the middle of a sentence are now cut at a sentence/clause boundary.
+7. New layouts (waterfall / swimlane / network / quote): the sanitizer DROPPED a slide whose
+   structured data was incomplete (e.g. a network with < 3 links, a quote without a source), so the
+   deck came out short and needed extra AI calls. Such slides are now demoted to plain text slides.
+8. Language button: the slide-count keyboard gets a row "Uz / English / Russian". The chosen
+   language is applied to the whole deck generation (AI prompts get an output-language rule).
 """
 import asyncio
+import contextvars
 import logging
 import os
 import re
@@ -80,6 +86,158 @@ def _strip_count(topic, n):
     return re.sub(r"\s+", " ", cleaned).strip(" |,;:-")
 
 
+_LANGS = {"uz": ("\U0001F1FA\U0001F1FF O'zbekcha", "O'zbek (Uzbek, Latin script)"),
+          "en": ("\U0001F1EC\U0001F1E7 English", "English"),
+          "ru": ("\U0001F1F7\U0001F1FA \u0420\u0443\u0441\u0441\u043a\u0438\u0439", "Russian (\u0420\u0443\u0441\u0441\u043a\u0438\u0439)")}
+_lang_var = contextvars.ContextVar("ppt_lang", default="uz")
+_LANG_MARK = "OUTPUT LANGUAGE RULE"
+_LANG_HINTS = (
+    ("en", re.compile(r"\b(?:inglizcha|ingliz\s+tilida|english|in\s+english)\b", re.I)),
+    ("ru", re.compile(r"\b(?:ruscha|rus\s+tilida|russian|in\s+russian)\b|\u043d\u0430\s+\u0440\u0443\u0441\u0441\u043a\u043e\u043c|\u043f\u043e-\u0440\u0443\u0441\u0441\u043a\u0438", re.I)),
+)
+
+
+def _with_lang(prompt, lang):
+    """Append the output-language rule to outline-generation prompts (the ones that define layouts)."""
+    if lang == "uz" or not isinstance(prompt, str) or _LANG_MARK in prompt or '"layout"' not in prompt:
+        return prompt
+    name = _LANGS[lang][1]
+    return (prompt + f"\n\n{_LANG_MARK}: write EVERY user-visible text value (titles, subtitles, text, notes, card heads, labels, "
+            f"steps, captions, quotes, takeaways) in {name}. Keep JSON keys, layout names, enum values and "
+            "photo_query / topic_en / cover_query exactly as specified (photo and image queries stay in English).")
+
+
+def _caller_user_data():
+    """user_data of the Telegram handler that is building the keyboard (looks for a `context` local)."""
+    try:
+        frame = sys._getframe(2)
+        for _ in range(6):
+            if frame is None:
+                break
+            ctx = frame.f_locals.get("context")
+            ud = getattr(ctx, "user_data", None)
+            if ud is not None:
+                return ud
+            frame = frame.f_back
+    except Exception:
+        pass
+    return None
+
+
+def _lang_row(lang):
+    from telegram import InlineKeyboardButton
+    return [InlineKeyboardButton(("\u2705 " if code == lang else "") + label, callback_data="pptlang:" + code)
+            for code, (label, _name) in _LANGS.items()]
+
+
+def _valid_advanced(s):
+    """Same structural rules as the premium sanitizer, so we can demote instead of dropping."""
+    lay = str(s.get("layout") or "").strip()
+    try:
+        if lay == "waterfall":
+            ok = 0
+            for d in (s.get("steps") or [])[:7]:
+                if isinstance(d, dict) and str(d.get("label") or "").strip():
+                    v = float(d.get("value"))
+                    if v == v and abs(v) != float("inf"):
+                        ok += 1
+            return ok >= 4
+        if lay == "swimlane":
+            lanes = 0
+            for lane in (s.get("lanes") or [])[:4]:
+                if isinstance(lane, dict) and str(lane.get("label") or "").strip():
+                    steps = [x for x in (lane.get("steps") or [])[:4] if isinstance(x, dict) and str(x.get("label") or "").strip()]
+                    if len(steps) >= 2:
+                        lanes += 1
+            return lanes >= 2
+        if lay == "network":
+            nodes = [x for x in (s.get("nodes") or [])[:7] if isinstance(x, dict) and str(x.get("label") or "").strip()]
+            links = 0
+            for e in (s.get("links") or [])[:12]:
+                if isinstance(e, dict):
+                    a, b = int(e.get("from")), int(e.get("to"))
+                    if 0 <= a < len(nodes) and 0 <= b < len(nodes) and a != b:
+                        links += 1
+            return len(nodes) >= 4 and links >= 3
+        if lay == "quote":
+            return all(str(s.get(k) or "").strip() for k in ("quote", "attribution", "source"))
+    except (TypeError, ValueError):
+        return False
+    return True
+
+
+def _demote_text(s):
+    parts = []
+    for key in ("text", "quote", "context"):
+        if str(s.get(key) or "").strip():
+            parts.append(str(s[key]).strip())
+    if s.get("attribution"):
+        parts.append("\u2014 " + str(s["attribution"]).strip())
+    for seq_key in ("steps", "nodes", "lanes"):
+        for d in (s.get(seq_key) or [])[:6]:
+            if isinstance(d, dict) and str(d.get("label") or "").strip():
+                parts.append(str(d["label"]).strip() + (": " + str(d["detail"]).strip() if d.get("detail") else ""))
+    return " ".join(parts)[:400] or str(s.get("title") or "")
+
+
+def demote_invalid_advanced(data):
+    """Turn structurally incomplete advanced-layout slides into text slides instead of losing them."""
+    slides = data.get("slides") if isinstance(data, dict) else data
+    if not isinstance(slides, list):
+        return data
+    for s in slides:
+        if isinstance(s, dict) and s.get("layout") in ("waterfall", "swimlane", "network", "quote") and not _valid_advanced(s):
+            s["layout"] = "text"
+            s["text"] = _demote_text(s)
+    return data
+
+
+def _patch_application():
+    """Register the language button handler on the PTB Application before polling starts."""
+    try:
+        from telegram.ext import Application, CallbackQueryHandler
+        from telegram import InlineKeyboardMarkup
+    except Exception as exc:
+        log.warning("language button: telegram not importable: %s", exc)
+        return
+    if getattr(Application, "_ppt_lang_patched", False):
+        return
+
+    async def on_lang(update, context):
+        q = update.callback_query
+        lang = (q.data or "").split(":")[-1] if q else ""
+        if lang not in _LANGS:
+            return
+        context.user_data["_ppt_lang"] = lang
+        try:
+            await q.answer("\u2705 " + _LANGS[lang][0])
+        except Exception:
+            pass
+        try:
+            rows = [list(r) for r in q.message.reply_markup.inline_keyboard]
+            for i, row in enumerate(rows):
+                if row and str(getattr(row[0], "callback_data", "")).startswith("pptlang:"):
+                    rows[i] = _lang_row(lang)
+            await q.message.edit_reply_markup(InlineKeyboardMarkup(rows))
+        except Exception as exc:
+            log.info("language keyboard not re-rendered: %s", exc)
+
+    orig_run = Application.run_polling
+
+    def run_polling(self, *args, **kwargs):
+        try:
+            if not getattr(self, "_ppt_lang_added", False):
+                self.add_handler(CallbackQueryHandler(on_lang, pattern=r"^pptlang:"), group=-1)
+                self._ppt_lang_added = True
+                log.info("ppt language button handler registered")
+        except Exception as exc:
+            log.error("language handler registration failed: %s", exc)
+        return orig_run(self, *args, **kwargs)
+
+    Application.run_polling = run_polling
+    Application._ppt_lang_patched = True
+
+
 def apply(mod):
     """Patch the bot module in place. Returns the list of patched names."""
     if getattr(mod, "_ppt_user_fixes_applied", False):
@@ -108,6 +266,15 @@ def apply(mod):
     ask_count = getattr(mod, "_ppt_ask_count", None)
     if callable(orig_do) and callable(ask_count):
         async def do(update, context, kind, topic, n=None, mode=None, again=False):
+            if kind == "slide":
+                try:
+                    for code, pattern in _LANG_HINTS:
+                        if pattern.search(topic or ""):
+                            context.user_data["_ppt_lang"] = code
+                            topic = re.sub(r"\s+", " ", pattern.sub(" ", topic)).strip(" ,;:-") or topic
+                            break
+                except Exception as exc:
+                    log.warning("language hint skipped: %s", exc)
             if kind == "slide" and not n and (topic or "").strip():
                 try:
                     if mode in ("common", "premium"):
@@ -238,6 +405,61 @@ def apply(mod):
             setattr(mod, clip_name, make(orig_clip))
             done.append(clip_name)
 
+    orig_san = getattr(mod, "_sanitize_outline", None)
+    if callable(orig_san):
+        def sanitize(data, topic, n, with_images):
+            try:
+                demote_invalid_advanced(data)
+            except Exception as exc:
+                log.warning("advanced-layout demotion skipped: %s", exc)
+            return orig_san(data, topic, n, with_images)
+        mod._sanitize_outline = sanitize
+        done.append("_sanitize_outline")
+
+    orig_kb = getattr(mod, "_ppt_count_keyboard", None)
+    if callable(orig_kb):
+        def count_keyboard(*args, **kwargs):
+            markup = orig_kb(*args, **kwargs)
+            try:
+                ud = _caller_user_data()
+                lang = (ud or {}).get("_ppt_lang", "uz")
+                rows = [list(r) for r in markup.inline_keyboard]
+                if not any(r and str(getattr(r[0], "callback_data", "")).startswith("pptlang:") for r in rows):
+                    rows.insert(0, _lang_row(lang if lang in _LANGS else "uz"))
+                    return type(markup)(rows)
+            except Exception as exc:
+                log.warning("language row skipped: %s", exc)
+            return markup
+        mod._ppt_count_keyboard = count_keyboard
+        done.append("_ppt_count_keyboard")
+
+    orig_gen = getattr(mod, "_ppt_generate_and_send", None)
+    if callable(orig_gen):
+        async def generate(msg, context, topic, n, with_images, author, mode=None):
+            lang = "uz"
+            try:
+                lang = context.user_data.get("_ppt_lang", "uz")
+            except Exception:
+                pass
+            token = _lang_var.set(lang if lang in _LANGS else "uz")
+            try:
+                return await orig_gen(msg, context, topic, n, with_images, author, mode)
+            finally:
+                _lang_var.reset(token)
+        mod._ppt_generate_and_send = generate
+        done.append("_ppt_generate_and_send")
+
+    orig_ai = getattr(mod, "_ai_generate_text_sync", None)
+    if callable(orig_ai):
+        def ai_generate(prompt, *args, **kwargs):
+            try:
+                prompt = _with_lang(prompt, _lang_var.get())
+            except Exception as exc:
+                log.warning("language rule skipped: %s", exc)
+            return orig_ai(prompt, *args, **kwargs)
+        mod._ai_generate_text_sync = ai_generate
+        done.append("_ai_generate_text_sync")
+
     mod._ppt_user_fixes_applied = True
     log.info("ppt_user_fixes applied: %s", ", ".join(done) or "nothing")
     return done
@@ -252,6 +474,10 @@ def schedule(builder_class, timeout=180.0):
     mod = sys.modules.get(getattr(builder_class, "__module__", ""))
     if mod is None:
         return
+    try:
+        _patch_application()
+    except Exception as exc:
+        log.error("language button patch failed: %s", exc)
 
     def worker():
         deadline = time.time() + timeout
