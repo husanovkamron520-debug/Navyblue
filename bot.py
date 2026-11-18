@@ -1725,6 +1725,7 @@ async def show_role_picker(message):
         "👋 Assalomu alaykum! Botga xush kelibsiz.\n\n"
         "SupplyChain14 platformasiga ro'yxatdan o'tish uchun yuqoridagi tugmani bosing. "
         "Email talab qilinmaydi — sayt akkauntingiz Telegram bilan bog'lanadi.\n\n"
+        "Parolni unutgan bo'lsangiz: /sc14_reset\n\n"
         "Pastdagi eski bot rejimlari ham saqlangan.",
         reply_markup=InlineKeyboardMarkup(keyboard),
     )
