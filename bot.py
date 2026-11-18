@@ -13076,6 +13076,58 @@ async def _supplychain_notification_loop(app):
 
 
 
+def _start_telegram_password_recovery(telegram_user_id: int):
+    """Create a 15-minute one-time password reset link for a linked Telegram account."""
+    if not SUPABASE_LINK_URL.startswith("https://") or not SUPABASE_KEY:
+        raise RuntimeError("SupplyChain14 recovery integration is not configured")
+
+    token = secrets.token_hex(32)
+    payload = {"p_token": token, "p_telegram_user_id": int(telegram_user_id)}
+    req = urllib.request.Request(
+        SUPABASE_LINK_URL + "/rest/v1/rpc/create_telegram_password_recovery_pending",
+        data=json.dumps(payload).encode("utf-8"),
+        method="POST",
+        headers={
+            "apikey": SUPABASE_KEY,
+            "Authorization": "Bearer " + SUPABASE_KEY,
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        },
+    )
+    with urllib.request.urlopen(req, timeout=15) as response:
+        response.read()
+        if response.status < 200 or response.status >= 300:
+            raise RuntimeError("Could not create password recovery link")
+    return SUPPLYCHAIN14_WEB_URL.rstrip("/") + "/?tg_reset=" + token
+
+
+async def telegram_password_recovery_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    message = update.effective_message
+    user = update.effective_user
+    if not message or not user or (update.effective_chat and update.effective_chat.type != ChatType.PRIVATE):
+        if message:
+            await message.reply_text("Parolni tiklash faqat botning shaxsiy chatida ishlaydi.")
+        return
+    await message.reply_text("🔐 SupplyChain14 parolni tiklash havolasi tayyorlanmoqda…")
+    try:
+        recovery_url = await asyncio.to_thread(_start_telegram_password_recovery, user.id)
+    except Exception:
+        logger.info("Telegram password recovery request unavailable for user id=%s", user.id)
+        await message.reply_text(
+            "⚠️ Bu Telegram akkauntiga SupplyChain14 hisob bog‘langan bo‘lishi kerak. "
+            "Agar hisobingiz bog‘langan bo‘lsa, keyinroq qayta urinib ko‘ring."
+        )
+        return
+    await message.reply_text(
+        "🔐 Parolni tiklash
+\n"
+        "Havolani oching va yangi parol kiriting. Havola 15 daqiqa amal qiladi, "
+        "bir marta ishlatiladi.\n\n"
+        + recovery_url,
+        disable_web_page_preview=True,
+    )
+
+
 def _start_telegram_password_registration(telegram_user_id: int, username: str, full_name: str):
     """Create a short-lived Telegram pairing intent and return its one-time website URL."""
     if not SUPABASE_LINK_URL.startswith("https://") or not SUPABASE_KEY:
@@ -13401,6 +13453,7 @@ def main():
     app.add_handler(CommandHandler(["qa_status", "qastatus"], qa_status_command, filters=filters.ChatType.PRIVATE))
     app.add_handler(CommandHandler("link", telegram_link_command, filters=filters.ChatType.PRIVATE))
     app.add_handler(CommandHandler("sc14", telegram_registration_start, filters=filters.ChatType.PRIVATE))
+    app.add_handler(CommandHandler("sc14_reset", telegram_password_recovery_start, filters=filters.ChatType.PRIVATE))
     app.add_handler(CommandHandler("cancel", telegram_registration_cancel, filters=filters.ChatType.PRIVATE))
     app.add_handler(CallbackQueryHandler(telegram_registration_start, pattern=r"^sc14_register$"))
     app.add_handler(CommandHandler(["musobaqa", "competition"], competition_command, filters=filters.ChatType.PRIVATE))
