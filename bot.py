@@ -1410,7 +1410,7 @@ def apply_penalty(ai_result, suspicion, reasons, answer=""):
     ai_result["penalty_deferred"] = False
     for threshold, factor in PENALTY_TIERS:
         if suspicion >= threshold:
-            ai_result["total"] = max(0, int(round(raw * factor)))
+            ai_result["total"] = max(0, round(raw * factor, 2))
             ai_result["penalty_factor"] = factor
             ai_result["penalty_percent"] = int(round((1 - factor) * 100))
             ai_result["penalty_applied"] = ai_result["total"] < raw
@@ -11961,6 +11961,8 @@ async def submit_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 + (f" (jarimagacha: {ai_result['raw_total']})" if ai_result.get("penalty_applied") else ""),
                 f"🛡 Shubha ko'rsatkichi: {ai_result['suspicion']}/100"
                 + (" — " + "; ".join(ai_result["suspicion_reasons"]) if ai_result["suspicion_reasons"] else ""),
+                (f"⚠️ Jarima kechiktirildi: {ai_result['penalty_deferred_reason']}" if ai_result.get("penalty_deferred") else ""),
+                (f"📉 Qo'llangan chegirma: {ai_result.get('penalty_percent', 0)}%" if ai_result.get("penalty_applied") else ""),
                 f"📚 Baholash rejimi: {mode_short(ai_result.get('mode'))} (jarimagacha):",
             ])
             for rubric_item in rubric_items(ai_result):
