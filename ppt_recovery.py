@@ -94,6 +94,11 @@ def harden(builder_class, title_fn):
         schedule(builder_class)
     except Exception as exc:
         log.warning("ppt_user_fixes not scheduled: %s", exc)
+    try:
+        from ppt_multi_theme import install as install_multi_theme
+        install_multi_theme(builder_class)
+    except Exception as exc:
+        log.warning("ppt_multi_theme not installed: %s", exc)
 
 
 def _safe_slide(self, sl, title_fn):
