@@ -27,6 +27,8 @@ Every patch is wrapped so that any failure falls back to the original behaviour.
    deck came out short and needed extra AI calls. Such slides are now demoted to plain text slides.
 8. Language button: the slide-count keyboard gets a row "Uz / English / Russian". The chosen
    language is applied to the whole deck generation (AI prompts get an output-language rule).
+   The handler is registered in group -2: bot.py has a catch-all TypeHandler in group -1 and
+   python-telegram-bot runs only the first matching handler of a group.
 """
 import asyncio
 import contextvars
@@ -227,7 +229,7 @@ def _patch_application():
     def run_polling(self, *args, **kwargs):
         try:
             if not getattr(self, "_ppt_lang_added", False):
-                self.add_handler(CallbackQueryHandler(on_lang, pattern=r"^pptlang:"), group=-1)
+                self.add_handler(CallbackQueryHandler(on_lang, pattern=r"^pptlang:"), group=-2)
                 self._ppt_lang_added = True
                 log.info("ppt language button handler registered")
         except Exception as exc:
