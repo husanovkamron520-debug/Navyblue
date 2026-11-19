@@ -1242,11 +1242,16 @@ def local_flags(answer, elapsed, same_case_records, student_id, case_text=""):
 # jamlanadi, jarima faqat signallar yetarlicha kuchli bo'lganda qo'yiladi, va o'qituvchi
 # uni bitta tugma bilan bekor qila oladi.
 # ============================================================
-PENALTY_MIN_SCORE = 40
-PENALTY_TIERS = [  # (shubha ko'rsatkichi >=, ball koeffitsienti)
-    (80, 0.75),
-    (60, 0.85),
-    (40, 0.93),
+# Penalty schedule is applied to the 0..100 suspicion score, not treated as proof.
+# Very short answers are excluded from automatic penalties and sent for teacher review.
+MIN_AUTO_PENALTY_WORDS = 50
+MIN_AUTO_PENALTY_CHARS = 300
+PENALTY_TIERS = [  # (shubha ko'rsatkichi >=, retained score factor)
+    (90, 0.20),  # 80% deduction
+    (80, 0.35),  # 65% deduction
+    (70, 0.55),  # 45% deduction
+    (60, 0.70),  # 30% deduction
+    (50, 0.85),  # 15% deduction
 ]
 
 
@@ -1383,18 +1388,31 @@ def compute_suspicion(answer, elapsed, indicators, evidence, ai_result, case_tex
     return max(0, min(score, 100)), reasons
 
 
-def apply_penalty(ai_result, suspicion, reasons):
-    """ai_result["total"] ni jarima bilan yangilaydi; asl ballni raw_total da saqlaydi."""
+def apply_penalty(ai_result, suspicion, reasons, answer=""):
+    """Apply the escalated schedule while excluding short answers from automatic penalties."""
     raw = ai_result["total"]
     ai_result["raw_total"] = raw
     ai_result["suspicion"] = suspicion
     ai_result["suspicion_reasons"] = reasons
     ai_result["penalty_applied"] = False
+    ai_result["penalty_factor"] = 1.0
+    ai_result["penalty_percent"] = 0
+
+    word_count = len(tokens(answer))
+    if len(answer.strip()) < MIN_AUTO_PENALTY_CHARS or word_count < MIN_AUTO_PENALTY_WORDS:
+        ai_result["penalty_deferred"] = True
+        ai_result["penalty_deferred_reason"] = (
+            f"Qisqa javob ({word_count} so'z); avtomatik jarima qo'llanmadi, "
+            "o'qituvchi tekshiruvi kerak."
+        )
+        return ai_result
+
+    ai_result["penalty_deferred"] = False
     for threshold, factor in PENALTY_TIERS:
         if suspicion >= threshold:
-            # Jarimadan keyin ham ball kamida 40 bo'ladi (asl ball 40 dan past bo'lsa, u o'zgarmaydi).
-            ai_result["total"] = max(int(round(raw * factor)), min(raw, PENALTY_MIN_SCORE))
+            ai_result["total"] = max(0, round(raw * factor, 2))
             ai_result["penalty_factor"] = factor
+            ai_result["penalty_percent"] = int(round((1 - factor) * 100))
             ai_result["penalty_applied"] = ai_result["total"] < raw
             break
     return ai_result
@@ -11877,7 +11895,7 @@ async def submit_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             answer, elapsed, indicators, evidence, ai_result,
             case_text=case.get("text", ""), peers=same_case_records,
         )
-        apply_penalty(ai_result, suspicion, susp_reasons)
+        apply_penalty(ai_result, suspicion, susp_reasons, answer)
         results[rid]["total"] = ai_result["total"]
         results[rid]["ai"] = ai_result
         results[rid]["status"] = "completed"
@@ -11943,6 +11961,8 @@ async def submit_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 + (f" (jarimagacha: {ai_result['raw_total']})" if ai_result.get("penalty_applied") else ""),
                 f"🛡 Shubha ko'rsatkichi: {ai_result['suspicion']}/100"
                 + (" — " + "; ".join(ai_result["suspicion_reasons"]) if ai_result["suspicion_reasons"] else ""),
+                (f"⚠️ Jarima kechiktirildi: {ai_result['penalty_deferred_reason']}" if ai_result.get("penalty_deferred") else ""),
+                (f"📉 Qo'llangan chegirma: {ai_result.get('penalty_percent', 0)}%" if ai_result.get("penalty_applied") else ""),
                 f"📚 Baholash rejimi: {mode_short(ai_result.get('mode'))} (jarimagacha):",
             ])
             for rubric_item in rubric_items(ai_result):
