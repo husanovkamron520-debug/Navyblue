@@ -11426,8 +11426,8 @@ async def puzzle_webapp_data(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await msg.reply_text("Natija saqlandi, ammo ustozga xabar yuborilmadi. Ustoz botni /start bilan ochsin.")
             return
         await msg.reply_text(
-            f"✅ Ikkala topshiriq tekshirildi va ustozga yuborildi.\\n"
-            f"🧩 Krossvord: {cw_score}/100\\n🔎 So'z topish: {ws_score}/100\\n"
+            f"✅ Ikkala topshiriq tekshirildi va ustozga yuborildi.\n"
+            f"🧩 Krossvord: {cw_score}/100\n🔎 So'z topish: {ws_score}/100\n"
             f"🏆 Umumiy: {overall}/100"
         )
         return
