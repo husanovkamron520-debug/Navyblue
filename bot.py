@@ -11634,10 +11634,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         token = secrets.token_urlsafe(24)
         TASK_TOKENS[token] = {"chat_id": int(chat_id), "teacher_code": str(student.get("teacher_code")), "created_at": now}
         await update.message.reply_text(
-            "📝 Ombor bo'yicha 2 ta topshiriq. Ikkalasini ham bajaring, so'ng natijani birgalikda yuboring.",
-            reply_markup=InlineKeyboardMarkup([[
-                InlineKeyboardButton("🧩 Krossvord + 🔎 So'z topish", web_app=WebAppInfo(url=f"{base}/task?t={token}"))
-            ]])
+            "📝 Ombor bo'yicha 2 ta topshiriq. Ikkalasini ham bajaring, so'ng pastdagi Web App tugmasini bosing. Natija botga avtomatik yuboriladi.",
+            reply_markup=ReplyKeyboardMarkup(
+                [[KeyboardButton("🧩 Krossvord + 🔎 So'z topish", web_app=WebAppInfo(url=f"{base}/task?t={token}"))],
+                 [KeyboardButton(BTN_MAIN_MENU)]],
+                resize_keyboard=True,
+                one_time_keyboard=False
+            )
         )
         return
     if text == BTN_CROSS:
