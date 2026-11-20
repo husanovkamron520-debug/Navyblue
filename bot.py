@@ -1699,7 +1699,7 @@ async def ai_grade(case, answer):
 # ============================================================
 def collapsed_menu(chat_id=None):
     # Foto/video qidiruv tugmalari faqat bot egasiga ko'rsatiladi.
-    rows = [[BTN_EDU], [BTN_SC14], [BTN_SLIDE, BTN_CROSS]]
+    rows = [[BTN_EDU], [BTN_SC14], [BTN_SLIDE]]
     if chat_id is not None and is_bot_owner(chat_id):
         rows.append([BTN_SUPPLY])
         rows.append([BTN_VIDEO, BTN_FOTO])
@@ -1711,7 +1711,7 @@ def collapsed_menu(chat_id=None):
 def teacher_menu(chat_id=None):
     if chat_id is None or int(chat_id) not in MENU_OPEN:
         return collapsed_menu(chat_id)
-    rows = [[BTN_SC14], [BTN_NEW_CASE, BTN_GEN_CASE], [BTN_MY_CASES, BTN_STUDENTS], [BTN_FEEDBACK, BTN_ROLE]]
+    rows = [[BTN_SC14], [BTN_CROSS], [BTN_NEW_CASE, BTN_GEN_CASE], [BTN_MY_CASES, BTN_STUDENTS], [BTN_FEEDBACK, BTN_ROLE]]
     if OWNER_CHAT_ID is not None and chat_id is not None and int(chat_id) == OWNER_CHAT_ID:
         rows.insert(-1, [BTN_FEEDBACK_INBOX, BTN_STATS])
         rows.insert(-1, [BTN_SUPPLY])
@@ -1722,7 +1722,7 @@ def teacher_menu(chat_id=None):
 def student_menu(chat_id=None):
     if chat_id is None or int(chat_id) not in MENU_OPEN:
         return collapsed_menu(chat_id)
-    rows = [[BTN_SC14], [BTN_START_CASE], [BTN_FEEDBACK]]
+    rows = [[BTN_SC14], [BTN_CROSS], [BTN_START_CASE], [BTN_FEEDBACK]]
     if OWNER_CHAT_ID is not None and chat_id is not None and int(chat_id) == OWNER_CHAT_ID:
         rows.append([BTN_FEEDBACK_INBOX, BTN_STATS])
         rows.append([BTN_SUPPLY])
@@ -10611,7 +10611,12 @@ function used(p){return Math.min(LIM,Math.round((p.acc+(A===p&&p.since?Date.now(
 function resCard(p,title,body,payload){
   var box=p.q('res');box.style.display='';var other=nextOpen(p);
   box.innerHTML='<h2 style="margin:4px 0;text-align:center">'+title+'</h2><div style="text-align:center">'+body+'</div>'+
-   '<div class="btns" style="justify-content:center">'+(other&&!other.done?'<button class="b p" id="nx'+p.n+'">➡ Keyingisi: '+NAMES[other.n]+'</button>':'')+'<button class="b g" id="sd'+p.n+'">✖ Yopish</button></div>';
+   '<div class="btns" style="justify-content:center">'+(payload?'<button class="b p" id="send'+p.n+'">📨 Natijani yuborish</button>':'')+(other&&!other.done?'<button class="b p" id="nx'+p.n+'">➡ Keyingisi: '+NAMES[other.n]+'</button>':'')+'<button class="b g" id="sd'+p.n+'">✖ Yopish</button></div>';
+  var sb=$('send'+p.n);
+  if(sb)sb.onclick=function(){
+    if(send(payload)){sb.textContent='✅ Yuborildi';sb.disabled=true;hap('success')}
+    else{alert('Natijani yuborish uchun krossvordni Telegram bot ichidan oching.')}
+  };
   $('tab'+p.n).classList.add('dn');
   var nx=$('nx'+p.n);if(nx)nx.onclick=function(){switchTo(other.n)};
   $('sd'+p.n).onclick=function(){try{tg.close()}catch(e){try{window.close()}catch(x){}}};
@@ -10625,7 +10630,7 @@ function finishCw(p,to){
   hap(to?'warning':'success');
   resCard(p,to==='stop'?'🏁 Krossvord tugatildi':to?'⏰ Vaqt tugadi':"🎉 Krossvord to'liq to'g'ri!",
     (to?'To\'g\'ri katak: <b>'+st.ok+'</b> / '+st.tot+'<br>':'')+'⏱ '+fmt(t)+' · 💡 yordam: '+p.hints+' · ball: <b>'+pct+'</b>/100',
-    {k:'cw',t:t,hints:p.hints,checks:0,score:pct,ok:to?0:1,cells:st.ok,total:st.tot});
+    {g:'puzzle',k:'cw',title:(DATA&&DATA.title)||'Krossvord',seconds:t,hints:p.hints,checks:0,score:pct,ok:to?0:1,cells:st.ok,total:st.tot});
 }
 
 /* ============ TABLAR ============ */
@@ -11273,6 +11278,81 @@ async def cw_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await _cw_generate_and_send(q.message, context, topic, max(CW_MIN_WORDS, min(CW_MAX_WORDS, int(parts[2]))))
         return
     await q.answer()
+
+
+async def puzzle_webapp_data(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Mini App krossvord natijasini saqlaydi va tegishli ustozga yuboradi."""
+    msg = update.effective_message
+    user = update.effective_user
+    chat = update.effective_chat
+    if not msg or not msg.web_app_data or not user or not chat or chat.type != ChatType.PRIVATE:
+        return
+    try:
+        payload = json.loads(msg.web_app_data.data or "{}")
+    except Exception:
+        await msg.reply_text("⚠️ Natija formati noto‘g‘ri. Krossvordni qayta ochib yuboring.")
+        return
+    if not isinstance(payload, dict) or payload.get("g") != "puzzle" or payload.get("k") != "cw":
+        await msg.reply_text("⚠️ Noma’lum topshiriq natijasi qabul qilinmadi.")
+        return
+
+    def _ival(key, low, high):
+        try:
+            return max(low, min(high, int(float(payload.get(key, 0)))))
+        except (TypeError, ValueError, OverflowError):
+            return low
+
+    students = get_students()
+    student = students.get(str(chat.id)) or students.get(str(user.id))
+    if not student or not student.get("teacher_code"):
+        await msg.reply_text("Natijani ustozga yuborish uchun avval Ta’lim bo‘limida ustoz kodingiz bilan ro‘yxatdan o‘ting.")
+        return
+
+    score = _ival("score", 0, 100)
+    cells = _ival("cells", 0, 1000)
+    total = _ival("total", 1, 1000)
+    seconds = _ival("seconds", 0, 900)
+    hints = _ival("hints", 0, 3)
+    title = re.sub(r"[\r\n]+", " ", str(payload.get("title") or "Krossvord")).strip()[:100]
+    teacher_code = str(student.get("teacher_code"))
+    teacher = get_teachers().get(teacher_code) or {}
+    record_id = uuid.uuid4().hex[:12]
+    result = {
+        "id": record_id, "kind": "crossword", "student_chat_id": int(chat.id),
+        "student_name": str(student.get("name") or user.full_name)[:120],
+        "teacher_code": teacher_code, "title": title, "score": score,
+        "correct_cells": cells, "total_cells": total, "seconds": seconds,
+        "hints": hints, "submitted_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    }
+    saved = load_json(PUZZLE_FILE, {})
+    if not isinstance(saved, dict):
+        saved = {}
+    saved[record_id] = result
+    save_json(PUZZLE_FILE, saved)
+
+    teacher_chat = teacher.get("chat_id")
+    if not teacher_chat:
+        await msg.reply_text("Natijangiz saqlandi, ammo ustozning Telegram chat IDsi topilmadi. Ustoz botni /start bilan ochishi kerak.")
+        return
+
+    minutes, secs = divmod(seconds, 60)
+    report = (
+        "🧩 YANGI KROSSVORD NATIJASI\n\n"
+        f"👤 Talaba: {result['student_name']}\n"
+        f"📚 Topshiriq: {title}\n"
+        f"🏆 Natija: {score}/100\n"
+        f"🔤 To‘g‘ri kataklar: {cells}/{total}\n"
+        f"⏱ Vaqt: {minutes}:{secs:02d}\n"
+        f"💡 Yordam ishlatilgan: {hints} marta\n"
+        f"🆔 Natija ID: {record_id}"
+    )
+    try:
+        await context.bot.send_message(chat_id=int(teacher_chat), text=report)
+    except Exception:
+        logger.exception("Krossvord natijasini ustozga yuborib bo‘lmadi")
+        await msg.reply_text("Natijangiz saqlandi, lekin ustozga xabar yuborilmadi. Ustoz botni qayta ochganini tekshiring.")
+        return
+    await msg.reply_text(f"✅ Natijangiz ustozga yuborildi!\n🏆 Ball: {score}/100")
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -13541,6 +13621,7 @@ def main():
     app.add_handler(CallbackQueryHandler(ref_callback, pattern=r"^ref:"))
     app.add_handler(CallbackQueryHandler(cw_callback, pattern=r"^cw:"))
     app.add_handler(MessageHandler(filters.ChatType.PRIVATE & (filters.PHOTO | filters.Document.ALL | filters.VIDEO), attachment_handler))
+    app.add_handler(MessageHandler(filters.StatusUpdate.WEB_APP_DATA, puzzle_webapp_data))
     app.add_handler(MessageHandler(filters.ChatType.PRIVATE & filters.TEXT & ~filters.COMMAND, handle_message))
 
     logger.info("Bot ishga tushmoqda...")
