@@ -483,6 +483,7 @@ BTN_SC14 = "🎓 SupplyChain14"
 BTN_SUPPLY = "🚚 Supply Chain"
 BTN_SLIDE = "📊 Slide"
 BTN_CROSS = "🧩 Krossvord"
+BTN_TASK = "📝 Task"
 BTN_VIDEO = "🎬 Video"
 BTN_FOTO = "🖼 Foto"
 BTN_EDU_BACK = "⬅️ Yopish"
@@ -1722,7 +1723,7 @@ def teacher_menu(chat_id=None):
 def student_menu(chat_id=None):
     if chat_id is None or int(chat_id) not in MENU_OPEN:
         return collapsed_menu(chat_id)
-    rows = [[BTN_SC14], [BTN_CROSS], [BTN_START_CASE], [BTN_FEEDBACK]]
+    rows = [[BTN_SC14], [BTN_TASK], [BTN_START_CASE], [BTN_FEEDBACK]]
     if OWNER_CHAT_ID is not None and chat_id is not None and int(chat_id) == OWNER_CHAT_ID:
         rows.append([BTN_FEEDBACK_INBOX, BTN_STATS])
         rows.append([BTN_SUPPLY])
@@ -10682,7 +10683,7 @@ def _cw_app_base() -> str:
     return ""
 
 
-def _cw_app_register(layout, title: str) -> str:
+def _cw_app_register(layout, title: str, teacher_code: str = "") -> str:
     """Krossvordni Mini App uchun saqlaydi va ochiladigan URL qaytaradi ('' = imkonsiz)."""
     base = _cw_app_base()
     if not base:
@@ -10691,7 +10692,8 @@ def _cw_app_register(layout, title: str) -> str:
             for p in layout["words"]]
     pid = uuid.uuid4().hex[:10]
     CW_APP_STORE[pid] = {"title": _cw_txt(title)[:80], "rows": layout["rows"], "cols": layout["cols"],
-                         "limit": max(600, min(1500, 60 * len(ents))), "ents": ents}
+                         "limit": max(600, min(1500, 60 * len(ents))), "ents": ents,
+                         "teacher_code": str(teacher_code or "")}
     while len(CW_APP_STORE) > CW_APP_MAX:
         CW_APP_STORE.pop(next(iter(CW_APP_STORE)))
     # Persist generated puzzle before returning the WebApp URL.
@@ -11207,7 +11209,7 @@ async def _cw_generate_and_send(msg, context, topic, n):
             InlineKeyboardButton("📄 Javoblarsiz", callback_data="cw:f:docx:0"),
             InlineKeyboardButton("✅ Javoblar bilan", callback_data="cw:f:docx:1"),
         ]]
-        app_url = _cw_app_register(layout, title)
+        app_url = _cw_app_register(layout, title, get_teacher_code_by_chat_id(msg.chat_id))
         if app_url:
             kb_rows.append([InlineKeyboardButton("🎮 Telegramda yechish (onlayn)", web_app=WebAppInfo(url=app_url))])
         kb = InlineKeyboardMarkup(kb_rows)
@@ -11476,6 +11478,30 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.pop("_ppt_wait", None)
         context.user_data.pop("_ppt_cover_wait", None)
         await _ppt_ask_mode(update.message, context)
+        return
+    if text == BTN_TASK:
+        # Talaba faqat o'z o'qituvchisi tayyorlagan onlayn krossvordlarni ko'radi.
+        student = get_students().get(str(chat_id)) or {}
+        teacher_code = str(student.get("teacher_code") or "")
+        if not teacher_code:
+            await update.message.reply_text("Avval o'qituvchi bilan bog'laning. Tasklar faqat biriktirilgan o'qituvchingizdan ko'rsatiladi.")
+            return
+        puzzles = load_json(CW_APP_FILE, {})
+        if not isinstance(puzzles, dict):
+            puzzles = {}
+        CW_APP_STORE.update(puzzles)
+        items = [(pid, data) for pid, data in CW_APP_STORE.items()
+                 if isinstance(data, dict) and str(data.get("teacher_code") or "") == teacher_code]
+        items = items[-10:][::-1]
+        base = _cw_app_base()
+        if not items or not base:
+            await update.message.reply_text("Hozircha o'qituvchingiz tayyorlagan onlayn task yo'q.")
+            return
+        rows = []
+        for pid, data in items:
+            title = str(data.get("title") or "Krossvord")[:55]
+            rows.append([InlineKeyboardButton("🧩 " + title, web_app=WebAppInfo(url=f"{base}/cw?id={pid}"))])
+        await update.message.reply_text("📝 O'qituvchingiz tayyorlagan tasklar. Birini tanlab yeching:", reply_markup=InlineKeyboardMarkup(rows))
         return
     if text == BTN_CROSS:
         context.user_data.pop("_ref_wait", None)
