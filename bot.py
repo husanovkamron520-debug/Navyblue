@@ -964,7 +964,15 @@ def run_health_server():
                 if u.path == "/museum" or u.path.startswith("/museum/"):
                     museum.http_get(self, u)
                     return
-                if u.path == "/cw":
+                if u.path == "/task":
+                    token = (parse_qs(u.query).get("t") or [""])[0]
+                    session = TASK_TOKENS.get(token)
+                    if not token or not session or time.time() - float(session.get("created_at", 0)) > 7200:
+                        body, ctype, code = b"Task sessiyasi eskirgan. Botdan Task'ni qayta oching.", "text/plain; charset=utf-8", 403
+                    else:
+                        with open(TASK_APP_FILE, "r", encoding="utf-8") as task_file:
+                            body, ctype = task_file.read().encode("utf-8"), "text/html; charset=utf-8"
+                elif u.path == "/cw":
                     body, ctype = CW_APP_HTML.encode("utf-8"), "text/html; charset=utf-8"
                 elif u.path == "/cwdata":
                     pid = (parse_qs(u.query).get("id") or [""])[0]
@@ -10437,6 +10445,8 @@ CW_MAX_WORDS = 20
 CW_APP_FILE = "cw_app_store.json"
 CW_APP_STORE = {}  # kerak bo'lganda cw_app_store.json dan tiklanadi
 CW_APP_MAX = 300
+TASK_APP_FILE = os.path.join(os.path.dirname(__file__), "krossvord_ombor.html")
+TASK_TOKENS = {}  # qisqa muddatli, bir martalik talaba sessiyalari
 CW_APP_HTML = r'''<!doctype html>
 <html lang="uz"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
@@ -11294,6 +11304,117 @@ async def puzzle_webapp_data(update: Update, context: ContextTypes.DEFAULT_TYPE)
     except Exception:
         await msg.reply_text("⚠️ Natija formati noto‘g‘ri. Krossvordni qayta ochib yuboring.")
         return
+
+    if isinstance(payload, dict) and payload.get("g") == "krosstest":
+        token = str(payload.get("tok") or "")
+        session = TASK_TOKENS.get(token)
+        if not session or int(session.get("chat_id", 0)) != int(chat.id):
+            await msg.reply_text("⚠️ Task sessiyasi yaroqsiz yoki muddati tugagan. Botdan Task'ni qayta oching.")
+            return
+        students = get_students()
+        student = students.get(str(chat.id)) or students.get(str(user.id))
+        if not student or str(student.get("teacher_code") or "") != str(session.get("teacher_code") or ""):
+            await msg.reply_text("⚠️ Talaba va ustoz bog'lanishi tasdiqlanmadi. Task qayta ochilsin.")
+            return
+
+        # Javob kaliti HTML faylidagi 17 ta krossvord so'zidan serverda qayta tuziladi.
+        entries = [
+            ("KROSSDOKING",2,3,"H"),("STELLAJ",2,7,"V"),("EKSPEDITOR",4,3,"H"),
+            ("TAQSIMOT",7,6,"H"),("KONTEYNER",4,4,"V"),("KANBAN",10,2,"H"),
+            ("ZANJIR",9,6,"V"),("PALLET",8,0,"H"),("LOGISTIKA",6,12,"V"),
+            ("TAMINOT",4,10,"V"),("ZAXIRA",3,1,"V"),("WMS",0,6,"V"),
+            ("BULLWHIP",0,2,"H"),("OMBOR",12,0,"H"),("FIFO",1,11,"V"),
+            ("RFID",14,6,"H"),("SKU",13,11,"H")
+        ]
+        answer_cells = {}
+        for word, row, col, direction in entries:
+            for index, letter in enumerate(word):
+                key = f"{row + (index if direction == 'V' else 0)},{col + (index if direction == 'H' else 0)}"
+                answer_cells[key] = letter
+        cw_data = payload.get("cw") if isinstance(payload.get("cw"), dict) else {}
+        raw_cells = cw_data.get("cells", {})
+        if not isinstance(raw_cells, dict) or len(raw_cells) > len(answer_cells) + 5:
+            await msg.reply_text("⚠️ Krossvord javoblari formati noto'g'ri.")
+            return
+        correct = sum(1 for key, letter in answer_cells.items()
+                      if str(raw_cells.get(key, "")).strip().upper() == letter)
+        total_cells = len(answer_cells)
+        allowed_words = {
+            "BARKOD","FORKLIFT","BUYURTMA","QADOQLASH","PIKING","TERMINAL","TRANSPORT",
+            "RAMPA","SAQLASH","NAZORAT","YUKLASH","QABUL","TOKCHA","MIQDOR",
+            "MARSHRUT","HUJJAT","INVENTAR","SKANER","KAMION","OMBORCHI"
+        }
+        ws_data = payload.get("ws") if isinstance(payload.get("ws"), dict) else {}
+        raw_found = ws_data.get("found", [])
+        if not isinstance(raw_found, list) or len(raw_found) > 20:
+            await msg.reply_text("⚠️ So'z topish natijasi formati noto'g'ri.")
+            return
+        found_words = sorted({str(w).upper() for w in raw_found if str(w).upper() in allowed_words})
+        try:
+            hints = max(0, min(3, int(cw_data.get("hints", 0))))
+            cw_seconds = max(0, min(900, int(cw_data.get("t", 0))))
+            ws_seconds = max(0, min(900, int(ws_data.get("t", 0))))
+        except (TypeError, ValueError, OverflowError):
+            await msg.reply_text("⚠️ Vaqt yoki yordam qiymati noto'g'ri.")
+            return
+        cw_score = max(0, min(100, round(correct / total_cells * 100) - hints * 5))
+        ws_score = round(len(found_words) / len(allowed_words) * 100)
+        overall = round((cw_score + ws_score) / 2)
+
+        # Token bir marta ishlaydi; qayta yuborilgan natija qabul qilinmaydi.
+        TASK_TOKENS.pop(token, None)
+        teacher_code = str(student.get("teacher_code"))
+        teacher = get_teachers().get(teacher_code) or {}
+        record_id = uuid.uuid4().hex[:12]
+        student_name = str(student.get("name") or user.full_name)[:120]
+        result = {
+            "id": record_id, "kind": "warehouse_task", "student_chat_id": int(chat.id),
+            "student_name": student_name, "teacher_code": teacher_code,
+            "crossword_score": cw_score, "crossword_correct_cells": correct,
+            "crossword_total_cells": total_cells, "crossword_hints": hints,
+            "crossword_seconds": cw_seconds, "wordsearch_score": ws_score,
+            "wordsearch_found": found_words, "wordsearch_total": len(allowed_words),
+            "wordsearch_seconds": ws_seconds, "score": overall,
+            "submitted_at": datetime.now(timezone.utc).isoformat(timespec="seconds")
+        }
+        saved = load_json(PUZZLE_FILE, {})
+        if not isinstance(saved, dict):
+            saved = {}
+        saved[record_id] = result
+        save_json(PUZZLE_FILE, saved)
+        teacher_chat = teacher.get("chat_id")
+        if not teacher_chat:
+            await msg.reply_text("Natijangiz saqlandi, lekin ustoz chat IDsi topilmadi. Ustoz botga /start yuborsin.")
+            return
+        cwm, cws = divmod(cw_seconds, 60)
+        wsm, wss = divmod(ws_seconds, 60)
+        report = (
+            "📦 OMBOR TASK — YANGI NATIJA\\n\\n"
+            f"👤 Talaba: {student_name}\\n"
+            f"🏆 Umumiy natija: {overall}/100 ({level(overall)})\\n\\n"
+            f"🧩 Krossvord: {cw_score}/100\\n"
+            f"   To'g'ri kataklar: {correct}/{total_cells}\\n"
+            f"   Yordam: {hints}/3\\n"
+            f"   Vaqt: {cwm}:{cws:02d}\\n\\n"
+            f"🔎 So'z topish: {ws_score}/100\\n"
+            f"   Topilgan: {len(found_words)}/{len(allowed_words)}\\n"
+            f"   So'zlar: {', '.join(found_words) if found_words else '—'}\\n"
+            f"   Vaqt: {wsm}:{wss:02d}\\n\\n"
+            f"🆔 Natija ID: {record_id}"
+        )
+        try:
+            await context.bot.send_message(chat_id=int(teacher_chat), text=report)
+        except Exception:
+            logger.exception("Ombor Task natijasini ustozga yuborib bo'lmadi")
+            await msg.reply_text("Natija saqlandi, ammo ustozga xabar yuborilmadi. Ustoz botni /start bilan ochsin.")
+            return
+        await msg.reply_text(
+            f"✅ Ikkala topshiriq tekshirildi va ustozga yuborildi.\\n"
+            f"🧩 Krossvord: {cw_score}/100\\n🔎 So'z topish: {ws_score}/100\\n"
+            f"🏆 Umumiy: {overall}/100"
+        )
+        return
+
     if not isinstance(payload, dict) or payload.get("g") != "puzzle" or payload.get("k") != "cw":
         await msg.reply_text("⚠️ Noma’lum topshiriq natijasi qabul qilinmadi.")
         return
@@ -11480,28 +11601,27 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await _ppt_ask_mode(update.message, context)
         return
     if text == BTN_TASK:
-        # Talaba faqat o'z o'qituvchisi tayyorlagan onlayn krossvordlarni ko'radi.
+        # Task faqat yuklangan ombor krossvordi va so'z qidirish topshiriqlarini ochadi.
         student = get_students().get(str(chat_id)) or {}
-        teacher_code = str(student.get("teacher_code") or "")
-        if not teacher_code:
-            await update.message.reply_text("Avval o'qituvchi bilan bog'laning. Tasklar faqat biriktirilgan o'qituvchingizdan ko'rsatiladi.")
+        if not student or not student.get("teacher_code"):
+            await update.message.reply_text("Avval ustoz kodingiz bilan ro'yxatdan o'ting. Natija shunda ustozingizga yuboriladi.")
             return
-        puzzles = load_json(CW_APP_FILE, {})
-        if not isinstance(puzzles, dict):
-            puzzles = {}
-        CW_APP_STORE.update(puzzles)
-        items = [(pid, data) for pid, data in CW_APP_STORE.items()
-                 if isinstance(data, dict) and str(data.get("teacher_code") or "") == teacher_code]
-        items = items[-10:][::-1]
         base = _cw_app_base()
-        if not items or not base:
-            await update.message.reply_text("Hozircha o'qituvchingiz tayyorlagan onlayn task yo'q.")
+        if not base:
+            await update.message.reply_text("Task hozircha ochilmadi: Mini App server manzili sozlanmagan.")
             return
-        rows = []
-        for pid, data in items:
-            title = str(data.get("title") or "Krossvord")[:55]
-            rows.append([InlineKeyboardButton("🧩 " + title, web_app=WebAppInfo(url=f"{base}/cw?id={pid}"))])
-        await update.message.reply_text("📝 O'qituvchingiz tayyorlagan tasklar. Birini tanlab yeching:", reply_markup=InlineKeyboardMarkup(rows))
+        now = time.time()
+        for old_token, info in list(TASK_TOKENS.items()):
+            if now - float((info or {}).get("created_at", 0)) > 7200:
+                TASK_TOKENS.pop(old_token, None)
+        token = secrets.token_urlsafe(24)
+        TASK_TOKENS[token] = {"chat_id": int(chat_id), "teacher_code": str(student.get("teacher_code")), "created_at": now}
+        await update.message.reply_text(
+            "📝 Ombor bo'yicha 2 ta topshiriq. Ikkalasini ham bajaring, so'ng natijani birgalikda yuboring.",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("🧩 Krossvord + 🔎 So'z topish", web_app=WebAppInfo(url=f"{base}/task?t={token}"))
+            ]])
+        )
         return
     if text == BTN_CROSS:
         context.user_data.pop("_ref_wait", None)
