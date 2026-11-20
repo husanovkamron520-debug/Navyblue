@@ -10643,7 +10643,7 @@ function switchTo(n){
 }
 function nextOpen(p){return null}
 function boot(d){
-  DATA={cw1:{rows:d.rows,cols:d.cols,ents:d.ents}};
+  DATA={title:d.title||'Krossvord',cw1:{rows:d.rows,cols:d.cols,ents:d.ents}};
   if(d.limit)LIM=d.limit;
   $('ttl').textContent='🧩 '+(d.title||'Krossvord');
   var ld=$('ld');if(ld)ld.remove();
