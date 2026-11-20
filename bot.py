@@ -11349,7 +11349,24 @@ async def puzzle_webapp_data(update: Update, context: ContextTypes.DEFAULT_TYPE)
         if not isinstance(raw_found, list) or len(raw_found) > 20:
             await msg.reply_text("⚠️ So'z topish natijasi formati noto'g'ri.")
             return
-        found_words = sorted({str(w).upper() for w in raw_found if str(w).upper() in allowed_words})
+        grid_rows = [
+            "LABKIAYKASIRTTB","AYAQRHHYALUBAQF","NRRAAHCCUMTAMXO","IEKAUDHRKKIOOZR",
+            "MNOQPUOBOOLOGDK","RADHJMUQUBTANRL","EKNJIYAQLTMDSOI","TSAQUYRRIARORHF",
+            "UTDRIXBZDRSEART","LOTMHSALQASHARR","RMAGTRANSPORTUY","AQAAARANAZORATO",
+            "OSEZOIBMARSHRUT","SRIOXINVENTARMG","GNIKIPAMLRRQDIY"
+        ]
+        def _word_exists(word):
+            directions = ((-1,-1),(-1,0),(-1,1),(0,-1),(0,1),(1,-1),(1,0),(1,1))
+            for row in range(15):
+                for col in range(15):
+                    for dr, dc in directions:
+                        if all(0 <= row+i*dr < 15 and 0 <= col+i*dc < 15
+                               and grid_rows[row+i*dr][col+i*dc] == letter
+                               for i, letter in enumerate(word)):
+                            return True
+            return False
+        found_words = sorted({str(w).upper() for w in raw_found
+                              if str(w).upper() in allowed_words and _word_exists(str(w).upper())})
         try:
             hints = max(0, min(3, int(cw_data.get("hints", 0))))
             cw_seconds = max(0, min(900, int(cw_data.get("t", 0))))
@@ -11389,17 +11406,17 @@ async def puzzle_webapp_data(update: Update, context: ContextTypes.DEFAULT_TYPE)
         cwm, cws = divmod(cw_seconds, 60)
         wsm, wss = divmod(ws_seconds, 60)
         report = (
-            "📦 OMBOR TASK — YANGI NATIJA\\n\\n"
-            f"👤 Talaba: {student_name}\\n"
-            f"🏆 Umumiy natija: {overall}/100 ({level(overall)})\\n\\n"
-            f"🧩 Krossvord: {cw_score}/100\\n"
-            f"   To'g'ri kataklar: {correct}/{total_cells}\\n"
-            f"   Yordam: {hints}/3\\n"
-            f"   Vaqt: {cwm}:{cws:02d}\\n\\n"
-            f"🔎 So'z topish: {ws_score}/100\\n"
-            f"   Topilgan: {len(found_words)}/{len(allowed_words)}\\n"
-            f"   So'zlar: {', '.join(found_words) if found_words else '—'}\\n"
-            f"   Vaqt: {wsm}:{wss:02d}\\n\\n"
+            "📦 OMBOR TASK — YANGI NATIJA\n\n"
+            f"👤 Talaba: {student_name}\n"
+            f"🏆 Umumiy natija: {overall}/100 ({level(overall)})\n\n"
+            f"🧩 Krossvord: {cw_score}/100\n"
+            f"   To'g'ri kataklar: {correct}/{total_cells}\n"
+            f"   Yordam: {hints}/3\n"
+            f"   Vaqt: {cwm}:{cws:02d}\n\n"
+            f"🔎 So'z topish: {ws_score}/100\n"
+            f"   Topilgan: {len(found_words)}/{len(allowed_words)}\n"
+            f"   So'zlar: {', '.join(found_words) if found_words else '—'}\n"
+            f"   Vaqt: {wsm}:{wss:02d}\n\n"
             f"🆔 Natija ID: {record_id}"
         )
         try:
