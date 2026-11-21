@@ -2531,6 +2531,9 @@ def _gemini_analyze_uploaded_images_sync(images, user_request: str) -> str:
         f"Egasi topshirig'i: {str(user_request or 'Rasmlardan professional taqdimot tayyorla.')[:1200]}\n"
         f"Rasmlar soni: {len(images)}. Har bir rasmni alohida raqam bilan tavsifla, so'ng umumiy mavzu va slaydlar uchun tavsiya ber."
     )
+    captions = [f"{i + 1}. {str(item.get('caption') or '').strip()}" for i, item in enumerate(images[:10]) if isinstance(item, dict) and str(item.get("caption") or "").strip()]
+    if captions:
+        prompt += "\nRasmlarga foydalanuvchi qo'shgan izohlar:\n" + "\n".join(captions)
     contents = [prompt]
     for item in images[:10]:
         data = item.get("data") if isinstance(item, dict) else item
@@ -5440,7 +5443,7 @@ def _ppt_apply_uploaded_images(outline: dict, source_images: list) -> int:
     images = [x for x in (source_images or []) if isinstance(x, dict) and _ppt_valid_image(x.get("data"))]
     if not slides or not images:
         return 0
-    slots = [s for s in slides if s.get("layout") in _PPT_IMG_LAYOUTS]
+    slots = [s for s in slides if s.get("layout") in _PPT_IMG_LAYOUTS and s.get("layout") != "collage"]
     slot_ids = {id(s) for s in slots}
     target = min(len(images), len(slides))
     if len(slots) < target:
@@ -10334,6 +10337,7 @@ async def _ppt_generate_and_send(msg, context, topic, n, with_images, author, mo
     if mode == "common":
         qa = {k: qa[k] for k in ("fixes", "rebuilt") if k in qa}
     caption = (f"📊 {outline['title']} — {len(outline['slides']) + 1} slayd"
+               + (f"\n🖼 Siz yuborgan rasmlar: {outline.get('_user_uploaded_image_count')} ta" if outline.get("_user_uploaded_image_count") else "")
                + (f"\n📷 Rasmlar: {', '.join(photo_sources)}" if photo_sources else
                   ("\n📷 Vizual materiallar: mahalliy grafikalar" if outline.get("_img_fallback_count") else ""))
                + (f"\n📚 Adabiyotlar: {len(outline.get('refs') or [])} ta — topshirishdan oldin tekshiring"
@@ -13295,7 +13299,7 @@ async def october_chat(update: Update, text: str, context=None):
     stamp = now.strftime("%Y-%m-%d %H:%M")
     d["log"].append({"t": text[:600], "ts": stamp})  # hamma xabar jurnali
     d["log"] = d["log"][-OCT_MAX_LOG:]
-    if context is not None and context.user_data.get("_oct_ppt_images") and re.search(r"\b(taqdimot|prezentatsiya|slayd|slide|ppt)\b", text, re.I):
+    if context is not None and context.user_data.get("_oct_ppt_images") and re.search(r"\b(taqdimot\w*|prezentats\w*|slayd\w*|slide\w*|ppt)\b", text, re.I):
         context.user_data["_oct_use_uploaded_images"] = True
     if context is not None:
         pend = context.user_data.get("_oct_pending")
