@@ -12962,14 +12962,37 @@ async def _oct_do(update, context, kind, topic, n=None, mode=None, again=False):
     return None
 
 
+def _oct_context_text(items, render, max_chars):
+    """Eng yangi kontekst yozuvlarini butun satrlar holida, belgilangan hajmda tanlaydi."""
+    selected = []
+    used = 0
+    for item in reversed(items):
+        line = str(render(item)).strip()
+        if not line:
+            continue
+        if len(line) > max_chars:
+            line = line[-max_chars:]
+        extra = len(line) + (1 if selected else 0)
+        if used + extra > max_chars:
+            break
+        selected.append(line)
+        used += extra
+    return "\n".join(reversed(selected)) or "(yo'q)"
+
+
 def _oct_parse_sync(text, d, now):
     if not ai_client:
         raise RuntimeError("GEMINI_API_KEY topilmadi")
     note_ai_call()
     notes = d["notes"][-OCT_MAX_NOTES:]
-    notes_txt = "\n".join(f"#{n['id']} [{n['ts'][:10]}] {n['text']}" for n in notes) or "(hali hech narsa yo'q)"
-    hist = d["hist"][-12:]
-    hist_txt = "\n".join(("Egasi: " if h["r"] == "u" else "Sen: ") + h["t"] for h in hist) or "(yo'q)"
+    notes_txt = _oct_context_text(
+        notes, lambda n: f"#{n['id']} [{n['ts'][:10]}] {n['text']}", 12000
+    ) if notes else "(hali hech narsa yo'q)"
+    # Har bir almashinuv ikkita yozuvdan iborat: 30 element = 15 ta almashinuv.
+    hist = d["hist"][-30:]
+    hist_txt = _oct_context_text(
+        hist, lambda h: ("Egasi: " if h["r"] == "u" else "Sen: ") + h["t"], 14000
+    )
     try:
         quota_txt = _quota_roster_text(60)
     except Exception:
@@ -13019,7 +13042,18 @@ Qoidalar:
     t = (getattr(resp, "text", "") or "").strip()
     if not t:
         raise RuntimeError("Gemini bo'sh javob")
-    return json.loads(t)
+    result = _json_loads_loose(t)
+    if not isinstance(result, dict):
+        raise ValueError("October AI javobi JSON obyekt emas")
+    # Noto'g'ri formatdagi maydonlar keyingi handlerlarni yiqitmasin.
+    for key in ("remember", "forget"):
+        if not isinstance(result.get(key), list):
+            result[key] = []
+    if not isinstance(result.get("set_quota"), dict):
+        result["set_quota"] = None
+    if not isinstance(result.get("do"), dict):
+        result["do"] = None
+    return result
 
 
 async def october_chat(update: Update, text: str, context=None):
@@ -13108,7 +13142,8 @@ async def october_chat(update: Update, text: str, context=None):
     reply = str(res.get("reply") or "…")[:3500]
     d["hist"].append({"r": "u", "t": text[:800]})
     d["hist"].append({"r": "m", "t": (reply + (" " + grant_msg if grant_msg else ""))[:800]})
-    d["hist"] = d["hist"][-24:]
+    # Tarixni diskda uzoqroq saqlaymiz; promptga esa eng yangi 15 almashinuv kiradi.
+    d["hist"] = d["hist"][-60:]
     save_json(OCT_FILE, d)
     tail = []
     if do_note:
