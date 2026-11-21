@@ -13035,13 +13035,12 @@ Qoidalar:
 - Egasi biror ISH bajarishni so'rasa (taqdimot/slayd, krossvord, referat, maqola, tezis, test, glossariy, case, zip), "do" ga {{"kind": "slide|krossvord|referat|maqola|tezis|test|glossariy|case|zip", "topic": "mavzu", "n": son yoki null, "mode": "common|premium yoki null"}} yoz: dasturning o'zi ishni bajaradi. Mavzu noma'lum bo'lsa do=null qilib mavzuni so'ra. Ish so'ralganda faqat «Bajaraman» deb do ni bo'sh qoldirish — eng katta xato.
 - AI kalitlari, limit, Render yuklamasi, tezlik haqida so'ralsa, yuqoridagi TIZIM HOLATI'dan javob ber; o'ylab topma.
 - Bilmasang, o'ylab topma, shunday de."""
-    resp = ai_client.models.generate_content(
-        model=AI_MODEL_NAME, contents=prompt,
-        config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0.4),
+    # October ham botning umumiy retry/fallback qatlamidan foydalanadi.
+    # Asosiy model band yoki vaqtincha xato bersa, AI_FALLBACK_MODELS navbat bilan sinab ko'riladi.
+    t = _ai_generate_text_sync(
+        prompt, temperature=0.4, max_tokens=1800, json_mode=True,
+        models=AI_FALLBACK_MODELS,
     )
-    t = (getattr(resp, "text", "") or "").strip()
-    if not t:
-        raise RuntimeError("Gemini bo'sh javob")
     result = _json_loads_loose(t)
     if not isinstance(result, dict):
         raise ValueError("October AI javobi JSON obyekt emas")
