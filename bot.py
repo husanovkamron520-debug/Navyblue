@@ -997,8 +997,7 @@ def run_health_server():
 
         def do_POST(self):
             # 3D muzey: rasm yuklash (POST /museum/put)
-            try:
-                from urllib.parse import urlparse
+            try:                from urllib.parse import urlparse
                 u = urlparse(self.path)
                 if u.path.startswith("/museum/"):
                     museum.http_post(self, u)
@@ -1997,8 +1996,7 @@ async def case_manage_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     chat_id = query.message.chat_id
     teacher_code = get_teacher_code_by_chat_id(chat_id)
     if not teacher_code:
-        await query.answer("Bu amal faqat o'qituvchi uchun.", show_alert=True)
-        return
+        await query.answer("Bu amal faqat o'qituvchi uchun.", show_alert=True)        return
 
     action, _, raw_id = query.data.partition(":")
     try:
@@ -2997,8 +2995,7 @@ def _ppt_dedupe_slides(slides, threshold=0.82):
     kept, signatures = [], []
     for slide in slides:
         if not isinstance(slide, dict):
-            continue
-        title = re.sub(r"[^\w]+", " ", str(slide.get("title") or "").casefold(), flags=re.UNICODE).strip()
+            continue        title = re.sub(r"[^\w]+", " ", str(slide.get("title") or "").casefold(), flags=re.UNICODE).strip()
         body = re.sub(r"[^\w]+", " ", _ppt_slide_text(slide).casefold(), flags=re.UNICODE).strip()
         signature = (title + " " + body).strip()
         if not signature:
@@ -3997,8 +3994,7 @@ def _rel_filter(hits, q: str, strict: bool = True):
     if not ks or not strict:
         return list(hits)
     need = 1
-    scored = []
-    for i, h in enumerate(hits):
+    scored = []    for i, h in enumerate(hits):
         t = (h.get("tags") or "").lower().strip()
         if not t:                      # tegi yo'q (masalan Pixabay video) — manba o'z reytingiga ishonamiz
             scored.append((0, i, h))
@@ -4997,8 +4993,7 @@ def _ppt_fallback_visual(sl: dict, outline: dict, variant: int = 0) -> bytes:
         return value.upper() if re.fullmatch(r"[0-9A-Fa-f]{6}", value) else default
     bg = hx(pal.get("bg"), "10243B")
     accent = hx(pal.get("brown") or pal.get("b2"), "D5B36A")
-    blue = hx(pal.get("b1"), "3977A8")
-    soft = hx(pal.get("soft"), "456080")
+    blue = hx(pal.get("b1"), "3977A8")    soft = hx(pal.get("soft"), "456080")
     def rgb(h):
         return tuple(int(h[i:i + 2], 16) for i in (0, 2, 4))
     c0, c1 = rgb(bg), rgb(soft)
@@ -5997,8 +5992,7 @@ class _PptBuilder:
             self.image_or_placeholder(s, sl, img_x, 2.0, img_w, 4.55)
             self._img_caption(s, sl, img_x, 6.6, img_w)
             self.box(s, txt_x, 2.0, txt_w, 4.55)
-            pt = self.fit(sl["text"], txt_w - 0.5, 4.2, 24, 12)
-            self.text(s, txt_x + 0.25, 2.15, txt_w - 0.5, 4.25, sl["text"], pt, "text", False, "l", "m")
+            pt = self.fit(sl["text"], txt_w - 0.5, 4.2, 24, 12)            self.text(s, txt_x + 0.25, 2.15, txt_w - 0.5, 4.25, sl["text"], pt, "text", False, "l", "m")
         self.notes(s, sl.get("notes"))
 
     def cards(self, sl):
@@ -6997,8 +6991,7 @@ class _PptBuilder:
                 if old_timing is not None:
                     slide._element.remove(old_timing)
                 if PPT_MORPH and slide_index > 0:
-                    _v8_attach_morph(slide, _v8_morph_option(slide), slide_index)
-                    try:
+                    _v8_attach_morph(slide, _v8_morph_option(slide), slide_index)                    try:
                         _v8_timing(slide, slide_index)
                     except Exception:
                         logger.exception("V8 kirish animatsiyasi qo'shilmadi")
@@ -7997,8 +7990,7 @@ _install_ppt_visual_engine(_PptBuilder, PPT_LAYOUTS, PPT_COMPOSITIONS)
 # ============================================================
 def _ppt_outline_prompt_classic(topic: str, n: int, with_images: bool) -> str:
     img_rule = (
-        f"- Rasmli slaydlar uchun faqat bitta 'photo_query' maydoni yoz: INGLIZ tilida 2-4 ta aniq kalit so'z, stok foto qidiruvi uchun (masalan \"warehouse workers forklift\"). Jami {_ppt_img_budget(n)} ta rasm so'rovidan oshmasin. MUHIM: birinchi so'z asosiy obyekt yoki joy bo'lsin; umumiy 'automation/process/system' so'zlarini yolg'iz yozma. Rasm slayd mazmunini aynan ko'rsatsin.\n"
-        if with_images else
+        f"- Rasmli slaydlar uchun faqat bitta 'photo_query' maydoni yoz: INGLIZ tilida 2-4 ta aniq kalit so'z, stok foto qidiruvi uchun (masalan \"warehouse workers forklift\"). Jami {_ppt_img_budget(n)} ta rasm so'rovidan oshmasin. MUHIM: birinchi so'z asosiy obyekt yoki joy bo'lsin; umumiy 'automation/process/system' so'zlarini yolg'iz yozma. Rasm slayd mazmunini aynan ko'rsatsin.\n"        if with_images else
         "- 'photo_query' maydonini yozma; rasmli maketlardan (image_text, text_image, banner_cards) foydalanma.\n"
     )
     return (
@@ -8997,8 +8989,7 @@ class _PptBuilderClassic:
             except Exception:
                 logger.exception("Slayd yasashda xato (%s)", sl.get("layout"))
                 issues = ["xato"]
-            if issues:
-                logger.warning("Avto-tekshiruv: %s slaydida muammo: %s — oddiy maketda qayta tuzildi", sl.get("layout"), sorted(set(issues)))
+            if issues:                logger.warning("Avto-tekshiruv: %s slaydida muammo: %s — oddiy maketda qayta tuzildi", sl.get("layout"), sorted(set(issues)))
                 try:
                     while len(self.prs.slides) > n0:
                         self._drop_last_slide()
@@ -9997,8 +9988,7 @@ async def _ppt_generate_and_send(msg, context, topic, n, with_images, author, mo
         logger.info("Visual Director: domain=%s slides=%s distribution=%s",
                     visual_manifest.get("domain"), visual_manifest.get("slide_count"),
                     visual_manifest.get("visual_type_distribution"))
-        outline["_numeric_ellipsis_repairs"] = _ppt_repair_numeric_ellipsis(outline)
-        _t1 = time.monotonic()
+        outline["_numeric_ellipsis_repairs"] = _ppt_repair_numeric_ellipsis(outline)        _t1 = time.monotonic()
         # Tashqi litsenziyalangan dizayn namunasini mavzuga mos tanlaymiz.
         # Bu faqat dizayn/rang referensi: begona matn, logo va rasmlar ko'chirilmaydi.
         template_reference = await template_task
@@ -10997,8 +10987,7 @@ def _cw_make_docx(layout, title: str, with_answers: bool = False) -> bytes:
                 para.paragraph_format.space_after = Pt(2)
                 para.paragraph_format.left_indent = Cm(0.3)
                 rn = para.add_run(f"{p['n']}. ")
-                rn.bold = True
-                para.add_run(f"{_cw_txt(p['clue'])}" + (f" ({len(p['word'])} harf)" if with_len else ""))
+                rn.bold = True                para.add_run(f"{_cw_txt(p['clue'])}" + (f" ({len(p['word'])} harf)" if with_len else ""))
                 if show_ans:
                     ra = para.add_run(f" — {p['word']}")
                     ra.bold = True
@@ -11997,8 +11986,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     student = students.get(user_id)
     if student and student.get("current"):
         parts = context.user_data.setdefault("parts", [])
-        if len(parts) >= MAX_PARTS:
-            await update.message.reply_text(
+        if len(parts) >= MAX_PARTS:            await update.message.reply_text(
                 "Javob juda ko'p xabarga bo'lindi. Hozirgi matnni yuborish yoki qisqartirishni tanlang."
             )
             return
@@ -12997,8 +12985,7 @@ def _oct_parse_sync(text, d, now):
         quota_txt = _quota_roster_text(60)
     except Exception:
         quota_txt = "(o'qib bo'lmadi)"
-    try:
-        sys_txt = _sys_status_text(short=True)
+    try:        sys_txt = _sys_status_text(short=True)
     except Exception:
         sys_txt = "(o'qib bo'lmadi)"
     prompt = f"""Sen bot egasining shaxsiy yordamchi AI'san (ism: October). Egasi o'qituvchi, logistika/SCM kurslarini o'tadi va Telegram bot yuritadi. O'zbek tilida, qisqa, aniq va samimiy javob ber.
@@ -13026,6 +13013,15 @@ Faqat JSON qaytar:
  "set_quota": null,
  "do": null}}
 Qoidalar:
+- Avval egasining aynan hozirgi savoli yoki topshirig'iga javob ber; mavzudan chetga chiqma. O'zbekcha yoz, egasi boshqa tilda yozsa o'sha tilga moslash.
+- Oxirgi suhbat va xotiradan faqat savolga aloqador ma'lumotni ishlat. Yangi, aniq ko'rsatma eski xotiradagi afzallik yoki rejadan ustun.
+- Muhim tafsilot yetishmasa taxmin qilma: bitta qisqa, aniq savol ber. Ma'lumot yetarli bo'lsa ortiqcha savol bermay ishni bajar.
+- Faqat dastur natijasi tasdiqlagan ishni bajarildi de. "do" yoki "set_quota" so'rovi yuborilgani ish muvaffaqiyatli tugaganini anglatmaydi; bajarilish holatini reply'da to'qima.
+- Tushuntirish/maslahat so'rovini ish bajarish buyrug'i deb qabul qilma. Faqat aniq bajarish topshirig'ida "do" ni to'ldir.
+- Fikr yuritishning ichki maxfiy bosqichlarini oshkor qilma; kerak bo'lsa qisqa xulosa va tekshiriladigan sabablarni ber.
+- Limitni faqat egasi kimga, qaysi xizmatga va qancha miqdorda berishni aniq so'raganda o'zgartir. Noaniq yoki shunchaki muhokama qilingan limitni o'zgartirma.
+- Xotiraga faqat foydali va uzoq muddatli faktlarni yoz; taxmin, maxfiy ma'lumot, bir martalik savol yoki nozik ma'lumotlarni saqlama.
+- Takroriy salomlashuv, ortiqcha uzr va umumiy gaplardan qoch; javobni tabiiy va lo'nda qil. Egasi batafsil so'rasa, yetarlicha keng tushuntir.
 - Egasi "eslab qol", "yodda tut", "saqla" desa, aytganini remember ga qo'sh.
 - O'zing ham muhim, uzoq muddat kerak bo'ladigan narsalarni remember ga qo'sh: reja, muddat, qaror, kontakt, afzallik, odamlar/talabalar haqida muhim fakt, loyiha holati. Kundalik gap va savollarni QO'SHMA.
 - Parol, token, kalit, karta raqami kabi maxfiy narsalarni HECH QACHON remember ga qo'shma; egasi aytsa, saqlamasligingni ayt.
@@ -13997,8 +13993,7 @@ _REF_LOGO_B64 = (
     "gKAKAKAj305SN3CliqkgDtwKmKu7FKknGDkuQl0bVIEjG9IQz9d2dWUMzcSckYx2DwFbVISbOLD4ilGGr1ervoPYJ1cZRlYd6kEfdWLTW53RnG"
     "SvF3NgqCx7QELWLrooXccwML9o8F+8ir045pJGOIqdnTcv3cz0y06KJI/oqAfE9p9+aics0myaNPs6ajyJVVNSLqVz0UTyfRBI8T2D34q0I5mk"
     "ZVqnZwcuQm1Vvg1juZ67Dd82fi5/NWsO/Vucdd9hhcvF/V7nmxNjuQ9IRxkOf6o4D+JqcRK8rch7No5aed7v6FkFc56IUAUAUAUAUAUAUAUAUA"
-    "UAUAUBR9SPwzWIYBxisU6eTu6aThGPMDrV0x7lFy/q0A12pvIGkgsZwCLotn40xECMbw4qQTlsDGeOazpRlZzjwBt03Y+ygkWWK3USJndcs7MM"
-    "jBwWJ7KiVaclZsCsfynWT2pYw48Omn4/dGPvrTw0f7n8kC5VzgoPpI0zfQsBQFe9DerdHcTWbHhKOlj+2gCuB5rut7DXRPv0lLlp9gXnaXVLqK"
+    "UAUAUBR9SPwzWIYBxisU6eTu6aThGPMDrV0x7lFy/q0A12pvIGkgsZwCLotn40xECMbw4qQTlsDGeOazpRlZzjwBt03Y+ygkWWK3USJndcs7MM"    "jBwWJ7KiVaclZsCsfynWT2pYw48Omn4/dGPvrTw0f7n8kC5VzgoPpI0zfQsBQFe9DerdHcTWbHhKOlj+2gCuB5rut7DXRPv0lLlp9gXnaXVLqK"
     "eNIOhVDG8hM2QJGQr8WHBAjO6Sd455eBqlOEXFt/6Br2L2i+FvPuO0kQKOjMuNwuG34icAMUK8xngw4mprU8iXMC/ST8A1WW2PCC+zPB3CZf1q"
     "DzHW91Xl+ZSUuMdH0Beq5gFAFAFAJNq7gpD9VnVX47p3TzAJ5Z5Z7q1opORx46bjT02bSfQirtMgAXo0wOAAmjPAeGav2Lvv8AJmSx0bWyq3VE"
     "dr60c73RvC3048Z9vRk59oq2SolzMnWw8nezi+a/wTrXVGUZ3xcRDmycJUH10HMeIwfCs3BPyfyN4V5RV75o81uuqHUE6uoZGDKeII5GsmmnZn"
@@ -14997,8 +14992,7 @@ async def _ref_generate_and_send(msg, context, topic: str, pages: int, info: dic
 async def ref_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     if not q or not q.message:
-        return
-    parts = (q.data or "").split(":")
+        return    parts = (q.data or "").split(":")
     action = parts[1] if len(parts) > 1 else ""
     ref = context.user_data.get("_ref") or {}
     chat_id = q.message.chat_id
@@ -15997,8 +15991,7 @@ def _dg_make_file(last: dict, fmt: str, prof) -> tuple:
     if kind == "test":
         if fmt == "pdf":
             return _dg_pdf(last, prof), "pdf"
-        return _dg_docx_test(last, prof), "docx"
-    if kind == "glossariy":
+        return _dg_docx_test(last, prof), "docx"    if kind == "glossariy":
         if fmt == "pdf":
             return _dg_pdf(last, prof), "pdf"
         return _dg_docx_gloss(last, prof), "docx"
