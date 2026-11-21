@@ -2516,6 +2516,83 @@ def _gemini_read_attachment_sync(data: bytes, mime_type: str, filename: str, use
     return result[:MAX_EXTRACTED_CHARS]
 
 
+def _gemini_analyze_uploaded_images_sync(images, user_request: str) -> str:
+    """Bir nechta egasi yuborgan rasmni birgalikda tahlil qilib, slayd rejasi uchun mazmuniy brief tuzadi."""
+    if not ai_client:
+        raise RuntimeError("GEMINI_API_KEY sozlanmagan")
+    if not images:
+        raise ValueError("Tahlil qilish uchun rasm yo'q")
+    note_ai_call()
+    prompt = (
+        "Sen prezentatsiya uchun vizual manbalarni tahlil qiluvchi muharrirsan. Barcha rasmlarni birgalikda ko'r. "
+        "Har bir rasmda ko'rinadigan obyekt, matn, jadval, raqam, jarayon va ularning o'zaro bog'liqligini ajrat. "
+        "Rasmlar orasidagi mantiqiy ketma-ketlikni taklif qil. O'qilmagan matnni taxmin qilma; noaniq joyni belgila. "
+        "Faqat ko'rilgan dalillarga tayan, yangi fakt yoki statistikani to'qima. O'zbek tilida batafsil, tartibli tahlil yoz.\n"
+        f"Egasi topshirig'i: {str(user_request or 'Rasmlardan professional taqdimot tayyorla.')[:1200]}\n"
+        f"Rasmlar soni: {len(images)}. Har bir rasmni alohida raqam bilan tavsifla, so'ng umumiy mavzu va slaydlar uchun tavsiya ber."
+    )
+    contents = [prompt]
+    for item in images[:10]:
+        data = item.get("data") if isinstance(item, dict) else item
+        mime = item.get("mime") if isinstance(item, dict) else "image/jpeg"
+        if not isinstance(data, (bytes, bytearray)) or not _ppt_valid_image(data):
+            continue
+        contents.append(types.Part.from_bytes(data=bytes(data), mime_type=mime or "image/jpeg"))
+    if len(contents) < 2:
+        raise ValueError("Yaroqli rasm topilmadi")
+    errors = []
+    clients = [ai_client] + [c for c in _AI_BACKUP_CLIENTS if c]
+    models = list(dict.fromkeys([AI_MODEL_NAME] + AI_FALLBACK_MODELS))[:4]
+    for client in clients:
+        for model in models:
+            try:
+                response = client.models.generate_content(
+                    model=model, contents=contents,
+                    config=types.GenerateContentConfig(temperature=0.2, max_output_tokens=3000),
+                )
+                result = (getattr(response, "text", "") or "").strip()
+                if result:
+                    return result[:9000]
+                errors.append(f"{model}: bo'sh javob")
+            except Exception as exc:
+                errors.append(f"{model}: {type(exc).__name__}")
+                logger.warning("Yuborilgan rasmlarni tahlil qilish xatosi (%s): %s", model, exc)
+    raise RuntimeError("Rasmlarni AI tahlil qila olmadi: " + (errors[-1] if errors else "noma'lum xato"))
+
+
+def _gemini_transcribe_voice_sync(data: bytes, mime_type: str = "audio/ogg") -> str:
+    """Telegram ovozli xabarini matnga aylantiradi; tarjima yoki mazmun qo'shmaydi."""
+    if not ai_client:
+        raise RuntimeError("GEMINI_API_KEY sozlanmagan")
+    if not data:
+        raise ValueError("Ovozli xabar bo'sh")
+    note_ai_call()
+    prompt = (
+        "Quyidagi audio xabarni aynan eshitilgan tilda matnga ko'chir. So'zlarni tarjima qilma, "
+        "mazmunini sharhlama va buyruqni o'zingcha o'zgartirma. Imkon qadar tinish belgilarini qo'y. "
+        "Tushunarsiz qismini [noaniq] deb belgilagin. Faqat transkripsiyani qaytar."
+    )
+    contents = [prompt, types.Part.from_bytes(data=bytes(data), mime_type=mime_type or "audio/ogg")]
+    errors = []
+    clients = [ai_client] + [c for c in _AI_BACKUP_CLIENTS if c]
+    models = list(dict.fromkeys([AI_MODEL_NAME] + AI_FALLBACK_MODELS))[:4]
+    for client in clients:
+        for model in models:
+            try:
+                response = client.models.generate_content(
+                    model=model, contents=contents,
+                    config=types.GenerateContentConfig(temperature=0.1, max_output_tokens=1800),
+                )
+                result = (getattr(response, "text", "") or "").strip()
+                if result:
+                    return result[:5000]
+                errors.append(f"{model}: bo'sh javob")
+            except Exception as exc:
+                errors.append(f"{model}: {type(exc).__name__}")
+                logger.warning("Ovoz transkripsiyasi xatosi (%s): %s", model, exc)
+    raise RuntimeError("Ovoz matnga aylantirilmadi: " + (errors[-1] if errors else "noma'lum xato"))
+
+
 async def attachment_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Rasm/hujjatni o'qib, mavjud matnli bot oqimiga uzatadi."""
     msg = update.effective_message
@@ -2558,6 +2635,28 @@ async def attachment_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
             return
         if zip_added:
             await msg.reply_text("📦 Fayl ZIP ro'yxatiga ham qo'shildi. Keraklilarini tanlash uchun 📦 ZIP tugmasini bosing yoki /zip yozing.")
+        if msg.chat.type == "private" and _oct_owner(update) and (msg.photo or mime.startswith("image/")):
+            if not _ppt_valid_image(raw):
+                await msg.reply_text("Bu rasm formatini PowerPoint uchun o'qiy olmadim. JPG yoki PNG yuborib ko'ring.")
+                return
+            pending_images = context.user_data.setdefault("_oct_ppt_images", [])
+            digest = hashlib.sha256(raw).hexdigest()
+            if any(item.get("sha256") == digest for item in pending_images):
+                await msg.reply_text("Bu rasm avval yuborilgan — takrorini qo'shmadim.")
+                return
+            total_bytes = sum(len(item.get("data") or b"") for item in pending_images)
+            if len(pending_images) >= 10 or total_bytes + len(raw) > 18 * 1024 * 1024:
+                await msg.reply_text("Ko'pi bilan 10 ta rasm va jami 18 MB qabul qilaman. Hozirgi rasmlardan prezentatsiya boshlashingiz mumkin.")
+                return
+            pending_images.append({
+                "data": raw, "mime": mime or "image/jpeg",
+                "filename": filename, "caption": (msg.caption or "").strip(), "sha256": digest,
+            })
+            await msg.reply_text(
+                f"🖼 Rasm saqlandi: {len(pending_images)}/10. Yana rasmlar yuborishingiz mumkin.\n\n"
+                "Tugatgach, masalan: «Shu rasmlardan 10 slaydli professional prezentatsiya tayyorla» deb yozing."
+            )
+            return
         ext = os.path.splitext(filename.lower())[1]
         caption = (msg.caption or "").strip()
         if ext in {".txt", ".md", ".csv", ".json", ".xml", ".html", ".py", ".log"}:
@@ -2612,6 +2711,44 @@ async def attachment_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     except Exception:
         logger.exception("Biriktirilgan faylni o'qish xatosi")
         await msg.reply_text("Faylni o'qishda xatolik bo'ldi. Rasm/PDFni qayta yuboring yoki fayl hajmi va turini tekshiring.")
+
+
+async def voice_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Bot egasining Telegram ovozli xabarini transkripsiya qilib, odatiy October oqimiga uzatadi."""
+    msg = update.effective_message
+    if not msg or not update.effective_chat or not _oct_owner(update):
+        return
+    media = getattr(msg, "voice", None) or getattr(msg, "audio", None)
+    if not media:
+        return
+    try:
+        tg_file = await media.get_file()
+        size = getattr(tg_file, "file_size", None) or getattr(media, "file_size", 0)
+        if size and size > MAX_ATTACHMENT_BYTES:
+            await msg.reply_text("Ovozli xabar juda katta. 15 MB dan kichik audio yuboring.")
+            return
+        raw = bytes(await tg_file.download_as_bytearray())
+        if len(raw) > MAX_ATTACHMENT_BYTES:
+            await msg.reply_text("Audio 15 MB limitdan katta. Qisqaroq ovozli xabar yuboring.")
+            return
+        mime = getattr(media, "mime_type", None) or ("audio/ogg" if getattr(msg, "voice", None) else "audio/mpeg")
+        status = await msg.reply_text("🎧 Ovozli xabarni tinglayapman...")
+        transcript = await asyncio.wait_for(
+            asyncio.to_thread(_gemini_transcribe_voice_sync, raw, mime), timeout=120
+        )
+        if not transcript.strip():
+            await status.edit_text("Ovozdan tushunarli matn ajratilmadi. Yana bir marta yuboring.")
+            return
+        await status.edit_text("🗣 Eshitilgan matn:\n" + transcript[:3000] + "\n\nOctober javob bermoqda...")
+        synthetic_update = copy.copy(update)
+        synthetic_message = copy.copy(msg)
+        object.__setattr__(synthetic_message, "text", transcript)
+        object.__setattr__(synthetic_message, "caption", None)
+        object.__setattr__(synthetic_update, "message", synthetic_message)
+        await handle_message(synthetic_update, context)
+    except Exception:
+        logger.exception("Ovozli xabarni qayta ishlashda xato")
+        await msg.reply_text("⚠️ Ovozli xabarni tushunib bo'lmadi. Birozdan keyin qayta urinib ko'ring.")
 
 
 # ============================================================
@@ -3573,7 +3710,7 @@ def _ppt_trim_outline_to_count(outline, requested_nonexecutive):
     return outline
 
 
-def _ppt_expand_missing_slides(outline, topic, requested, with_images, sanitizer):
+def _ppt_expand_missing_slides(outline, topic, requested, with_images, sanitizer, source_brief=""):
     """Gemini yetkazmagan slaydlarni kichik partiyalarda davom ettirib, so'ralgan songa yetkazadi."""
     try:
         slides = list(outline.get("slides") or [])
@@ -3617,7 +3754,8 @@ def _ppt_expand_missing_slides(outline, topic, requested, with_images, sanitizer
                 "Slaydlar mazmunan to'liq, vizual jihatdan xilma-xil va professional bo'lsin. "
                 "photo_query faqat kerak bo'lsa 2-4 ta ANIQ INGLIZCHA kalit so'z bo'lsin. "
                 f"Til: mavzu tilida. Mavzu: {str(topic)[:500]}\n"
-                f"{build_story_guidance(topic, requested)}\n"
+                + (f"Foydalanuvchi yuborgan rasmlar tahlili: {str(source_brief)[:5000]}\n" if source_brief else "")
+                + f"{build_story_guidance(topic, requested)}\n"
                 "Oldingi slaydlarning story_role va story_beat vazifalarini takrorlama; yangi mazmuniy yo'nalish tanla. "
                 f"Bu partiyada aynan {batch_size} ta yangi kontent slaydi qaytar. "
                 "Mavjud slaydlar mazmuni (takrorlamaslik uchun): "
@@ -3675,7 +3813,7 @@ def _ppt_expand_missing_slides(outline, topic, requested, with_images, sanitizer
             ) from exc
         return outline
 
-def _gemini_outline_sync(topic: str, n_slides: int, with_images: bool = True) -> dict:
+def _gemini_outline_sync(topic: str, n_slides: int, with_images: bool = True, source_brief: str = "") -> dict:
     """Birinchi navbatda yengil model; zarur bo'lsa zaxira model/prompt. Imlo AI tekshiruvi ixtiyoriy."""
     if not ai_client:
         raise RuntimeError("GEMINI_API_KEY sozlanmagan")
@@ -3684,7 +3822,10 @@ def _gemini_outline_sync(topic: str, n_slides: int, with_images: bool = True) ->
     for build, temp, mx in plans:
         for model in PPT_AI_MODELS[:3]:
             try:
-                text = _ai_generate_text_sync(build(topic, n_slides, with_images), temp, mx, True, [model])
+                prompt = build(topic, n_slides, with_images)
+                if source_brief:
+                    prompt += "\n\nFOYDALANUVCHI YUBORGAN RASMLAR TAHLILI (slayd mazmunini shu manbalarga mosla):\n" + str(source_brief)[:9000]
+                text = _ai_generate_text_sync(prompt, temp, mx, True, [model])
                 outline = _sanitize_outline(_json_loads_loose(text), topic, n_slides, with_images)
                 has_reference_slide = any(
                     isinstance(item, dict) and item.get("layout") == "references"
@@ -3700,7 +3841,7 @@ def _gemini_outline_sync(topic: str, n_slides: int, with_images: bool = True) ->
                 )
                 outline = _ppt_trim_outline_to_count(outline, target_nonexecutive)
                 outline = _ppt_expand_missing_slides(
-                    outline, topic, target_nonexecutive, with_images, _sanitize_outline
+                    outline, topic, target_nonexecutive, with_images, _sanitize_outline, source_brief
                 )
                 # Ikkinchi to'liq Gemini proofreading chaqiruvi odatda vaqtni oshiradi.
                 # Asosiy generator allaqachon imlo va grammatika talablariga ega; kerak bo'lsa env orqali yoqiladi.
@@ -5291,6 +5432,46 @@ def _ppt_finalize_images(outline: dict):
     logger.info("Asset manifest: assets=%s slides=%s sources=%s",
                 asset_report.get("asset_count"), asset_report.get("slide_count_with_assets"),
                 asset_report.get("source_counts"))
+
+
+def _ppt_apply_uploaded_images(outline: dict, source_images: list) -> int:
+    """Owner yuborgan rasmlarni slaydlarning foto joylariga qo'yadi; qolgan foto joylari stock bilan to'ldirilishi mumkin."""
+    slides = [s for s in (outline.get("slides") or []) if isinstance(s, dict)]
+    images = [x for x in (source_images or []) if isinstance(x, dict) and _ppt_valid_image(x.get("data"))]
+    if not slides or not images:
+        return 0
+    slots = [s for s in slides if s.get("layout") in _PPT_IMG_LAYOUTS]
+    slot_ids = {id(s) for s in slots}
+    target = min(len(images), len(slides))
+    if len(slots) < target:
+        for slide in slides:
+            if len(slots) >= target:
+                break
+            if id(slide) in slot_ids or slide.get("layout") not in ("text", "editorial", "statement"):
+                continue
+            body = str(slide.get("text") or _ppt_visual_body(slide) or "").strip()
+            if not body:
+                continue
+            slide["layout"] = "image_text"
+            slide["text"] = body[:620]
+            slots.append(slide)
+            slot_ids.add(id(slide))
+    assigned = 0
+    for slide, item in zip(slots, images):
+        data = item.get("data")
+        if not _ppt_valid_image(data):
+            continue
+        slide["_img"] = bytes(data)
+        slide["_asset"] = {
+            "source_type": "retrieved", "provider": "Telegram user upload",
+            "credit": "Provided by the presentation owner in Telegram",
+            "license_status": "user_provided", "visual_kind": "user_uploaded_photo",
+        }
+        slide["_visual_kind"] = "user_uploaded_photo"
+        assigned += 1
+    outline["_user_uploaded_image_count"] = assigned
+    logger.info("Owner uploaded images assigned to presentation: %s/%s", assigned, len(images))
+    return assigned
 
 
 # ---------------------------- V8: Executive Summary, Stepper, A4 poster ----------------------------
@@ -8253,7 +8434,7 @@ def _ppt_outline_prompt_compact_classic(topic: str, n: int, with_images: bool) -
     )
 
 
-def _gemini_outline_sync_classic(topic: str, n_slides: int, with_images: bool = True) -> dict:
+def _gemini_outline_sync_classic(topic: str, n_slides: int, with_images: bool = True, source_brief: str = "") -> dict:
     """Classic rejimda ham kam slaydlar sifatli davom ettiriladi."""
     if not ai_client:
         raise RuntimeError("GEMINI_API_KEY sozlanmagan")
@@ -8262,7 +8443,10 @@ def _gemini_outline_sync_classic(topic: str, n_slides: int, with_images: bool = 
     for build, temp, mx in plans:
         for model in (AI_FALLBACK_MODELS * 3)[:3]:
             try:
-                text = _ai_generate_text_sync(build(topic, n_slides, with_images), temp, mx, True, [model])
+                prompt = build(topic, n_slides, with_images)
+                if source_brief:
+                    prompt += "\n\nFOYDALANUVCHI YUBORGAN RASMLAR TAHLILI (slayd mazmunini shu manbalarga mosla):\n" + str(source_brief)[:9000]
+                text = _ai_generate_text_sync(prompt, temp, mx, True, [model])
                 outline = _sanitize_outline_classic(_json_loads_loose(text), topic, n_slides, with_images)
                 has_reference_slide = any(
                     isinstance(item, dict) and item.get("layout") == "references"
@@ -8278,7 +8462,7 @@ def _gemini_outline_sync_classic(topic: str, n_slides: int, with_images: bool = 
                 )
                 outline = _ppt_trim_outline_to_count(outline, target_nonexecutive)
                 return _ppt_expand_missing_slides(
-                    outline, topic, target_nonexecutive, with_images, _sanitize_outline_classic
+                    outline, topic, target_nonexecutive, with_images, _sanitize_outline_classic, source_brief
                 )
             except Exception as exc:
                 last_exc = exc
@@ -9944,9 +10128,11 @@ def _ppt_apply_template_palette(theme: dict, reference: dict | None) -> dict:
     return _ppt_fix_contrast(updated)
 
 
-async def _ppt_generate_and_send(msg, context, topic, n, with_images, author, mode=None):
+async def _ppt_generate_and_send(msg, context, topic, n, with_images, author, mode=None, source_images=None, source_brief=""):
     mode = mode or context.user_data.get("_ppt_mode", "premium")
     mode = "common" if mode == "common" else "premium"
+    source_images = list(source_images or [])
+    with_images = bool(with_images or source_images)
     # Telegramdagi tanlov — yakuniy PPTX faylidagi JAMI slaydlar soni, muqova bilan.
     requested_total = max(PPT_MIN_SLIDES, min(PPT_MAX_SLIDES, int(n)))
     outline_n = content_slide_target(requested_total)  # generator faqat muqovadan keyingi kontent slaydlarini tuzadi
@@ -9968,9 +10154,9 @@ async def _ppt_generate_and_send(msg, context, topic, n, with_images, author, mo
         template_task = asyncio.create_task(asyncio.to_thread(_ppt_prepare_template_reference, topic, {}))
         async with ai_gate:
             if mode == "common":
-                outline = await asyncio.to_thread(_gemini_outline_sync_classic, topic, outline_n, with_images)
+                outline = await asyncio.to_thread(_gemini_outline_sync_classic, topic, outline_n, with_images, source_brief)
             else:
-                outline = await asyncio.to_thread(_gemini_outline_sync, topic, outline_n, with_images)
+                outline = await asyncio.to_thread(_gemini_outline_sync, topic, outline_n, with_images, source_brief)
         outline["author"] = cover.get("name", "")     # Telegram ismi endi avtomatik qo'yilmaydi
         outline["cover"] = cover
         outline["_source_topic"] = topic
@@ -10059,6 +10245,8 @@ async def _ppt_generate_and_send(msg, context, topic, n, with_images, author, mo
                 await _ppt_attach_images(outline, owner_ai)
             except Exception:
                 logger.exception("Slayd rasmlari olinmadi — topilgan rasmlar va mahalliy vizuallar bilan davom etamiz")
+        if source_images:
+            _ppt_apply_uploaded_images(outline, source_images)
         try:
             if with_images and is_cardio_topic:
                 outline["_cardiovascular_visual_slides"] = _ppt_apply_cardiovascular_visuals(outline)
@@ -12917,6 +13105,29 @@ async def _oct_guard(coro, label):
         logger.exception("October vazifasi xatosi: %s", label)
 
 
+async def _oct_generate_ppt_from_images(msg, context, topic, n, author, mode, images):
+    """Avval foydalanuvchi rasmlarini tahlil qiladi, keyin mavjud PPT generatoriga uzatadi."""
+    status = await msg.reply_text(f"🖼 {len(images)} ta yuborilgan rasm tahlil qilinmoqda...")
+    try:
+        async with ai_gate:
+            brief = await asyncio.to_thread(_gemini_analyze_uploaded_images_sync, images, topic)
+        try:
+            await status.delete()
+        except Exception:
+            pass
+        await _ppt_generate_and_send(
+            msg, context, topic, n, True, author, mode,
+            source_images=images, source_brief=brief,
+        )
+    except Exception:
+        logger.exception("Rasmlardan prezentatsiya yaratish xatosi")
+        context.user_data["_oct_ppt_images"] = images
+        try:
+            await status.edit_text("⚠️ Rasmlardan prezentatsiya boshlanmadi. Rasmlar saqlab qolindi; qayta urinib ko'rishingiz mumkin.")
+        except Exception:
+            await msg.reply_text("⚠️ Rasmlarni tahlil qilib bo'lmadi. Rasmlar saqlab qolindi; qayta urinib ko'ring.")
+
+
 async def _oct_do(update, context, kind, topic, n=None, mode=None, again=False):
     """October so'ragan ishni bot funksiyalari orqali HAQIQATAN bajaradi. Foydalanuvchiga qisqa xabar qaytaradi."""
     msg = update.effective_message
@@ -12942,8 +13153,15 @@ async def _oct_do(update, context, kind, topic, n=None, mode=None, again=False):
     if kind == "slide":
         n = max(PPT_MIN_SLIDES, min(PPT_MAX_SLIDES, int(n or 10)))
         mode = mode if mode in ("common", "premium") else "premium"
-        t = asyncio.create_task(_oct_guard(_ppt_generate_and_send(
-            msg, context, topic, n, context.user_data.get("_ppt_img", True), author, mode), "slide"))
+        use_uploaded = bool(context.user_data.pop("_oct_use_uploaded_images", False))
+        uploaded = context.user_data.pop("_oct_ppt_images", []) if use_uploaded else []
+        if uploaded:
+            t = asyncio.create_task(_oct_guard(
+                _oct_generate_ppt_from_images(msg, context, topic, n, author, mode, uploaded), "slide"
+            ))
+        else:
+            t = asyncio.create_task(_oct_guard(_ppt_generate_and_send(
+                msg, context, topic, n, context.user_data.get("_ppt_img", True), author, mode), "slide"))
         _OCT_TASKS.add(t)
         t.add_done_callback(_OCT_TASKS.discard)
         return f"🚀 Boshladim: «{topic[:60]}» — {n} slayd ({'Common' if mode == 'common' else 'Premium'})."
@@ -13077,6 +13295,8 @@ async def october_chat(update: Update, text: str, context=None):
     stamp = now.strftime("%Y-%m-%d %H:%M")
     d["log"].append({"t": text[:600], "ts": stamp})  # hamma xabar jurnali
     d["log"] = d["log"][-OCT_MAX_LOG:]
+    if context is not None and context.user_data.get("_oct_ppt_images") and re.search(r"\b(taqdimot|prezentatsiya|slayd|slide|ppt)\b", text, re.I):
+        context.user_data["_oct_use_uploaded_images"] = True
     if context is not None:
         pend = context.user_data.get("_oct_pending")
         if pend and time.time() - pend["ts"] < 600 and not text.startswith("/") and len(text) < 300:
@@ -13104,7 +13324,11 @@ async def october_chat(update: Update, text: str, context=None):
         return
     d["day"]["n"] += 1
     try:
-        res = await asyncio.to_thread(_oct_parse_sync, text, d, now)
+        ai_text = text
+        if context is not None and context.user_data.get("_oct_use_uploaded_images"):
+            count = len(context.user_data.get("_oct_ppt_images") or [])
+            ai_text += f"\n\n[EGASI TELEGRAM ORQALI {count} TA RASM YUBORGAN. Agar u taqdimot so'rasa, mavzuni va slayd mazmunini aynan shu rasmlar asosida tuz; ularni PowerPoint ichiga joylashtirish uchun do.kind='slide' qaytar.]"
+        res = await asyncio.to_thread(_oct_parse_sync, ai_text, d, now)
     except Exception:
         logger.exception("October AI xatosi")
         save_json(OCT_FILE, d)
@@ -13833,6 +14057,7 @@ def main():
     museum.install(app)
     app.add_handler(CallbackQueryHandler(ref_callback, pattern=r"^ref:"))
     app.add_handler(CallbackQueryHandler(cw_callback, pattern=r"^cw:"))
+    app.add_handler(MessageHandler(filters.ChatType.PRIVATE & (filters.VOICE | filters.AUDIO), voice_handler))
     app.add_handler(MessageHandler(filters.ChatType.PRIVATE & (filters.PHOTO | filters.Document.ALL | filters.VIDEO), attachment_handler))
     app.add_handler(MessageHandler(filters.StatusUpdate.WEB_APP_DATA, puzzle_webapp_data))
     app.add_handler(MessageHandler(filters.ChatType.PRIVATE & filters.TEXT & ~filters.COMMAND, handle_message))
