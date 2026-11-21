@@ -638,7 +638,7 @@ def init_storage():
     if not USE_DB:
         logger.warning("SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY topilmadi: lokal fayl ishlatiladi (qayta ishga tushganda o'chib ketadi!)")
         return
-    for fp in (CASES_FILE, TEACHERS_FILE, STUDENTS_FILE, RESULTS_FILE, TESTS_FILE, TEST_RESULTS_FILE, FEEDBACKS_FILE, USAGE_FILE, OMBOR_FILE, PUZZLE_FILE, JARVIS_FILE, OCT_FILE, supply_chain.DATA_FILE):
+    for fp in (CASES_FILE, TEACHERS_FILE, STUDENTS_FILE, RESULTS_FILE, TESTS_FILE, TEST_RESULTS_FILE, FEEDBACKS_FILE, USAGE_FILE, OMBOR_FILE, PUZZLE_FILE, JARVIS_FILE, OCT_FILE, OCT_TASKS_FILE, supply_chain.DATA_FILE):
         _ensure_loaded(_storage_key(fp), fp)
     if not _writer_started:
         threading.Thread(target=_writer_loop, daemon=True, name="supabase-writer").start()
@@ -12562,6 +12562,7 @@ _cpu_gate = asyncio.Semaphore(2)
 _LAG = {"last": 0.0, "max": 0.0, "max_ts": 0.0, "cpu": 0.0, "started": time.time()}
 _LAG_TASK = None
 _COMP_NOTIFY_TASK = None
+_OCT_REMINDER_TASK = None
 
 
 def _perf_note(kind, secs, detail=""):
@@ -12673,15 +12674,24 @@ async def holat_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def _post_init(app):
-    global _LAG_TASK, _COMP_NOTIFY_TASK
+    global _LAG_TASK, _COMP_NOTIFY_TASK, _OCT_REMINDER_TASK
     _LAG_TASK = asyncio.create_task(_lag_monitor(), name="lag-monitor")
     _COMP_NOTIFY_TASK = asyncio.create_task(_supplychain_notification_loop(app), name="supplychain-notifications")
+    _OCT_REMINDER_TASK = asyncio.create_task(_oct_task_reminder_loop(app), name="october-reminders")
 
 
 async def _post_shutdown(app):
-    global _LAG_TASK, _COMP_NOTIFY_TASK
+    global _LAG_TASK, _COMP_NOTIFY_TASK, _OCT_REMINDER_TASK
     task = _LAG_TASK
     _LAG_TASK = None
+    reminder_task = _OCT_REMINDER_TASK
+    _OCT_REMINDER_TASK = None
+    if reminder_task and not reminder_task.done():
+        reminder_task.cancel()
+        try:
+            await reminder_task
+        except asyncio.CancelledError:
+            pass
     notify_task = _COMP_NOTIFY_TASK
     _COMP_NOTIFY_TASK = None
     if notify_task and not notify_task.done():
@@ -12710,6 +12720,7 @@ async def _on_error(update, context):
 # /october — bot egasi uchun shaxsiy AI (xotira bilan)
 # ============================================================
 OCT_FILE = "october_data.json"
+OCT_TASKS_FILE = "october_tasks.json"
 OCT_DAILY_LIMIT = 150
 OCT_MAX_NOTES = 200
 OCT_MAX_LOG = 300
@@ -13067,6 +13078,181 @@ _OCT_NOUNS = (("slide", r"taqdimot|prezentatsiya|presentatsiya|slayd|slayt|slide
               ("case", r"\bcase\b|\bkeys\b"), ("test", r"\btest\b"))
 
 
+_OCT_TASK_LOCK = threading.RLock()
+_OCT_REMINDER_TASK = None
+
+
+def _oct_tasks_data():
+    data = load_json(OCT_TASKS_FILE, {})
+    if not isinstance(data, dict):
+        data = {}
+    if not isinstance(data.get("tasks"), list):
+        data["tasks"] = []
+    try:
+        data["seq"] = max(0, int(data.get("seq", 0)))
+    except (TypeError, ValueError):
+        data["seq"] = 0
+    return data
+
+
+def _oct_task_due(value):
+    if not value:
+        return None
+    try:
+        due = datetime.fromisoformat(str(value).strip().replace("Z", "+00:00"))
+        if due.tzinfo is None:
+            due = due.replace(tzinfo=TZ5)
+        return due.astimezone(TZ5)
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
+def _oct_task_apply(spec, owner_text=""):
+    """October vazifalarini Supabase bot_storage orqali doimiy boshqaradi."""
+    if not isinstance(spec, dict):
+        return "⚠️ Vazifa so'rovi noto'g'ri formatda."
+    action = str(spec.get("action") or "").strip().lower()
+    title = " ".join(str(spec.get("title") or "").split())[:240]
+    task_id = str(spec.get("task_id") or "").strip().lstrip("#")
+    due_raw = spec.get("due_at")
+    reminder_requested = bool(spec.get("reminder_requested"))
+    now = _jv_now()
+    with _OCT_TASK_LOCK:
+        data = _oct_tasks_data()
+        rows = data["tasks"]
+        active = [x for x in rows if isinstance(x, dict) and x.get("status") == "pending"]
+        if action == "list":
+            return _oct_tasks_text(data)
+        if action == "add":
+            if not title:
+                return "Vazifa nomi aniq emas. Nima qilish kerakligini yoz."
+            due = _oct_task_due(due_raw)
+            if due_raw and due is None:
+                return "Sana yoki vaqtni tushunmadim. Masalan: «ertaga soat 09:30» deb aniqroq yoz."
+            if reminder_requested and due is None:
+                return "Eslatishim uchun sana va vaqtni ham yoz: masalan, «ertaga soat 09:30 da eslat»."
+            if len(active) >= 300:
+                return "Faol vazifalar soni 300 taga yetdi. Avval bir nechtasini yakunla yoki o'chir."
+            data["seq"] += 1
+            task = {
+                "id": str(data["seq"]), "title": title, "status": "pending",
+                "created_at": now.isoformat(),
+                "due_at": due.isoformat() if due else None,
+                "reminder_sent_at": None,
+                "created_from": str(owner_text or "")[:300],
+            }
+            rows.append(task)
+            save_json(OCT_TASKS_FILE, data)
+            due_text = f"\n⏰ Muddat: {due:%d.%m.%Y %H:%M} (Toshkent)" if due else ""
+            return f"✅ Vazifa qo'shildi: #{task['id']} — {title}{due_text}"
+        if action in ("complete", "delete"):
+            matches = [x for x in active if (task_id and str(x.get("id")) == task_id)
+                       or (not task_id and title and title.casefold() in str(x.get("title") or "").casefold())]
+            if not matches:
+                return "Bunday faol vazifani topmadim. /vazifalar orqali ID sini tekshir."
+            if len(matches) > 1:
+                return "Bir nechta vazifa mos keldi. /vazifalar dan kerakli vazifa ID sini tanla."
+            task = matches[0]
+            if action == "complete":
+                task["status"] = "done"
+                task["completed_at"] = now.isoformat()
+                result = f"✅ Bajarildi: #{task['id']} — {task.get('title', '')}"
+            else:
+                task["status"] = "deleted"
+                task["deleted_at"] = now.isoformat()
+                result = f"🗑 O'chirildi: #{task['id']} — {task.get('title', '')}"
+            save_json(OCT_TASKS_FILE, data)
+            return result
+        return "Vazifa amali tushunarsiz. Qo'shish, ro'yxat, bajarildi yoki o'chirishni so'ra."
+
+
+def _oct_tasks_text(data=None, only_reminders=False):
+    data = data if isinstance(data, dict) else _oct_tasks_data()
+    now = _jv_now()
+    rows = [x for x in data.get("tasks", []) if isinstance(x, dict) and x.get("status") == "pending"]
+    if only_reminders:
+        rows = [x for x in rows if x.get("due_at")]
+    rows.sort(key=lambda x: (x.get("due_at") is None, x.get("due_at") or x.get("created_at") or ""))
+    if not rows:
+        return "📋 Hozircha faol vazifa" + (" yoki eslatma" if only_reminders else "") + " yo'q."
+    lines = ["📋 Eslatmalar:" if only_reminders else "📋 Faol vazifalar:"]
+    for item in rows[:35]:
+        due = _oct_task_due(item.get("due_at"))
+        due_text = f" · ⏰ {due:%d.%m %H:%M}" if due else ""
+        if due and due <= now and not item.get("reminder_sent_at"):
+            due_text += " · muddati o'tgan"
+        lines.append(f"• #{item.get('id')} — {item.get('title', 'Nomsiz')}{due_text}")
+    if len(rows) > 35:
+        lines.append(f"... yana {len(rows) - 35} ta vazifa bor.")
+    lines.append("\nBajarilganini belgilash: /bajarildi ID · O'chirish: /vazifa_ochir ID")
+    return "\n".join(lines)
+
+
+async def _oct_task_reminder_loop(app):
+    """Render ishlayotganida muddati yetgan eslatmalarni tekshiradi; holat DBga yoziladi."""
+    logger.info("October persistent reminder worker started")
+    while True:
+        try:
+            if OWNER_CHAT_ID:
+                with _OCT_TASK_LOCK:
+                    data = _oct_tasks_data()
+                    due_rows = [x for x in data.get("tasks", []) if isinstance(x, dict)
+                                and x.get("status") == "pending" and x.get("due_at")
+                                and not x.get("reminder_sent_at")
+                                and (_oct_task_due(x.get("due_at")) or (datetime.max.replace(tzinfo=TZ5))) <= _jv_now()]
+                for item in due_rows[:10]:
+                    due = _oct_task_due(item.get("due_at"))
+                    message = (f"⏰ October eslatmasi\n\n{item.get('title', 'Vazifa')}\n"
+                               f"Vaqti: {due:%d.%m.%Y %H:%M} (Toshkent)\n\n"
+                               f"Bajarilgach /bajarildi {item.get('id')} deb yoz.")
+                    try:
+                        await app.bot.send_message(chat_id=OWNER_CHAT_ID, text=message[:3500])
+                    except Exception:
+                        logger.exception("October reminder delivery failed for task %s", item.get("id"))
+                        continue
+                    with _OCT_TASK_LOCK:
+                        latest = _oct_tasks_data()
+                        for saved in latest.get("tasks", []):
+                            if str(saved.get("id")) == str(item.get("id")) and saved.get("status") == "pending":
+                                saved["reminder_sent_at"] = _jv_now().isoformat()
+                                save_json(OCT_TASKS_FILE, latest)
+                                break
+            await asyncio.sleep(15)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("October reminder worker error")
+            await asyncio.sleep(30)
+
+
+async def october_tasks_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not _oct_owner(update):
+        return
+    await update.effective_message.reply_text(_oct_tasks_text(only_reminders=(update.effective_message.text or "").split()[0].lower().startswith("/eslatmalar")))
+
+
+async def october_task_done_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not _oct_owner(update):
+        return
+    task_id = (context.args or [""])[0]
+    if not task_id:
+        await update.effective_message.reply_text("Foydalanish: /bajarildi 3")
+        return
+    result = await asyncio.to_thread(_oct_task_apply, {"action": "complete", "task_id": task_id})
+    await update.effective_message.reply_text(result)
+
+
+async def october_task_delete_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not _oct_owner(update):
+        return
+    task_id = (context.args or [""])[0]
+    if not task_id:
+        await update.effective_message.reply_text("Foydalanish: /vazifa_ochir 3")
+        return
+    result = await asyncio.to_thread(_oct_task_apply, {"action": "delete", "task_id": task_id})
+    await update.effective_message.reply_text(result)
+
+
 def _oct_quick_intent(text):
     """Aniq vazifa so'ralganda AI'ni kutmasdan bajarish uchun: {'kind','topic','n','mode','again'} yoki None."""
     norm = text.replace("’", "'").replace("ʻ", "'").replace("`", "'")
@@ -13228,8 +13414,12 @@ def _oct_parse_sync(text, d, now):
         sys_txt = _sys_status_text(short=True)
     except Exception:
         sys_txt = "(o'qib bo'lmadi)"
+    tasks_txt = _oct_tasks_text(_oct_tasks_data())
     prompt = f"""Sen bot egasining shaxsiy yordamchi AI'san (ism: October). Egasi o'qituvchi, logistika/SCM kurslarini o'tadi va Telegram bot yuritadi. O'zbek tilida, qisqa, aniq va samimiy javob ber.
-Hozir: {now:%Y-%m-%d %H:%M} (Toshkent).
+Hozir: {now:%Y-%m-%d %H:%M:%S} (Toshkent, UTC+05:00).
+
+FAOL VAZIFALAR VA ESLATMALAR:
+{tasks_txt[:5000]}
 
 ESLAB QOLINGAN MA'LUMOTLAR (xotira):
 {notes_txt}
@@ -13251,7 +13441,8 @@ Faqat JSON qaytar:
  "remember": ["eslab qolinadigan qisqa, mustaqil jumlalar"],
  "forget": [o'chirish kerak bo'lgan xotira raqamlari],
  "set_quota": null,
- "do": null}}
+ "do": null,
+ "task_action": null}}
 Qoidalar:
 - Avval egasining aynan hozirgi savoli yoki topshirig'iga javob ber; mavzudan chetga chiqma. O'zbekcha yoz, egasi boshqa tilda yozsa o'sha tilga moslash.
 - Oxirgi suhbat va xotiradan faqat savolga aloqador ma'lumotni ishlat. Yangi, aniq ko'rsatma eski xotiradagi afzallik yoki rejadan ustun.
@@ -13269,6 +13460,8 @@ Qoidalar:
 - Egasi biror foydalanuvchiga (yoki hammaga) xizmat limitini berishni/o'zgartirishni so'rasa (masalan «Kamronga 10 ta slayd huquqi ber», «Zafar 3 ta krossvord yarata olsin», «hamma uchun slaydni 0 qil», «Madinaga cheksiz ber»), set_quota ga {{"player": "ro'yxatdagi ID yoki ism, hamma uchun «hamma»", "feature": "slide_common|slide_premium|krossvord|rasm|foto|referat|test|glossariy|case", "amount": butun son (cheksiz uchun -1), "mode": "add" (qo'shib ber) yoki "set" (aniq shuncha qil)}} yoz. slide_common = Common taqdimot, slide_premium = Premium taqdimot (har biri alohida sanaladi), rasm = AI bilan rasm yaratish, foto = Pixabay foto/video qidirish. «ber», «qo'sh» = add; «qil», «bo'lsin» = set. Egasining o'ziga limit yo'q. «Kim nima qila oladi», «foydalanuvchilar ro'yxati» desa, yuqoridagi ro'yxatdan reply'da qisqa, tartibli ko'rsat. Xizmat yoki miqdor aniq bo'lmasa set_quota ni null qoldir va so'ra.
 - set_quota to'ldirilganda reply ni juda qisqa yoz («Bajaraman.»); natijani dastur alohida qo'shadi.
 - Egasi biror ISH bajarishni so'rasa (taqdimot/slayd, krossvord, referat, maqola, tezis, test, glossariy, case, zip), "do" ga {{"kind": "slide|krossvord|referat|maqola|tezis|test|glossariy|case|zip", "topic": "mavzu", "n": son yoki null, "mode": "common|premium yoki null"}} yoz: dasturning o'zi ishni bajaradi. Mavzu noma'lum bo'lsa do=null qilib mavzuni so'ra. Ish so'ralganda faqat «Bajaraman» deb do ni bo'sh qoldirish — eng katta xato.
+- Vazifalar va eslatmalarni boshqar: egasi «vazifa qo'sh», «to-do ga yoz», «eslat» desa task_action={{"action":"add","title":"vazifa nomi","due_at":"YYYY-MM-DDTHH:MM:SS+05:00 yoki null","reminder_requested":true/false}}. Eslatma uchun sana-vaqtni aynan egasi aytganiga ko'ra Toshkent UTC+05:00 bilan ISO formatda yoz; noaniq vaqtni taxmin qilma. Eslatma so'ralib, vaqt aytilmagan bo'lsa due_at=null va reminder_requested=true qoldir — dastur sana-vaqtni so'raydi. Oddiy to-do uchun due_at null bo'lishi mumkin.
+- «Vazifalarim/eslatmalarim» desa task_action={{"action":"list"}}. «Bajarildi» desa action=complete, task_id ma'lum bo'lsa ID, aks holda title ni yoz. «O'chir» desa action=delete. Faqat egasining shaxsiy vazifalarini boshqar; task_action ni savol yoki umumiy maslahatga qo'shma.
 - AI kalitlari, limit, Render yuklamasi, tezlik haqida so'ralsa, yuqoridagi TIZIM HOLATI'dan javob ber; o'ylab topma.
 - Bilmasang, o'ylab topma, shunday de."""
     # October ham botning umumiy retry/fallback qatlamidan foydalanadi.
@@ -13288,6 +13481,8 @@ Qoidalar:
         result["set_quota"] = None
     if not isinstance(result.get("do"), dict):
         result["do"] = None
+    if not isinstance(result.get("task_action"), dict):
+        result["task_action"] = None
     return result
 
 
@@ -13368,6 +13563,14 @@ async def october_chat(update: Update, text: str, context=None):
         except Exception:
             logger.exception("October limit qo'yishda xato")
             grant_msg = (grant_msg or "") + "⚠️ Limit qo'yishda xatolik chiqdi."
+    task_note = None
+    task_spec = res.get("task_action")
+    if isinstance(task_spec, dict) and task_spec.get("action"):
+        try:
+            task_note = await asyncio.to_thread(_oct_task_apply, task_spec, text)
+        except Exception:
+            logger.exception("October vazifa ro'yxatini yangilay olmadi")
+            task_note = "⚠️ Vazifani saqlashda xatolik chiqdi."
     do_note = None
     spec = res.get("do")
     if context is not None and isinstance(spec, dict) and spec.get("kind"):
@@ -13389,6 +13592,8 @@ async def october_chat(update: Update, text: str, context=None):
     tail = []
     if do_note:
         tail.append(do_note)
+    if task_note:
+        tail.append(task_note)
     if grant_msg:
         tail.append(grant_msg)
     if extra:
@@ -14037,6 +14242,10 @@ def main():
     app.add_handler(CallbackQueryHandler(telegram_registration_start, pattern=r"^sc14_register$"))
     app.add_handler(CommandHandler(["musobaqa", "competition"], competition_command, filters=filters.ChatType.PRIVATE))
     app.add_handler(CommandHandler("october", october_command, filters=filters.ChatType.PRIVATE))
+    app.add_handler(CommandHandler(["vazifalar", "todo"], october_tasks_command, filters=filters.ChatType.PRIVATE))
+    app.add_handler(CommandHandler("eslatmalar", october_tasks_command, filters=filters.ChatType.PRIVATE))
+    app.add_handler(CommandHandler("bajarildi", october_task_done_command, filters=filters.ChatType.PRIVATE))
+    app.add_handler(CommandHandler("vazifa_ochir", october_task_delete_command, filters=filters.ChatType.PRIVATE))
     app.add_handler(CommandHandler("october_off", october_off_command, filters=filters.ChatType.PRIVATE))
     app.add_handler(CommandHandler("xotira", october_memory_command, filters=filters.ChatType.PRIVATE))
     app.add_handler(CommandHandler("holat", holat_command, filters=filters.ChatType.PRIVATE))
