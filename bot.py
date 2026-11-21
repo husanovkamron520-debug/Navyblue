@@ -11746,15 +11746,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             save_students(students)
     teacher_code = get_teacher_code_by_chat_id(update.effective_chat.id)
 
+    # October faqat bot egasining shaxsiy chatida avtomatik ishlaydi.
+    # /october buyrug'i endi shart emas; ta'lim menyusi tugmalari odatdagidek ishlaydi.
     if update.effective_chat.type == "private" and _oct_owner(update) and text:
-        _od = _oct_data()
-        if _od.get("on"):
-            if text in (BTN_EDU, BTN_EDU_BACK):
-                _od["on"] = False
+        if text not in (BTN_EDU, BTN_EDU_BACK):
+            _od = _oct_data()
+            if not _od.get("on"):
+                _od["on"] = True
                 save_json(OCT_FILE, _od)
-            else:
-                await october_chat(update, text, context)
-                return
+            await october_chat(update, text, context)
+            return
 
     if text in (BTN_EDU, BTN_EDU_BACK):
         context.user_data["awaiting_feedback"] = False
@@ -13022,6 +13023,9 @@ Qoidalar:
 
 
 async def october_chat(update: Update, text: str, context=None):
+    # Himoya qatlami: October shaxsiy AI faqat OWNER_CHAT_ID egasiga ochiq.
+    if not _oct_owner(update):
+        return
     msg = update.effective_message
     now = _jv_now()
     d = _oct_data()
@@ -13144,7 +13148,7 @@ async def october_off_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     d = _oct_data()
     d["on"] = False
     save_json(OCT_FILE, d)
-    await update.effective_message.reply_text("October o'chirildi. Xotira saqlanib qoldi. Qayta yoqish: /october", reply_markup=collapsed_menu(update.effective_chat.id))
+    await update.effective_message.reply_text("October vaqtincha pauza qilindi. Keyingi shaxsiy xabaringizda avtomatik qayta ishga tushadi. Xotira saqlanib qoldi.", reply_markup=collapsed_menu(update.effective_chat.id))
 
 
 async def october_memory_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
