@@ -13201,6 +13201,13 @@ async def _oct_task_reminder_loop(app):
                                 and not x.get("reminder_sent_at")
                                 and (_oct_task_due(x.get("due_at")) or (datetime.max.replace(tzinfo=TZ5))) <= _jv_now()]
                 for item in due_rows[:10]:
+                    with _OCT_TASK_LOCK:
+                        latest = _oct_tasks_data()
+                        current = next((x for x in latest.get("tasks", []) if str(x.get("id")) == str(item.get("id"))
+                                        and x.get("status") == "pending" and not x.get("reminder_sent_at")), None)
+                        if not current or not (_oct_task_due(current.get("due_at")) or datetime.max.replace(tzinfo=TZ5)) <= _jv_now():
+                            continue
+                        item = copy.deepcopy(current)
                     due = _oct_task_due(item.get("due_at"))
                     message = (f"⏰ October eslatmasi\n\n{item.get('title', 'Vazifa')}\n"
                                f"Vaqti: {due:%d.%m.%Y %H:%M} (Toshkent)\n\n"
@@ -13615,6 +13622,8 @@ async def october_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🧠 Xotirada {len(d['notes'])} ta yozuv bor.\n\n"
         "• «eslab qol: …» — aniq narsani saqlash (muhim narsalarni o'zim ham saqlayman)\n"
         "• /xotira — saqlanganlarni ko'rish\n"
+        "• /vazifalar — faol to-do ro'yxati; /eslatmalar — muddatlilar\n"
+        "• /bajarildi ID — vazifani yakunlash; /vazifa_ochir ID — o'chirish\n"
         "• /holat — AI kalitlari, limit va Render yuklamasi\n"
         "• /unut 5 — #5 ni o'chirish, /unut_hammasi — hammasini\n"
         "• /october_off yoki «📚 Ta'lim» — oddiy bot menyusiga qaytish\n"
