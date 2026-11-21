@@ -2654,6 +2654,7 @@ async def attachment_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
             pending_images.append({
                 "data": raw, "mime": mime or "image/jpeg",
                 "filename": filename, "caption": (msg.caption or "").strip(), "sha256": digest,
+                "message_id": int(getattr(msg, "message_id", 0) or 0),
             })
             await msg.reply_text(
                 f"🖼 Rasm saqlandi: {len(pending_images)}/10. Yana rasmlar yuborishingiz mumkin.\n\n"
@@ -2736,9 +2737,10 @@ async def voice_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         mime = getattr(media, "mime_type", None) or ("audio/ogg" if getattr(msg, "voice", None) else "audio/mpeg")
         status = await msg.reply_text("🎧 Ovozli xabarni tinglayapman...")
-        transcript = await asyncio.wait_for(
-            asyncio.to_thread(_gemini_transcribe_voice_sync, raw, mime), timeout=120
-        )
+        async with ai_gate:
+            transcript = await asyncio.wait_for(
+                asyncio.to_thread(_gemini_transcribe_voice_sync, raw, mime), timeout=120
+            )
         if not transcript.strip():
             await status.edit_text("Ovozdan tushunarli matn ajratilmadi. Yana bir marta yuboring.")
             return
@@ -13111,10 +13113,13 @@ async def _oct_guard(coro, label):
 
 async def _oct_generate_ppt_from_images(msg, context, topic, n, author, mode, images):
     """Avval foydalanuvchi rasmlarini tahlil qiladi, keyin mavjud PPT generatoriga uzatadi."""
+    images = sorted(images, key=lambda item: int(item.get("message_id", 0) or 0))
     status = await msg.reply_text(f"🖼 {len(images)} ta yuborilgan rasm tahlil qilinmoqda...")
     try:
         async with ai_gate:
-            brief = await asyncio.to_thread(_gemini_analyze_uploaded_images_sync, images, topic)
+            brief = await asyncio.wait_for(
+                asyncio.to_thread(_gemini_analyze_uploaded_images_sync, images, topic), timeout=180
+            )
         try:
             await status.delete()
         except Exception:
@@ -13299,7 +13304,7 @@ async def october_chat(update: Update, text: str, context=None):
     stamp = now.strftime("%Y-%m-%d %H:%M")
     d["log"].append({"t": text[:600], "ts": stamp})  # hamma xabar jurnali
     d["log"] = d["log"][-OCT_MAX_LOG:]
-    if context is not None and context.user_data.get("_oct_ppt_images") and re.search(r"\b(taqdimot\w*|prezentats\w*|slayd\w*|slide\w*|ppt)\b", text, re.I):
+    if context is not None and context.user_data.get("_oct_ppt_images") and re.search(r"\b(taqdimot\w*|prezentats\w*|slayd\w*|slide\w*|powerpoint\w*|ppt)\b", text, re.I):
         context.user_data["_oct_use_uploaded_images"] = True
     if context is not None:
         pend = context.user_data.get("_oct_pending")
