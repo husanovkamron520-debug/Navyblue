@@ -3756,9 +3756,9 @@ def _ppt_expand_missing_slides(outline, topic, requested, with_images, sanitizer
                 f"Til: mavzu tilida. Mavzu: {str(topic)[:500]}\n"
                 + (f"Foydalanuvchi yuborgan rasmlar tahlili: {str(source_brief)[:5000]}\n" if source_brief else "")
                 + f"{build_story_guidance(topic, requested)}\n"
-                "Oldingi slaydlarning story_role va story_beat vazifalarini takrorlama; yangi mazmuniy yo'nalish tanla. "
-                f"Bu partiyada aynan {batch_size} ta yangi kontent slaydi qaytar. "
-                "Mavjud slaydlar mazmuni (takrorlamaslik uchun): "
+                + "Oldingi slaydlarning story_role va story_beat vazifalarini takrorlama; yangi mazmuniy yo'nalish tanla. "
+                + f"Bu partiyada aynan {batch_size} ta yangi kontent slaydi qaytar. "
+                + "Mavjud slaydlar mazmuni (takrorlamaslik uchun): "
                 + json.dumps(context, ensure_ascii=False)[:6500]
                 + '\nJSON format: {"slides":[{"layout":"text|image_text|text_image|cards|timeline|compare|chart|table|matrix|hub|funnel|bento|kpi|pyramid|venn|orbit|chain|iceberg|before_after|statement|editorial|waterfall|swimlane|network|quote","title":"aniq sarlavha","text":"mazmunli izoh","photo_query":"2-4 English keywords","story_role":"analysis","story_beat":"keyingi fikrga ko\'prik","notes":""}]}'
             )
