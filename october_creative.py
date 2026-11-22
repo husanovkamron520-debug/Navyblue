@@ -66,7 +66,7 @@ def _html(raw):
 def _repair(doc):
     if not re.search(r"<meta[^>]+charset", doc, re.I):
         doc = re.sub(r"(<head[^>]*>)", lambda m: m.group(1) + '<meta charset="utf-8">', doc, count=1, flags=re.I)
-    if not re.search(r"<meta[^>]+name=["']viewport", doc, re.I):
+    if not re.search(r"<meta[^>]+name=[\"']viewport", doc, re.I):
         doc = re.sub(r"(<head[^>]*>)", lambda m: m.group(1) + '<meta name="viewport" content="width=device-width,initial-scale=1">', doc, count=1, flags=re.I)
     return doc
 
