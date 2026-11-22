@@ -2,7 +2,11 @@
 import asyncio, base64, io, re, time
 
 _owner_id = _gen = _vision = None
+_load_state = _save_state = None
 _last = {"html": None}
+_PROJECTS_KEY = "october_creative_projects.json"
+_PROJECT_MAX_BYTES = 4 * 1024 * 1024
+_project_cache = {}
 _BUILD = re.compile(r"\b(html|3d|sayyora|sayyoralar|xona|ombor|simulyator|interaktiv|sahifa|sayt|veb|web|website|portfolio|landing|animatsiya|kosmos|galaktika|dizayn)\b", re.I)
 _IMAGE = re.compile(r"(rasm|surat|photo|image)", re.I)
 _EDIT = re.compile(r"(o.?zgartir|qo.?sh|olib tashla|rangini|joylashtir|devorga|devorini|foniga|fonini|ichiga|ustiga|kengaytir|toraytir|yoritishni)", re.I)
@@ -10,9 +14,50 @@ _NEW_REQUEST = re.compile(r"(yarat|yasab ber|qurib ber|yangisini|yangi loyiha|bo
 _DONE = {"tayyor", "bo'ldi", "boldi", "tamom", "boshlayver"}
 _CANCEL = {"bekor", "bekor qil", "to'xta", "stop"}
 
-def setup(owner_id, generate_text, analyze_image):
-    global _owner_id, _gen, _vision
+def setup(owner_id, generate_text, analyze_image, load_state=None, save_state=None):
+    global _owner_id, _gen, _vision, _load_state, _save_state
     _owner_id, _gen, _vision = int(owner_id), generate_text, analyze_image
+    _load_state, _save_state = load_state, save_state
+
+def _project_record():
+    key = str(_owner_id)
+    if key in _project_cache:
+        return _project_cache[key]
+    state = {}
+    if _load_state:
+        try:
+            state = _load_state(_PROJECTS_KEY, {}) or {}
+        except Exception:
+            state = {}
+    record = state.get(key) if isinstance(state, dict) else None
+    record = record if isinstance(record, dict) else {}
+    _project_cache[key] = record
+    return record
+
+def _persist_project(doc, request):
+    size = len(doc.encode("utf-8"))
+    record = {"request": (request or "")[:5000], "updated_at": int(time.time()),
+              "bytes": size, "html": doc if size <= _PROJECT_MAX_BYTES else None}
+    _project_cache[str(_owner_id)] = record
+    if _save_state:
+        try:
+            state = _load_state(_PROJECTS_KEY, {}) if _load_state else {}
+            state = state if isinstance(state, dict) else {}
+            state[str(_owner_id)] = record
+            _save_state(_PROJECTS_KEY, state)
+        except Exception:
+            pass
+    return record
+
+def _restore_project(context):
+    doc = context.user_data.get("_ocb_last_html")
+    if doc:
+        return doc
+    doc = _project_record().get("html")
+    if doc:
+        context.user_data["_ocb_last_html"] = doc
+        return doc
+    return None
 
 def _owner(update):
     u = update.effective_user
@@ -196,6 +241,7 @@ async def _send(msg, context, doc, req, issue):
     global _last
     _last = {"html": doc}
     context.user_data["_ocb_last_html"] = doc
+    saved = _persist_project(doc, req)
     context.user_data.pop("_ocb_pending", None); context.user_data.pop("_ocb_images", None)
     caption = "✅ Loyiha tayyor. HTML faylni yuklab olib Chrome'da oching."
     if issue: caption += "\n⚠️ Statik tekshiruv ogohlantirishi: " + issue + ". Brauzerda ham tekshiring."
@@ -203,7 +249,7 @@ async def _send(msg, context, doc, req, issue):
 
 async def _run(msg, context, req, edit=False):
     imgs = context.user_data.get("_ocb_images") or []
-    existing = (context.user_data.get("_ocb_last_html") or _last.get("html")) if edit else None
+    existing = (_restore_project(context) or _last.get("html") or _project_record().get("html")) if edit else None
     status = await msg.reply_text("🧠 Talablarni tahlil qilib, loyihani yaratyapman...")
     try:
         doc, issue = await asyncio.wait_for(_generate(req, imgs, existing), timeout=240)
@@ -232,7 +278,7 @@ async def try_handle(update, context, text):
     if pending and not low.startswith("/"):
         pending["request"] += "\nQo'shimcha ko'rsatma: " + t
         await msg.reply_text("Ko'rsatma qo'shildi. Rasm yuboring yoki «tayyor» deb yozing."); return True
-    last = context.user_data.get("_ocb_last_html") or _last.get("html")
+    last = _restore_project(context) or _last.get("html")
     if last and _IMAGE.search(t) and is_edit_request(t, True):
         context.user_data["_ocb_pending"] = {"request": "Mavjud loyihaga o'zgarish kirit: " + t, "edit": True}
         context.user_data["_ocb_images"] = []
