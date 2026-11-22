@@ -75,6 +75,24 @@ _SKILLS: Dict[str, dict] = {
             "mashq bilan mustahkamla."
         ),
     },
+    "development": {
+        "label": "Dasturlash va texnik loyihalar",
+        "keywords": (
+            "kod", "python", "debug", "bug", "xatoni tuzat", "telegram bot",
+            "supabase", "render", "api", "database", "deploy", "github actions",
+            "funksiya", "integratsiya", "server", "dasturlash",
+        ),
+        "guidance": (
+            "- Avval mavjud arxitektura va kod oqimini tushun; ishlayotgan funksiyalarni "
+            "saqlab, kichik va izolyatsiyalangan o'zgarish qil.\n"
+            "- O'zgarishdan oldin tegishli fayllar va chaqiruv joylarini tekshir; "
+            "taxmin bilan katta refaktor boshlama.\n"
+            "- Xatoni qayta hosil qiladigan test yoki tekshiruv qo'sh; sintaksis, "
+            "chegara holatlari va eski funksiyalar bilan moslikni tekshir.\n"
+            "- Token, parol va maxfiy kalitlarni kodga yozma; deploy yoki muvaffaqiyatni "
+            "faqat haqiqiy natija tasdiqlasa ayt."
+        ),
+    },
     "productivity": {
         "label": "Rejalashtirish va unumdorlik",
         "keywords": (
