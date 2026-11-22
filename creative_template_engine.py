@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 TEMPLATES = {
-    "cosmos_3d": {"title": "3D kosmos va sayyoralar", "keywords": ("sayyora", "sayyoralar", "planet", "kosmos", "galaktika", "space"), "layout": "immersive full-screen WebGL canvas, restrained HUD labels, orbiting bodies and star field", "must_have": ("multiple distinct sphere meshes", "orbit controls", "lighting", "responsive renderer")},
+    "cosmos_3d": {"title": "Cinematic 3D kosmos va sayyoralar", "keywords": ("sayyora", "sayyoralar", "planet", "kosmos", "galaktika", "space"), "layout": "cinematic WebGL observatory, procedural planetary surfaces, emissive sun, colored nebula, atmospheric rims and asteroid belt", "must_have": ("procedural CanvasTexture and surface relief", "EffectComposer UnrealBloomPass with fallback", "Fresnel atmosphere and colored nebula", "day/night lighting and cast/receive shadows", "InstancedMesh asteroid belt", "smooth click-to-planet camera fly-to", "mobile quality caps", "loading and error fallback")},
     "room_3d": {"title": "3D xona/interyer", "keywords": ("xona", "interyer", "mebel", "stol", "divan", "yotoqxona", "room", "interior"), "layout": "architectural room shell, visible floor and walls, furniture grouped by function", "must_have": ("floor and walls as separate meshes", "at least three furniture objects", "orbit and zoom controls", "soft lighting")},
     "warehouse_3d": {"title": "3D ombor va zavod", "keywords": ("ombor", "warehouse", "zavod", "factory", "pallet", "stellaj", "logistika"), "layout": "readable warehouse floor plan in 3D, racks and pallets, clear aisle spacing", "must_have": ("racks and pallets as distinct meshes", "visible aisles", "orbit controls", "responsive renderer")},
     "birthday_gallery": {"title": "Tug‘ilgan kun va foto-galereya", "keywords": ("tug'ilgan", "tugilgan", "birthday", "tabrik", "surat", "rasm", "photo", "gallery"), "layout": "warm celebratory hero, elegant typography, photo-led composition and restrained motion", "must_have": ("uploaded photos displayed directly", "mobile-friendly layout", "working interactions", "reduced-motion support")},
@@ -22,9 +22,14 @@ def select_template(request: str):
 
 def template_prompt(request: str) -> str:
     key, item = select_template(request)
+    cinematic_note = (
+        "COSMOS CINEMATIC OVERRIDE: implement all features as working code; prefer procedural textures and InstancedMesh; optional post-processing must have base-render fallback.\\n"
+        if key == "cosmos_3d" else ""
+    )
     return ("TANLANGAN STARTER: " + item["title"] + " (ID: " + key + ").\\n"
             "Vizual tuzilma: " + item["layout"] + ".\\n"
             "Majburiy sifat mezonlari: " + "; ".join(item["must_have"]) + ".\\n"
+            + cinematic_note +
             "Bu tayyor dizayn yo'nalishi, foydalanuvchi so'rovining o'rnini bosmaydi. "
             "So'rovdagi rang, obyekt, matn, rasm va joylashuv ko'rsatmalarini birinchi o'ringa qo'y. "
             "Shablonni mazmun va kompozitsiya bo'yicha vazifaga moslashtir.")
