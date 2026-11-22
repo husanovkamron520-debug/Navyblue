@@ -74,7 +74,7 @@ def _repair(doc):
         doc = re.sub(r"(<head[^>]*>)", lambda m: m.group(1) + '<meta name="viewport" content="width=device-width,initial-scale=1">', doc, count=1, flags=re.I)
     return doc
 
-def _check(doc, req, images):
+def _check(doc, req, images, existing=None):
     low = doc.lower()
     if "</html>" not in low or "<body" not in low or "</body>" not in low:
         return "HTML hujjati to'liq emas"
@@ -83,7 +83,8 @@ def _check(doc, req, images):
     for i in range(len(images)):
         if "__OCTOBER_IMAGE_" + str(i) + "__" not in doc:
             return "Yuborilgan " + str(i+1) + "-rasm sahnaga joylashtirilmagan"
-    if re.search(r"\b3d\b|sayyora|kosmos", req, re.I):
+    needs_three = bool(re.search(r"\b3d\b|sayyora|kosmos|xona|ombor", req, re.I) or (existing and ("three.module.js" in existing.lower() or "webglrenderer" in existing.lower())))
+    if needs_three:
         if "three.module.js" not in low or "webglrenderer" not in low:
             return "Haqiqiy Three.js WebGL sahnasi yaratilmagan"
     return None
@@ -107,7 +108,7 @@ def _prompt(req, descriptions, existing):
     if existing:
         compact, _ = _extract_embedded(existing)
         old = "\nMAVJUD LOYIHA KODI (uni saqla va faqat so'ralgan o'zgarishni kirit):\n" + compact[:50000]
-    three = bool(re.search(r"\b3d\b|sayyora|kosmos|xona|ombor", req, re.I) or existing)
+    three = bool(re.search(r"\b3d\b|sayyora|kosmos|xona|ombor", req, re.I) or (existing and ("three.module.js" in existing.lower() or "webglrenderer" in existing.lower())))
     rules = (
         "Haqiqiy Three.js WebGL sahnasi qur. Three.js r160 va OrbitControls ni jsDelivr import map orqali yukla; "
         "responsive renderer, kamera, yoritish, materiallar va mouse/touch orbit-zoom bo'lsin. Internet kerakligini hisobga ol.\n"
@@ -132,7 +133,7 @@ async def _generate(req, images, existing=None):
         if not doc:
             issue = "HTML kodi to'liq qaytmadi"; continue
         doc = _repair(doc)
-        issue = _check(doc, req, images); best = doc
+        issue = _check(doc, req, images, existing); best = doc
         if not issue and existing:
             compact_old, old_images_check = _extract_embedded(existing)
             for old_i in range(len(old_images_check)):
