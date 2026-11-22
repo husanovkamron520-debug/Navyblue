@@ -126,11 +126,11 @@ async def make_html(request: str):
     for attempt in range(3):
         prompt = NEON_PROMPT.format(req=request)
         if issue and attempt:
-            prompt += f"\n\nOldingi urinishdagi kamchilik: {issue}. Buni tuzat va kodni TO'LIQ qayta yoz."
+            prompt += "\n\nOldingi urinishdagi kamchilik: " + issue + ". Buni tuzat va kodni TO'LIQ qayta yoz."
         try:
             doc = _clean_html(await _ask(prompt))
         except Exception as e:
-            doc, issue = None, f"Gemini xato berdi: {e}"
+            doc, issue = None, "Gemini xato berdi: " + str(e)
             continue
         if not doc:
             issue = "HTML to'liq chiqmadi (boshi yoki oxiri yo'q)"
@@ -144,12 +144,14 @@ async def make_html(request: str):
 
 # ---------------------------------------------------------------- Buyruqsiz tushunish
 _KIND = r"(g'?oya|qayd|iqtibos)"
-_RE_SAVE_COLON = re.compile(rf"^\s*{_KIND}\s*[:\-–—]\s*(.+)$", re.S)
-_RE_SAVE_SPACE = re.compile(rf"^\s*{_KIND}\s+(.{{3,}})$", re.S)
+_RE_SAVE_COLON = re.compile(r"^\s*" + _KIND + r"\s*[:\-–—]\s*(.+)$", re.S)
+_RE_SAVE_SPACE = re.compile(r"^\s*" + _KIND + r"\s+(.{3,})$", re.S)
+# asl matndan (apostrof turi har xil bo'lishi mumkin) prefiksni olib tashlash uchun
+_PREFIX_RE = re.compile(r"^\s*(?:g[ʻʼ'’‘`]?oya|qayd|iqtibos)\s*[:\-–—]?\s*", re.I)
 _NUM_WORDS = {"bitta": 1, "ikkita": 2, "uchta": 3, "to'rtta": 4, "beshta": 5,
               "oltita": 6, "yettita": 7, "sakkizta": 8, "to'qqizta": 9, "o'nta": 10}
 _RE_BULK = re.compile(
-    rf"oxirgi\s+(\d+|{'|'.join(_NUM_WORDS)})\s*(?:ta\s*)?(?:xabar|yozuv|gap)\w*.*?{_KIND}")
+    r"oxirgi\s+(\d+|" + "|".join(_NUM_WORDS) + r")\s*(?:ta\s*)?(?:xabar|yozuv|gap)\w*.*?" + _KIND)
 
 
 def _kind_of(word: str) -> str:
@@ -173,10 +175,11 @@ async def _save_many(msg, kind: str, texts):
             saved += 1
         except Exception:
             failed += 1
+    name = _LABEL[kind].lower()
     if failed:
-        await msg.reply_text(f"{saved} ta {_LABEL[kind].lower()} saqlandi, {failed} tasi saqlanmadi (baza xatosi).")
+        await msg.reply_text(str(saved) + " ta " + name + " saqlandi, " + str(failed) + " tasi saqlanmadi (baza xatosi).")
     else:
-        await msg.reply_text(f"{saved} ta {_LABEL[kind].lower()} saqlandi.")
+        await msg.reply_text(str(saved) + " ta " + name + " saqlandi.")
 
 
 async def try_handle(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str) -> bool:
@@ -203,24 +206,22 @@ async def try_handle(update: Update, context: ContextTypes.DEFAULT_TYPE, text: s
                                  "Ularni \"g'oya: matn\" ko'rinishida yuboring.")
             return True
         if len(texts) < n:
-            await msg.reply_text(f"Faqat {len(texts)} ta xabar esimda, shularni saqlayman.")
+            await msg.reply_text("Faqat " + str(len(texts)) + " ta xabar esimda, shularni saqlayman.")
         await _save_many(msg, _kind_of(m.group(2)), texts)
         return True
 
     # 2) "g'oya: matn" / "g'oya matn"
     m = _RE_SAVE_COLON.match(t) or _RE_SAVE_SPACE.match(t)
     if m:
-        # asl matnni (kichik harfga o'tkazilmagan) saqlash uchun prefiksni kesamiz
-        body = re.sub(rf"^\s*{_KIND.replace('g\'?', 'g[ʻʼ’‘`\']?')}\s*[:\-–—]?\s*", "", text or "",
-                      count=1, flags=re.I | re.S).strip()
+        body = _PREFIX_RE.sub("", text or "", count=1).strip()
         if body:
             kind = _kind_of(m.group(1))
             try:
                 nid = await asyncio.to_thread(_save_note, kind, body[:4000])
             except Exception as e:
-                await msg.reply_text(f"Saqlab bo'lmadi: {e}")
+                await msg.reply_text("Saqlab bo'lmadi: " + str(e))
                 return True
-            await msg.reply_text(f"{_LABEL[kind]} saqlandi" + (f" (#{nid})." if nid else "."))
+            await msg.reply_text(_LABEL[kind] + " saqlandi" + (" (#" + str(nid) + ")." if nid else "."))
             return True
 
     # 3) "haftalik hisobot"
@@ -233,11 +234,11 @@ async def try_handle(update: Update, context: ContextTypes.DEFAULT_TYPE, text: s
         await msg.reply_text("HTML yozyapman, bir oz kuting...")
         doc, issue = await make_html(text)
         if not doc:
-            await msg.reply_text(f"HTML yasab bo'lmadi: {issue}. So'rovni biroz aniqroq qilib qayta yuboring.")
+            await msg.reply_text("HTML yasab bo'lmadi: " + str(issue) + ". So'rovni biroz aniqroq qilib qayta yuboring.")
             return True
         caption = "Tayyor. Faylni brauzerda oching."
         if issue:
-            caption = f"Tayyor, lekin ogohlantirish: {issue}. Ishlamasa, ayting, qayta yozdiraman."
+            caption = "Tayyor, lekin ogohlantirish: " + issue + ". Ishlamasa, ayting, qayta yozdiraman."
         await msg.reply_document(document=io.BytesIO(doc.encode("utf-8")),
                                  filename="october.html", caption=caption)
         return True
@@ -254,14 +255,14 @@ def _make_save_handler(kind: str, label: str):
         if not text and msg.reply_to_message:
             text = (msg.reply_to_message.text or msg.reply_to_message.caption or "").strip()
         if not text:
-            await msg.reply_text(f"Foydalanish: /{kind} matn... (yoki biror xabarga javob qilib yozing)")
+            await msg.reply_text("Foydalanish: /" + kind + " matn... (yoki biror xabarga javob qilib yozing)")
             return
         try:
             nid = await asyncio.to_thread(_save_note, kind, text[:4000])
         except Exception as e:
-            await msg.reply_text(f"Saqlab bo'lmadi: {e}")
+            await msg.reply_text("Saqlab bo'lmadi: " + str(e))
             return
-        await msg.reply_text(f"{label} saqlandi" + (f" (#{nid})." if nid else "."))
+        await msg.reply_text(label + " saqlandi" + (" (#" + str(nid) + ")." if nid else "."))
     return handler
 
 
@@ -285,11 +286,11 @@ def _loose_json(t: str):
 
 async def _group_topics(rows):
     """Yozuvlarni mavzularga ajratadi. Gemini ishlamasa, turi bo'yicha guruhlaydi."""
-    listing = "\n".join(f"#{r['id']} [{r['kind']}] {r['text']}" for r in rows)[:12000]
+    listing = "\n".join("#" + str(r["id"]) + " [" + str(r["kind"]) + "] " + str(r["text"]) for r in rows)[:12000]
     prompt = (
         "Quyidagi shaxsiy yozuvlarni 2-6 ta mavzuga ajrat. Faqat JSON qaytar:\n"
         '{"topics":[{"title":"qisqa nom","summary":"1-2 gap","ids":[1,2]}],'
-        '"insight":"hafta bo\'yicha 1-2 gapli xulosa"}\n'
+        '"insight":"hafta boyicha 1-2 gapli xulosa"}\n'
         "Har bir yozuv bitta mavzuga tushsin. O'zbekcha yoz.\n\n" + listing
     )
     by_id = {r["id"]: r for r in rows}
@@ -318,23 +319,30 @@ def _render_html(topics, insight, start, end):
     cards = []
     for i, t in enumerate(topics):
         big = " big" if i == 0 else ""
-        lis = "".join(f"<li>{_html.escape(r['text'])}</li>" for r in t["items"])
+        lis = "".join("<li>" + _html.escape(r["text"]) + "</li>" for r in t["items"])
         cards.append(
-            f'<section class="card{big}"><h2>{_html.escape(t["title"])}</h2>'
-            f'<p class="sum">{_html.escape(t["summary"])}</p><ul>{lis}</ul></section>')
-    ins = f'<section class="card ins"><h2>Xulosa</h2><p>{_html.escape(insight)}</p></section>' if insight else ""
-    return f"""<!DOCTYPE html><html lang="uz"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Haftalik jurnal</title><style>
-body{{margin:0;padding:16px;background:#0B0F19;color:#fff;font-family:system-ui,sans-serif}}
-h1{{font-size:22px;margin:4px 0 2px}}.d{{color:#8fa3c0;font-size:13px;margin-bottom:14px}}
-.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}}
-.card{{background:#141b2d;border:1px solid #1f6feb55;border-radius:16px;padding:14px}}
-.card.big{{grid-column:1/-1;border-color:#00e5ff}}.card.ins{{border-color:#ffd54a}}
-h2{{font-size:16px;margin:0 0 6px;color:#00e5ff}}.ins h2{{color:#ffd54a}}
-.sum{{color:#8fa3c0;font-size:13px;margin:0 0 8px}}ul{{margin:0;padding-left:18px;font-size:14px;line-height:1.5}}
-</style></head><body><h1>Haftalik jurnal</h1><div class="d">{start} - {end}</div>
-<div class="grid">{''.join(cards)}{ins}</div></body></html>"""
+            '<section class="card' + big + '"><h2>' + _html.escape(t["title"]) + '</h2>'
+            '<p class="sum">' + _html.escape(t["summary"]) + '</p><ul>' + lis + '</ul></section>')
+    ins = ""
+    if insight:
+        ins = '<section class="card ins"><h2>Xulosa</h2><p>' + _html.escape(insight) + '</p></section>'
+    css = (
+        "body{margin:0;padding:16px;background:#0B0F19;color:#fff;font-family:system-ui,sans-serif}"
+        "h1{font-size:22px;margin:4px 0 2px}.d{color:#8fa3c0;font-size:13px;margin-bottom:14px}"
+        ".grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}"
+        ".card{background:#141b2d;border:1px solid #1f6feb55;border-radius:16px;padding:14px}"
+        ".card.big{grid-column:1/-1;border-color:#00e5ff}.card.ins{border-color:#ffd54a}"
+        "h2{font-size:16px;margin:0 0 6px;color:#00e5ff}.ins h2{color:#ffd54a}"
+        ".sum{color:#8fa3c0;font-size:13px;margin:0 0 8px}"
+        "ul{margin:0;padding-left:18px;font-size:14px;line-height:1.5}"
+    )
+    return (
+        '<!DOCTYPE html><html lang="uz"><head><meta charset="utf-8">'
+        '<meta name="viewport" content="width=device-width,initial-scale=1">'
+        '<title>Haftalik jurnal</title><style>' + css + '</style></head><body>'
+        '<h1>Haftalik jurnal</h1><div class="d">' + start + ' - ' + end + '</div>'
+        '<div class="grid">' + "".join(cards) + ins + '</div></body></html>'
+    )
 
 
 def _render_png(topics, insight, start, end) -> bytes:
@@ -350,7 +358,7 @@ def _render_png(topics, insight, start, end) -> bytes:
 
     W, pad = 1080, 40
     f_t, f_h, f_b = font(44), font(32), font(26)
-    blocks = [("Haftalik jurnal", [f"{start} - {end}"], True)]
+    blocks = [("Haftalik jurnal", [start + " - " + end], True)]
     for t in topics:
         lines = [textwrap.fill(t["summary"], 52)] if t["summary"] else []
         lines += [textwrap.fill("- " + r["text"], 52) for r in t["items"]]
@@ -364,7 +372,7 @@ def _render_png(topics, insight, start, end) -> bytes:
     d = ImageDraw.Draw(img)
     y = pad
     for title, lines, head in blocks:
-        d.text((pad, y), title, font=f_t if head else f_h, fill="#00E5FF" if not head else "#FFFFFF")
+        d.text((pad, y), title, font=f_t if head else f_h, fill="#FFFFFF" if head else "#00E5FF")
         y += 60
         for ln in lines:
             for sub in ln.split("\n"):
@@ -383,12 +391,12 @@ async def haftalik_hisobot(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         rows = await asyncio.to_thread(_fetch_week)
     except Exception as e:
-        await msg.reply_text(f"Bazadan o'qib bo'lmadi: {e}")
+        await msg.reply_text("Bazadan o'qib bo'lmadi: " + str(e))
         return
     if not rows:
         await msg.reply_text("Oxirgi 7 kunda yozuv yo'q. \"g'oya: ...\", \"qayd: ...\" yoki \"iqtibos: ...\" deb yozing.")
         return
-    await msg.reply_text(f"{len(rows)} ta yozuv topildi, jurnal tayyorlanyapti...")
+    await msg.reply_text(str(len(rows)) + " ta yozuv topildi, jurnal tayyorlanyapti...")
     topics, insight = await _group_topics(rows)
     end = dt.date.today()
     start = end - dt.timedelta(days=6)
@@ -400,7 +408,7 @@ async def haftalik_hisobot(update: Update, context: ContextTypes.DEFAULT_TYPE):
         png = await asyncio.to_thread(_render_png, topics, insight, s, e)
         await msg.reply_photo(photo=io.BytesIO(png), caption="Haftalik jurnal (rasm)")
     except Exception as ex:
-        await msg.reply_text(f"Rasm yasab bo'lmadi ({ex}), lekin HTML jurnal yuqorida.")
+        await msg.reply_text("Rasm yasab bo'lmadi (" + str(ex) + "), lekin HTML jurnal yuqorida.")
 
 
 def register(app):
