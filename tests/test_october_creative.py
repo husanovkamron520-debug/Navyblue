@@ -17,14 +17,46 @@ class CreativeBuilderTests(unittest.TestCase):
         raw = "<!DOCTYPE html><html><head></head><body>" + ("x" * 1100) + "</body></html>"
         self.assertIn("</html>", builder._html(raw))
 
-    def test_3d_quality_check_requires_webgl(self):
-        good = ("<!DOCTYPE html><html><head><script type='module'>"
-                "import * as THREE from 'three.module.js';"
-                "const renderer = new THREE.WebGLRenderer();"
-                "</script></head><body></body></html>")
-        self.assertIsNone(builder._check(good, "3D sayyora yarat", []))
-        self.assertIn("Three.js", builder._check(
+    def test_3d_quality_check_requires_real_scene_loop_and_camera(self):
+        good = """<!DOCTYPE html><html><head><script type="module">
+        import * as THREE from 'three.module.js';
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 100);
+        const renderer = new THREE.WebGLRenderer();
+        renderer.setSize(600, 400);
+        document.body.appendChild(renderer.domElement);
+        scene.add(new THREE.AmbientLight(0xffffff));
+        const mesh = new THREE.Mesh(new THREE.SphereGeometry(1, 32, 32), new THREE.MeshStandardMaterial());
+        scene.add(mesh);
+        function animate() { requestAnimationFrame(animate); renderer.render(scene, camera); }
+        animate();
+        </script></head><body></body></html>"""
+        self.assertIsNone(builder._check(good, "3D xona yarat", []))
+        fake = good.replace("requestAnimationFrame(animate);", "")
+        self.assertIn("animatsiya", builder._check(fake, "3D xona yarat", []))
+        self.assertIsNotNone(builder._check(
             "<!DOCTYPE html><html><body>2D canvas</body></html>", "3D xona yarat", []))
+
+    def test_planet_request_requires_multiple_spheres(self):
+        plain = """<!DOCTYPE html><html><head><script type="module">
+        import * as THREE from 'three.module.js';
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera();
+        const renderer = new THREE.WebGLRenderer(); renderer.setSize(10,10);
+        document.body.appendChild(renderer.domElement);
+        scene.add(new THREE.AmbientLight());
+        const mesh = new THREE.Mesh(new THREE.SphereGeometry(), new THREE.MeshBasicMaterial());
+        scene.add(mesh);
+        function animate(){ requestAnimationFrame(animate); renderer.render(scene,camera); }
+        animate();
+        </script></head><body></body></html>"""
+        self.assertIn("ikkita alohida sfera", builder._check(plain, "3D sayyoralar yarat", []))
+
+    def test_image_must_be_rendered_not_left_as_upload_widget(self):
+        doc = "<!DOCTYPE html><html><body><input type='file'><img src='__OCTOBER_IMAGE_0__'></body></html>"
+        self.assertIn("yuklash paneli", builder._check(doc, "HTML rasm", [{"data": b"x"}]))
+        good = "<!DOCTYPE html><html><body><img src='__OCTOBER_IMAGE_0__'></body></html>"
+        self.assertIsNone(builder._check(good, "HTML rasm", [{"data": b"x"}]))
 
     def test_room_and_warehouse_requests_require_threejs(self):
         plain = "<!DOCTYPE html><html><body>2D canvas</body></html>"
