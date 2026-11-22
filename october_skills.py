@@ -98,7 +98,7 @@ _MAX_CONTEXT_CHARS = 3200
 
 def _normalize(text: str) -> str:
     value = str(text or "").casefold().replace("’", "'").replace("ʻ", "'")
-    return re.sub(r"\\s+", " ", value).strip()
+    return re.sub(r"\s+", " ", value).strip()
 
 
 def select_skills(text: str, limit: int = _MAX_SKILLS) -> List[str]:
@@ -114,7 +114,7 @@ def select_skills(text: str, limit: int = _MAX_SKILLS) -> List[str]:
             if " " in needle:
                 matched = needle in normalized
             else:
-                matched = re.search(r"(?<![\\w])" + re.escape(needle) + r"(?![\\w])", normalized) is not None
+                matched = re.search(r"(?<![\w])" + re.escape(needle) + r"(?![\w])", normalized) is not None
             if matched:
                 score += 2 if len(needle) > 5 else 1
         if score:
@@ -131,8 +131,8 @@ def build_skill_context(text: str) -> str:
     blocks = ["TANLANGAN ISH KO'NIKMALARI (faqat tegishli bo'lsa qo'lla):"]
     for skill_id in selected:
         spec = _SKILLS[skill_id]
-        blocks.append(f"\\n[{spec['label']}]\\n{spec['guidance']}")
-    result = "\\n".join(blocks)
+        blocks.append(f"\n[{spec['label']}]\n{spec['guidance']}")
+    result = "\n".join(blocks)
     return result[:_MAX_CONTEXT_CHARS]
 
 
