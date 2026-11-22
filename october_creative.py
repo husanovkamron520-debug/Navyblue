@@ -119,6 +119,10 @@ def _html(raw):
     return raw[a:b+7] if a >= 0 and b > a and b+7-a > 1000 else None
 
 def _repair(doc):
+    # Repair common LLM typos in the Three.js CDN host before saving/sending HTML.
+    doc = doc.replace("cdn.jsdelivr.5net", "cdn.jsdelivr.net")
+    doc = doc.replace("jsdelivr.5net", "jsdelivr.net")
+    doc = doc.replace("cdn.jsdelivr,net", "cdn.jsdelivr.net")
     if not re.search(r"<meta[^>]+charset", doc, re.I):
         doc = re.sub(r"(<head[^>]*>)", lambda m: m.group(1) + '<meta charset="utf-8">', doc, count=1, flags=re.I)
     if not re.search(r"<meta[^>]+name=[\"']viewport", doc, re.I):
@@ -204,7 +208,10 @@ def _prompt(req, descriptions, existing):
         old = "\nMAVJUD LOYIHA KODI (uni saqla va faqat so'ralgan o'zgarishni kirit):\n" + compact[:50000]
     three = bool(re.search(r"\b3d\b|sayyora|kosmos|xona|ombor", req, re.I) or (existing and ("three.module.js" in existing.lower() or "webglrenderer" in existing.lower())))
     rules = (
-        "Haqiqiy Three.js WebGL sahnasi qur. Three.js r160 va OrbitControls ni jsDelivr import map orqali yukla; "
+        "Haqiqiy Three.js WebGL sahnasi qur. Three.js r160 va OrbitControls ni quyidagi importmap bilan yukla; URL'larni aynan, biror belgi o'zgartirmasdan yoz: " +
+        "three: https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js; " +
+        "three/addons/: https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/. " +
+        "Domen faqat cdn.jsdelivr.net bo'lsin; cdn.jsdelivr.5net yoki boshqa variant mutlaqo taqiqlanadi. "
         "responsive renderer, kamera, yoritish, materiallar, OrbitControls bilan mouse/touch orbit-zoom va resize handler bo'lsin. "
         "Sayyora so'ralganda kamida 2 ta alohida SphereGeometry, 2 ta Mesh va 2 ta scene.add yarat. "
         "Xona so'ralganda pol, devorlar va mebellarni ifodalovchi kamida 5 ta Mesh yarat; ombor/zavodda kamida 5 ta Mesh (stellaj, pallet, quti va boshqalar) bo'lsin. "
@@ -264,18 +271,6 @@ async def _send(msg, context, doc, req, issue):
     if saved.get("html") is None:
         caption += "\n⚠️ Fayl hajmi 4 MB dan katta: loyiha qayta ishga tushgandan keyin tahrirlash uchun saqlanmadi."
     await msg.reply_document(document=io.BytesIO(doc.encode("utf-8")), filename="creative_project.html", caption=caption)
-    try:
-        template_id, template = _template_engine.select_template(req)
-        if template.get("vite"):
-            archive = _template_engine.create_vite_zip(doc, template_id.replace("_", "-"))
-            await msg.reply_document(
-                document=io.BytesIO(archive),
-                filename="creative_project_vite.zip",
-                caption="📦 Vite loyihasi ham tayyor. ZIP ichidagi README.md ko‘rsatmasi asosida npm install va npm run build bajaring."
-            )
-    except Exception:
-        # The standalone HTML remains the primary deliverable if packaging fails.
-        pass
 
 async def _run(msg, context, req, edit=False):
     imgs = context.user_data.get("_ocb_images") or []
