@@ -163,8 +163,7 @@ async def _run(msg, context, req, edit=False):
     existing = (context.user_data.get("_ocb_last_html") or _last.get("html")) if edit else None
     status = await msg.reply_text("🧠 Talablarni tahlil qilib, loyihani yaratyapman...")
     try:
-        async with asyncio.timeout(240):
-            doc, issue = await _generate(req, imgs, existing)
+        doc, issue = await asyncio.wait_for(_generate(req, imgs, existing), timeout=240)
         if not doc:
             await status.edit_text("HTML yaratilmadi: to'liq kod olinmadi. Vazifani qismlarga ajrating."); return
         await _send(msg, context, doc, req, issue)
