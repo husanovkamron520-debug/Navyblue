@@ -5,7 +5,8 @@ _owner_id = _gen = _vision = None
 _last = {"html": None}
 _BUILD = re.compile(r"\b(html|3d|sayyora|sayyoralar|xona|ombor|simulyator|interaktiv|sahifa|sayt|veb|web|website|portfolio|landing|animatsiya|kosmos|galaktika|dizayn)\b", re.I)
 _IMAGE = re.compile(r"(rasm|surat|photo|image)", re.I)
-_EDIT = re.compile(r"(o.?zgartir|qo.?sh|olib tashla|rangini|joylashtir|devorga|foniga|ichiga|ustiga)", re.I)
+_EDIT = re.compile(r"(o.?zgartir|qo.?sh|olib tashla|rangini|joylashtir|devorga|devorini|foniga|fonini|ichiga|ustiga|kengaytir|toraytir|yoritishni)", re.I)
+_NEW_REQUEST = re.compile(r"(yarat|yasab ber|qurib ber|yangisini|yangi loyiha|boshidan)", re.I)
 _DONE = {"tayyor", "bo'ldi", "boldi", "tamom", "boshlayver"}
 
 def setup(owner_id, generate_text, analyze_image):
@@ -18,6 +19,9 @@ def _owner(update):
 
 def wants_builder(text):
     return bool(text and not text.lstrip().startswith("/") and _BUILD.search(text))
+
+def is_edit_request(text, has_project=True):
+    return bool(has_project and _EDIT.search(text or "") and not _NEW_REQUEST.search(text or ""))
 
 def _compress(raw, mime):
     try:
@@ -189,11 +193,11 @@ async def try_handle(update, context, text):
         pending["request"] += "\nQo'shimcha ko'rsatma: " + t
         await msg.reply_text("Ko'rsatma qo'shildi. Rasm yuboring yoki «tayyor» deb yozing."); return True
     last = context.user_data.get("_ocb_last_html") or _last.get("html")
-    if last and _IMAGE.search(t) and _EDIT.search(t):
+    if last and _IMAGE.search(t) and is_edit_request(t, True):
         context.user_data["_ocb_pending"] = {"request": "Mavjud loyihaga o'zgarish kirit: " + t, "edit": True}
         context.user_data["_ocb_images"] = []
         await msg.reply_text("Rasmni yuboring; mavjud loyihaga joylashtiraman. Tugatgach «tayyor» deb yozing."); return True
-    if last and _EDIT.search(t) and len(t) < 700 and not wants_builder(t):
+    if is_edit_request(t, bool(last)) and len(t) < 700:
         await _run(msg, context, "Mavjud loyihani o'zgartir: " + t, True); return True
     if not wants_builder(t): return False
     if _IMAGE.search(t):
