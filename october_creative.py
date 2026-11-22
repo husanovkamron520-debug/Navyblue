@@ -41,10 +41,13 @@ async def handle_image(update, context, raw, mime, filename):
     if not _owner(update) or not context.user_data.get("_ocb_pending") or not (mime or "").startswith("image/"):
         return False
     items = context.user_data.setdefault("_ocb_images", [])
-    if len(items) >= 4 or sum(len(x["data"]) for x in items) + len(raw) > 8 * 1024 * 1024:
-        await update.effective_message.reply_text("Ko'pi bilan 4 ta rasm va jami 8 MB qabul qilaman. «Tayyor» deb yozing.")
+    if len(items) >= 4:
+        await update.effective_message.reply_text("Ko'pi bilan 4 ta rasm qabul qilaman. «Tayyor» deb yozing.")
         return True
     data, kind = await asyncio.to_thread(_compress, raw, mime)
+    if sum(len(x["data"]) for x in items) + len(data) > 8 * 1024 * 1024:
+        await update.effective_message.reply_text("Rasmlar siqilgandan keyin ham jami 8 MB dan oshdi. Kichikroq rasm yuboring.")
+        return True
     items.append({"data": data, "mime": kind, "name": filename or "reference"})
     await update.effective_message.reply_text("🖼 Rasm qabul qilindi (" + str(len(items)) + "/4). Tugatgach «tayyor» deb yozing.")
     return True
