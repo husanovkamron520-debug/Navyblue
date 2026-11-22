@@ -152,9 +152,19 @@ def _check(doc, req, images, existing=None):
             return "3D obyekt mesh ko'rinishida yaratilmagan"
         if not re.search(r"renderer\.setSize|renderer\.setPixelRatio", doc):
             return "Renderer o'lchami sozlanmagan"
+        mesh_count = len(re.findall(r"new\s+THREE\.Mesh\s*\(", doc))
+        add_count = len(re.findall(r"scene\.add\s*\(", doc))
         if re.search(r"sayyor|planet|kosmos", req, re.I):
-            if len(re.findall(r"new\s+THREE\.SphereGeometry", doc)) < 2:
-                return "Sayyoralar uchun kamida ikkita alohida sfera geometriyasi yaratilmagan"
+            if len(re.findall(r"new\s+THREE\.SphereGeometry\s*\(", doc)) < 2 or mesh_count < 2 or add_count < 2:
+                return "Sayyora sahnasida kamida ikkita alohida sfera, mesh va scene.add bo'lishi shart"
+        if re.search(r"\bxona\b|room|interyer", req, re.I) and (mesh_count < 5 or add_count < 5):
+            return "3D xona yetarlicha qurilmagan: pol, devor va mebellar alohida 3D obyekt bo'lishi kerak"
+        if re.search(r"ombor|warehouse|zavod|factory", req, re.I) and (mesh_count < 5 or add_count < 5):
+            return "3D ombor/zavod sahnasida stellaj, pol va obyektlar yetarli emas"
+        if not re.search(r"OrbitControls|enableDamping", doc, re.I):
+            return "3D sahnada kamerani aylantirish/zoom boshqaruvi yo'q"
+        if not re.search(r"addEventListener\s*\(\s*['\"]resize", doc, re.I):
+            return "3D sahna ekran o'lchamiga moslashmaydi"
     for i in range(len(images)):
         token = "__OCTOBER_IMAGE_" + str(i) + "__"
         if token not in doc:
@@ -193,7 +203,10 @@ def _prompt(req, descriptions, existing):
     three = bool(re.search(r"\b3d\b|sayyora|kosmos|xona|ombor", req, re.I) or (existing and ("three.module.js" in existing.lower() or "webglrenderer" in existing.lower())))
     rules = (
         "Haqiqiy Three.js WebGL sahnasi qur. Three.js r160 va OrbitControls ni jsDelivr import map orqali yukla; "
-        "responsive renderer, kamera, yoritish, materiallar va mouse/touch orbit-zoom bo'lsin. Internet kerakligini hisobga ol.\n"
+        "responsive renderer, kamera, yoritish, materiallar, OrbitControls bilan mouse/touch orbit-zoom va resize handler bo'lsin. "
+        "Sayyora so'ralganda kamida 2 ta alohida SphereGeometry, 2 ta Mesh va 2 ta scene.add yarat. "
+        "Xona so'ralganda pol, devorlar va mebellarni ifodalovchi kamida 5 ta Mesh yarat; ombor/zavodda kamida 5 ta Mesh (stellaj, pallet, quti va boshqalar) bo'lsin. "
+        "Faqat sarlavha, qora fon yoki bitta dekorativ shar bilan cheklanma. Internet kerakligini hisobga ol.\n"
         if three else "3D so'ralmagan bo'lsa, ortiqcha 3D qo'shma.\n"
     )
     return (
