@@ -258,6 +258,8 @@ async def _send(msg, context, doc, req, issue):
     context.user_data.pop("_ocb_pending", None); context.user_data.pop("_ocb_images", None)
     caption = "✅ Loyiha tayyor. HTML faylni yuklab olib Chrome'da oching."
     if issue: caption += "\n⚠️ Statik tekshiruv ogohlantirishi: " + issue + ". Brauzerda ham tekshiring."
+    if saved.get("html") is None:
+        caption += "\n⚠️ Fayl hajmi 4 MB dan katta: loyiha qayta ishga tushgandan keyin tahrirlash uchun saqlanmadi."
     await msg.reply_document(document=io.BytesIO(doc.encode("utf-8")), filename="creative_project.html", caption=caption)
 
 async def _run(msg, context, req, edit=False):
@@ -268,6 +270,9 @@ async def _run(msg, context, req, edit=False):
         doc, issue = await asyncio.wait_for(_generate(req, imgs, existing), timeout=240)
         if not doc:
             await status.edit_text("HTML yaratilmadi: to'liq kod olinmadi. Vazifani qismlarga ajrating."); return
+        if issue:
+            await status.edit_text("Loyiha sifat tekshiruvidan o'tmadi: " + issue + ". Noto'g'ri fayl yubormadim. So'rovni qismlarga ajratib qayta urinib ko'ring.")
+            return
         await _send(msg, context, doc, req, issue)
         try: await status.delete()
         except Exception: pass
