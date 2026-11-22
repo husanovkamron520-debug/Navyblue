@@ -14336,7 +14336,10 @@ def main():
     if OWNER_CHAT_ID is not None and USE_DB:
         october_plus.setup(OWNER_CHAT_ID, _october_plus_generate_text, _OctoberSupabaseRestClient())
         october_plus.register(app)
-        october_creative.setup(OWNER_CHAT_ID, _october_plus_generate_text, _october_creative_analyze_image)
+        october_creative.setup(
+            OWNER_CHAT_ID, _october_plus_generate_text, _october_creative_analyze_image,
+            load_state=load_json, save_state=save_json,
+        )
         logger.info("October Plus moduli ulandi.")
     else:
         logger.warning("October Plus o'chirilgan: OWNER_CHAT_ID yoki Supabase sozlamasi topilmadi.")
