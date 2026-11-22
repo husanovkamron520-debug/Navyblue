@@ -25,6 +25,8 @@ class CreativeBuilderTests(unittest.TestCase):
         const renderer = new THREE.WebGLRenderer();
         renderer.setSize(600, 400);
         document.body.appendChild(renderer.domElement);
+        const controls = { enableDamping: true };
+        window.addEventListener('resize', () => {});
         scene.add(new THREE.AmbientLight(0xffffff));
         const mesh = new THREE.Mesh(new THREE.SphereGeometry(1, 32, 32), new THREE.MeshStandardMaterial());
         const mesh2 = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial());
