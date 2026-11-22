@@ -1,6 +1,5 @@
 """October Creative Builder: image-aware HTML and Three.js projects."""
 import asyncio, base64, io, re, time
-from telegram import Update
 
 _owner_id = _gen = _vision = None
 _last = {"html": None}
