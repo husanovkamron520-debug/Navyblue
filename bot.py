@@ -29,6 +29,7 @@ from difflib import SequenceMatcher
 from http.server import BaseHTTPRequestHandler, HTTPServer, ThreadingHTTPServer
 import museum
 import supply_chain
+from october_skills import build_skill_context
 from ppt_media_sources import find_commons_photo
 from ppt_story_engine import STORY_ROLES, build_story_guidance, infer_story_role, story_quality_report, enforce_story_quality
 from ppt_visual_director import build_visual_direction_guidance, apply_visual_direction, classify_visual_domain
@@ -13422,6 +13423,7 @@ def _oct_parse_sync(text, d, now):
     except Exception:
         sys_txt = "(o'qib bo'lmadi)"
     tasks_txt = _oct_tasks_text(_oct_tasks_data())
+    skill_txt = build_skill_context(text)
     prompt = f"""Sen bot egasining shaxsiy yordamchi AI'san (ism: October). Egasi o'qituvchi, logistika/SCM kurslarini o'tadi va Telegram bot yuritadi. O'zbek tilida, qisqa, aniq va samimiy javob ber.
 Hozir: {now:%Y-%m-%d %H:%M:%S} (Toshkent, UTC+05:00).
 
@@ -13439,6 +13441,8 @@ FOYDALANUVCHILAR VA ULARNING LIMITLARI (id — ism | xizmat: qolgan/ishlatilgan)
 
 TIZIM HOLATI (haqiqiy o'lchov, o'zgartirma):
 {sys_txt}
+
+{skill_txt}
 
 EGASINING YANGI XABARI:
 {text}
