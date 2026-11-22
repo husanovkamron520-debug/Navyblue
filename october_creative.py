@@ -64,6 +64,13 @@ def _html(raw):
     b = raw.lower().rfind("</html>")
     return raw[a:b+7] if a >= 0 and b > a and b+7-a > 1000 else None
 
+def _repair(doc):
+    if not re.search(r"<meta[^>]+charset", doc, re.I):
+        doc = re.sub(r"(<head[^>]*>)", lambda m: m.group(1) + '<meta charset="utf-8">', doc, count=1, flags=re.I)
+    if not re.search(r"<meta[^>]+name=["']viewport", doc, re.I):
+        doc = re.sub(r"(<head[^>]*>)", lambda m: m.group(1) + '<meta name="viewport" content="width=device-width,initial-scale=1">', doc, count=1, flags=re.I)
+    return doc
+
 def _check(doc, req, images):
     low = doc.lower()
     if "</html>" not in low or "<body" not in low or "</body>" not in low:
@@ -121,7 +128,14 @@ async def _generate(req, images, existing=None):
         doc = _html(raw)
         if not doc:
             issue = "HTML kodi to'liq qaytmadi"; continue
+        doc = _repair(doc)
         issue = _check(doc, req, images); best = doc
+        if not issue and existing:
+            compact_old, old_images_check = _extract_embedded(existing)
+            for old_i in range(len(old_images_check)):
+                if "__OCTOBER_OLD_IMAGE_" + str(old_i) + "__" not in doc:
+                    issue = "Mavjud loyihadagi rasm saqlanmagan"
+                    break
         if not issue:
             for i, item in enumerate(images):
                 doc = doc.replace("__OCTOBER_IMAGE_" + str(i) + "__", _data_uri(item))
