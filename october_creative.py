@@ -5,7 +5,7 @@ from telegram import Update
 _owner_id = _gen = _vision = None
 _last = {"html": None}
 _BUILD = re.compile(r"\b(html|3d|sayyora|sayyoralar|xona|ombor|simulyator|interaktiv|sahifa|sayt|veb|web|website|portfolio|landing|animatsiya|kosmos|galaktika|dizayn)\b", re.I)
-_IMAGE = re.compile(r"(shu rasm|rasmni|rasmimni|suratni|yuborgan rasm|rasm qo.?sh|rasm joylashtir|surat joylashtir|rasm asosida)", re.I)
+_IMAGE = re.compile(r"(rasm|surat|photo|image)", re.I)
 _EDIT = re.compile(r"(o.?zgartir|qo.?sh|olib tashla|rangini|joylashtir|devorga|foniga|ichiga|ustiga)", re.I)
 _DONE = {"tayyor", "bo'ldi", "boldi", "tamom", "boshlayver"}
 
