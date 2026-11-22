@@ -107,9 +107,9 @@ def _check(doc, req, images, existing=None):
             return "3D obyekt mesh ko'rinishida yaratilmagan"
         if not re.search(r"renderer\.setSize|renderer\.setPixelRatio", doc):
             return "Renderer o'lchami sozlanmagan"
-        if re.search(r"sayyora|planet|kosmos", req, re.I):
-            if len(re.findall(r"new\s+THREE\.Mesh", doc)) < 2 or not re.search(r"SphereGeometry", doc):
-                return "Sayyoralar uchun kamida ikkita sfera mesh yaratilmagan"
+        if re.search(r"sayyor|planet|kosmos", req, re.I):
+            if len(re.findall(r"new\\s+THREE\\.SphereGeometry", doc)) < 2:
+                return "Sayyoralar uchun kamida ikkita alohida sfera geometriyasi yaratilmagan"
     for i in range(len(images)):
         token = "__OCTOBER_IMAGE_" + str(i) + "__"
         if token not in doc:
