@@ -84,13 +84,46 @@ def _check(doc, req, images, existing=None):
         return "HTML hujjati to'liq emas"
     if low.count("<script") != low.count("</script>"):
         return "JavaScript teglari yopilmagan"
-    for i in range(len(images)):
-        if "__OCTOBER_IMAGE_" + str(i) + "__" not in doc:
-            return "Yuborilgan " + str(i+1) + "-rasm sahnaga joylashtirilmagan"
-    needs_three = bool(re.search(r"\b3d\b|sayyora|kosmos|xona|ombor", req, re.I) or (existing and ("three.module.js" in existing.lower() or "webglrenderer" in existing.lower())))
+    needs_three = bool(
+        re.search(r"\b3d\b|sayyora|kosmos|xona|ombor", req, re.I)
+        or (existing and ("three.module.js" in existing.lower() or "webglrenderer" in existing.lower()))
+    )
     if needs_three:
-        if "three.module.js" not in low or "webglrenderer" not in low:
-            return "Haqiqiy Three.js WebGL sahnasi yaratilmagan"
+        required = {
+            "Three.js moduli": r"three\.module\.js|from\s*['\"]three['\"]",
+            "WebGL renderer": r"new\s+THREE\.WebGLRenderer",
+            "3D sahna": r"new\s+THREE\.Scene",
+            "kamera": r"new\s+THREE\.(PerspectiveCamera|OrthographicCamera)",
+            "kamera renderga ulanishi": r"renderer\.render\s*\(\s*scene\s*,\s*camera",
+            "animatsiya sikli": r"requestAnimationFrame",
+            "renderer DOMga ulanishi": r"appendChild\s*\(\s*renderer\.domElement",
+            "3D geometriya": r"THREE\.(SphereGeometry|BoxGeometry|CylinderGeometry|TorusGeometry|PlaneGeometry)",
+            "yoritish": r"THREE\.(AmbientLight|HemisphereLight|DirectionalLight|PointLight)",
+        }
+        for label, pattern in required.items():
+            if not re.search(pattern, doc, re.I):
+                return label + " yo'q — sahna haqiqiy ishlaydigan 3D emas"
+        if not re.search(r"new\s+THREE\.Mesh", doc):
+            return "3D obyekt mesh ko'rinishida yaratilmagan"
+        if not re.search(r"renderer\.setSize|renderer\.setPixelRatio", doc):
+            return "Renderer o'lchami sozlanmagan"
+        if re.search(r"sayyora|planet|kosmos", req, re.I):
+            if len(re.findall(r"new\s+THREE\.Mesh", doc)) < 2 or not re.search(r"SphereGeometry", doc):
+                return "Sayyoralar uchun kamida ikkita sfera mesh yaratilmagan"
+    for i in range(len(images)):
+        token = "__OCTOBER_IMAGE_" + str(i) + "__"
+        if token not in doc:
+            return "Yuborilgan " + str(i+1) + "-rasm HTMLga kiritilmagan"
+        escaped = re.escape(token)
+        placed = (
+            re.search(r"(?:src|map)\s*[:=]\s*['\"]?" + escaped, doc, re.I)
+            or re.search(r"\.load\s*\(\s*['\"]" + escaped, doc, re.I)
+            or re.search(r"setAttribute\s*\(\s*['\"]src['\"]\s*,\s*['\"]" + escaped, doc, re.I)
+        )
+        if not placed:
+            return "Yuborilgan rasm haqiqiy img yoki 3D texture sifatida joylashtirilmagan"
+    if images and re.search(r"<input[^>]+type\s*=\s*['\"]file|rasm tanlash|choose file|upload image", doc, re.I):
+        return "Rasmni yuklash paneli emas, yuborilgan suratning o'zi ko'rsatilishi kerak"
     return None
 
 async def _vision_text(images, request):
@@ -122,7 +155,9 @@ def _prompt(req, descriptions, existing):
         "Sen senior creative developer. Foydalanuvchi aytgan loyihani yarat yoki mavjudini tahrirla. Faqat to'liq HTML qaytar.\n"
         "Talablar: aytilgan obyekt, matn, rang va joylashuvlarni aynan bajar; zamonaviy, mobil/desktop responsive UI; "
         "barcha tugmalar ishlasin; o'zbekcha matn; TODO yoki soxta funksiya yo'q; bitta HTML fayl; "
-        "remote rasm/font/script ishlatma, faqat Three.js CDN mumkin; rasm tokenlarini aynan saqla.\n" + rules + img + old +
+        "remote rasm/font/script ishlatma, faqat Three.js CDN mumkin; rasm tokenlarini aynan saqla."remote rasm/font/script ishlatma, faqat Three.js CDN mumkin; rasm tokenlarini aynan saqla. "
+        "Foydalanuvchi yuborgan rasmni sahnada darhol ko'rsat; file input, rasm tanlash paneli yoki bo'sh placeholder yasama. "
+        "Hech qachon faqat sarlavha va qora fon bilan tugatma.n" + rules + img + old +
         "\nTOPSHIRIQ:\n" + req + "\n<!DOCTYPE html> dan </html> gacha kod qaytar."
     )
 
