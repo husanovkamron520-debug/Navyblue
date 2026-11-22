@@ -9,6 +9,8 @@ Imkoniyatlar:
 2. HTML generator: "ombor 3d", "html sahifa", "infografika" kabi so'rovlarda
    Gemini neon uslubidagi tayyor .html fayl yozadi, avtomatik tuzatadi,
    sifatini tekshiradi va yuboradi. Fayl tashqi kutubxonasiz (offline) ishlaydi.
+   Oxirgi HTML'ni eslab qoladi: "koding yubor" desangiz kodni yuboradi,
+   HTML faylga javob (reply) qilib o'zgartirish yozsangiz, uni yangilaydi.
 3. Halollik qoidasi: October bajara olmagan ishini "ha" deb o'tkazib yubormaydi.
 
 Ulash: pastdagi "ULASH" bo'limiga qarang.
@@ -33,6 +35,8 @@ _sb = None   # Supabase client (yoki .table().insert().execute() qo'llaydigan ad
 
 # Egasining oxirgi xabarlari ("oxirgi 5 xabarim g'oya" uchun). Bot qayta ishga tushsa tozalanadi.
 _recent = deque(maxlen=50)
+# Oxirgi yasalgan HTML (kod so'ralganda yoki o'zgartirishda kerak). Qayta ishga tushsa tozalanadi.
+_last_html = {"doc": None, "req": None}
 
 # bot.py dagi October promptiga qo'shiladigan qoida matni
 HONESTY_RULES = (
@@ -183,6 +187,16 @@ async def make_html(request: str):
     return best, issue
 
 
+async def _send_html(msg, doc: str, issue, req: str):
+    """HTML'ni yuboradi va keyingi savol/o'zgartirish uchun eslab qoladi."""
+    _last_html["doc"], _last_html["req"] = doc, req
+    caption = "Tayyor. Faylni telefonda Chrome/Safari orqali oching (Telegram ichida emas)."
+    if issue:
+        caption = "Tayyor, lekin ogohlantirish: " + issue + ". Ishlamasa, ayting, qayta yozdiraman."
+    await msg.reply_document(document=io.BytesIO(doc.encode("utf-8")),
+                             filename="october.html", caption=caption)
+
+
 # ---------------------------------------------------------------- Buyruqsiz tushunish
 _KIND = r"(g'?oya|qayd|iqtibos)"
 _RE_SAVE_COLON = re.compile(r"^\s*" + _KIND + r"\s*[:\-–—]\s*(.+)$", re.S)
@@ -193,6 +207,8 @@ _NUM_WORDS = {"bitta": 1, "ikkita": 2, "uchta": 3, "to'rtta": 4, "beshta": 5,
               "oltita": 6, "yettita": 7, "sakkizta": 8, "to'qqizta": 9, "o'nta": 10}
 _RE_BULK = re.compile(
     r"oxirgi\s+(\d+|" + "|".join(_NUM_WORDS) + r")\s*(?:ta\s*)?(?:xabar|yozuv|gap)\w*.*?" + _KIND)
+_RE_CODE_Q = re.compile(r"\bkod\w*")
+_RE_NEW_BUILD = re.compile(r"(yasab|yozib|yaratib|qilib)\s+ber|\byarat\b|\byasa\b")
 
 
 def _kind_of(word: str) -> str:
@@ -270,18 +286,40 @@ async def try_handle(update: Update, context: ContextTypes.DEFAULT_TYPE, text: s
         await haftalik_hisobot(update, context)
         return True
 
-    # 4) HTML
+    last = _last_html["doc"]
+    rm = msg.reply_to_message
+    replied_file = bool(
+        rm and ((rm.document and (rm.document.file_name or "").lower().endswith(".html"))
+                or (rm.caption or "").startswith("Tayyor"))
+    )
+
+    # 4) oxirgi HTML haqida savol: "koding yubor", "qanday kodda yozding"
+    if last and len(t) < 80 and _RE_CODE_Q.search(t) and not _RE_NEW_BUILD.search(t):
+        await msg.reply_text("Bu sahifani HTML, CSS va JavaScript'da yozdim (Python bu botning o'zi, sahifa emas). "
+                             "To'liq kodi pastdagi faylda.")
+        await msg.reply_document(document=io.BytesIO(last.encode("utf-8")), filename="october_kodi.txt")
+        return True
+
+    # 5) HTML faylga javob (reply) bilan o'zgartirish: "rangini ko'k qil", "tezroq qil"
+    if last and replied_file and len(t) < 300 and not t.startswith("/"):
+        await msg.reply_text("Sahifani o'zgartiryapman, bir oz kuting...")
+        req = ("Mavjud HTML sahifani quyidagi o'zgartirish bo'yicha yangila va TO'LIQ yangi faylni qaytar. "
+               "O'zgartirish: " + (text or "") + "\n\nMavjud kod:\n" + last[:40000])
+        doc, issue = await make_html(req)
+        if not doc:
+            await msg.reply_text("O'zgartirib bo'lmadi: " + str(issue) + ". Avvalgi fayl o'zgarishsiz qoldi.")
+            return True
+        await _send_html(msg, doc, issue, req)
+        return True
+
+    # 6) yangi HTML
     if wants_html(text):
         await msg.reply_text("HTML yozyapman, bir oz kuting...")
         doc, issue = await make_html(text)
         if not doc:
             await msg.reply_text("HTML yasab bo'lmadi: " + str(issue) + ". So'rovni biroz aniqroq qilib qayta yuboring.")
             return True
-        caption = "Tayyor. Faylni telefonda Chrome/Safari orqali oching (Telegram ichida emas)."
-        if issue:
-            caption = "Tayyor, lekin ogohlantirish: " + issue + ". Ishlamasa, ayting, qayta yozdiraman."
-        await msg.reply_document(document=io.BytesIO(doc.encode("utf-8")),
-                                 filename="october.html", caption=caption)
+        await _send_html(msg, doc, issue, text)
         return True
     return False
 
