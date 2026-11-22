@@ -27,7 +27,11 @@ class CreativeBuilderTests(unittest.TestCase):
         document.body.appendChild(renderer.domElement);
         scene.add(new THREE.AmbientLight(0xffffff));
         const mesh = new THREE.Mesh(new THREE.SphereGeometry(1, 32, 32), new THREE.MeshStandardMaterial());
-        scene.add(mesh);
+        const mesh2 = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial());
+        const mesh3 = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial());
+        const mesh4 = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial());
+        const mesh5 = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial());
+        scene.add(mesh); scene.add(mesh2); scene.add(mesh3); scene.add(mesh4); scene.add(mesh5);
         function animate() { requestAnimationFrame(animate); renderer.render(scene, camera); }
         animate();
         </script></head><body></body></html>"""
