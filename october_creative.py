@@ -4,9 +4,9 @@ from telegram import Update
 
 _owner_id = _gen = _vision = None
 _last = {"html": None}
-_BUILD = re.compile(r"\b(html|3d|sayyora|xona|ombor|simulyator|interaktiv|sahifa|animatsiya|kosmos|yarat|yasab|qur|dizayn)\b", re.I)
+_BUILD = re.compile(r"\b(html|3d|sayyora|sayyoralar|xona|ombor|simulyator|interaktiv|sahifa|sayt|veb|web|website|portfolio|landing|animatsiya|kosmos|galaktika|dizayn)\b", re.I)
 _IMAGE = re.compile(r"(shu rasm|rasmni|rasmimni|suratni|yuborgan rasm|rasm qo.?sh|rasm joylashtir|surat joylashtir|rasm asosida)", re.I)
-_EDIT = re.compile(r"(o.?zgartir|qo.?sh|rangini|joylashtir|endi |yana |devorga|foniga|ichiga|ustiga)", re.I)
+_EDIT = re.compile(r"(o.?zgartir|qo.?sh|olib tashla|rangini|joylashtir|devorga|foniga|ichiga|ustiga)", re.I)
 _DONE = {"tayyor", "bo'ldi", "boldi", "tamom", "boshlayver"}
 
 def setup(owner_id, generate_text, analyze_image):
@@ -186,9 +186,9 @@ async def try_handle(update, context, text):
     if pending and low.startswith("/bekor"):
         context.user_data.pop("_ocb_pending", None); context.user_data.pop("_ocb_images", None)
         await msg.reply_text("Loyiha yaratish bekor qilindi."); return True
-    if pending and imgs and not low.startswith("/"):
+    if pending and not low.startswith("/"):
         pending["request"] += "\nQo'shimcha ko'rsatma: " + t
-        await msg.reply_text("Ko'rsatma qo'shildi. Yana rasm yuboring yoki «tayyor» deb yozing."); return True
+        await msg.reply_text("Ko'rsatma qo'shildi. Rasm yuboring yoki «tayyor» deb yozing."); return True
     last = context.user_data.get("_ocb_last_html") or _last.get("html")
     if last and _IMAGE.search(t) and _EDIT.search(t):
         context.user_data["_ocb_pending"] = {"request": "Mavjud loyihaga o'zgarish kirit: " + t, "edit": True}
