@@ -7,7 +7,8 @@ Imkoniyatlar:
      haftalik hisobot       -> mavzular bo'yicha jurnal (Bento HTML + PNG rasm)
    Eski /goya, /qayd, /iqtibos, /haftalik_hisobot buyruqlari ham ishlayveradi.
 2. HTML generator: "ombor 3d", "html sahifa", "infografika" kabi so'rovlarda
-   Gemini neon uslubidagi tayyor .html fayl yozadi, sifatini tekshiradi va yuboradi.
+   Gemini neon uslubidagi tayyor .html fayl yozadi, avtomatik tuzatadi,
+   sifatini tekshiradi va yuboradi. Fayl tashqi kutubxonasiz (offline) ishlaydi.
 3. Halollik qoidasi: October bajara olmagan ishini "ha" deb o'tkazib yubormaydi.
 
 Ulash: pastdagi "ULASH" bo'limiga qarang.
@@ -56,16 +57,29 @@ _HTML_WORDS = ("html", "3d", "sahifa", "veb", "web", "infografika", "bento",
 _INTERACTIVE_WORDS = ("3d", "o'yin", "oyin", "simulyator", "interaktiv", "kalkulyator")
 
 NEON_PROMPT = """Sen tajribali front-end dasturchisan. Quyidagi so'rov bo'yicha BITTA to'liq, ishlaydigan HTML fayl yoz.
-Talablar:
-- Faqat bitta fayl: CSS va JS shu fayl ichida. Tashqi kutubxona kerak bo'lsa faqat cdnjs.cloudflare.com dan (masalan three.js r128).
+Asosiy qoidalar:
+- So'rovdagi narsani AYNAN yasa. Masalan "ombor 3d" bo'lsa, 3D ombor sahnasi (javonlar, qutilar, barmoq/sichqon bilan aylantirish va yaqinlashtirish) yasa; dashboard yoki grafiklar yasama. Infografika so'ralmagan bo'lsa, infografika yasama.
+- HECH QANDAY tashqi kutubxona, CDN, tashqi rasm, shrift yoki <link> ishlatma (three.js, Chart.js ham yo'q). Fayl internetsiz va cheklangan brauzerda (Telegram ichida) ham ochilishi kerak.
+- Faqat toza HTML + CSS + JavaScript. 3D kerak bo'lsa, <canvas> 2D kontekstida o'zing perspektiva yoki izometrik proyeksiya hisobla. Grafik kerak bo'lsa, inline SVG yoki canvas bilan chiz. WebGL ishlatma.
+- <head> ichida birinchi qator: <meta charset="utf-8"> (aynan shu ko'rinishda), keyin viewport meta.
 - Neon uslub: to'q fon (#0B0F19), yorqin neon ko'k/pushti/yashil ranglar, yumshoq glow.
-- Telefon ekraniga moslash: viewport meta, katta tugmalar, touch bilan ishlasin.
+- Telefon ekraniga moslash: katta tugmalar, touch hodisalari (touchstart/touchmove) ishlasin.
 - Interfeys matnlari o'zbekcha bo'lsin.
-- Kod TO'LIQ bo'lsin: "...", "shu yerga qo'shing", TODO kabi to'ldirilmagan joy qoldirma.
+- Kod TO'LIQ bo'lsin: "...", "shu yerga qo'shing", TODO kabi to'ldirilmagan joy qoldirma. Sodda, lekin ishonchli yoz: murakkab, sinab bo'lmaydigan narsadan qoch.
 - O'yin yoki simulyator bo'lsa: boshlash tugmasi, ball/holat ko'rsatkichi, aniq maqsad va qayta boshlash tugmasi bo'lsin.
-- Yozishdan oldin kod mantiqini ichingda tekshirib chiq (o'zgaruvchi nomlari, yopilmagan teglar).
+- Yozishdan oldin kod mantiqini ichingda tekshirib chiq (o'zgaruvchi nomlari, yopilmagan teglar, mavjud element id'lari).
 - Javobda FAQAT HTML kod bo'lsin: izoh yoki ``` belgilarisiz. <!DOCTYPE html> bilan boshlanib </html> bilan tugasin.
 So'rov: {req}"""
+
+# Sahifa ichida xato bo'lsa (yoki skript yuklanmasa), ekran bo'sh qolmasligi uchun
+# pastda qizil qutida xato matnini ko'rsatadi.
+_ERR_BANNER = (
+    '<script>window.addEventListener("error",function(e){var d=document.createElement("div");'
+    'd.style.cssText="position:fixed;left:8px;right:8px;bottom:8px;z-index:99999;background:#300;'
+    'color:#fff;padding:8px;font:12px monospace;border:1px solid #f55;border-radius:8px";'
+    'd.textContent="JS xato: "+(e.message||(e.target&&e.target.src)||"nomalum");'
+    '(document.body||document.documentElement).appendChild(d);},true);</script>'
+)
 
 
 def setup(owner_id, gen_text, supabase_client):
@@ -107,14 +121,40 @@ def _clean_html(raw: str):
     return doc if len(doc) > 800 else None
 
 
+def _repair_html(doc: str) -> str:
+    """Gemini'ning odatiy xatolarini tuzatadi va xato-qutisini qo'shadi."""
+    # <charset="UTF-8"> kabi noto'g'ri tegni to'g'ri <meta charset> ga almashtirish
+    doc = re.sub(r"<\s*charset\s*=\s*[\"']?[\w-]+[\"']?\s*/?>", '<meta charset="utf-8">', doc, flags=re.I)
+    # xato-qutisini <head> boshiga qo'yamiz
+    if 'addEventListener("error"' not in doc:
+        doc = re.sub(r"(<head[^>]*>)", lambda m: m.group(1) + _ERR_BANNER, doc, count=1, flags=re.I)
+    # <meta charset> eng birinchi bo'lishi kerak (brauzer dastlabki baytlarda qidiradi)
+    if not re.search(r"<meta[^>]+charset", doc, re.I):
+        doc = re.sub(r"(<head[^>]*>)", lambda m: m.group(1) + '<meta charset="utf-8">', doc, count=1, flags=re.I)
+    else:
+        m = re.search(r"<meta[^>]+charset[^>]*>", doc, re.I)
+        if m:
+            tag = m.group(0)
+            doc = doc.replace(tag, "", 1)
+            doc = re.sub(r"(<head[^>]*>)", lambda mm: mm.group(1) + tag, doc, count=1, flags=re.I)
+    if not doc.rstrip().lower().endswith("</html>"):
+        doc = doc.rstrip() + "\n</html>"
+    return doc
+
+
 def _quality_issue(doc: str, req: str):
     """Aniq kamchilik bo'lsa matn, yaxshi bo'lsa None."""
     low = doc.lower()
-    if low.count("<script") != low.count("</script>"):
+    body = low.replace(_ERR_BANNER.lower(), "")
+    if body.count("<script") != body.count("</script>"):
         return "<script> teglari to'g'ri yopilmagan"
-    if "<script" not in low and any(w in _norm(req) for w in _INTERACTIVE_WORDS):
+    if re.search(r"<script[^>]+src\s*=\s*[\"']?(https?:)?//", body):
+        return "tashqi kutubxona (CDN) ishlatilgan; faqat sof JavaScript kerak"
+    if re.search(r"<link[^>]+href\s*=\s*[\"']?(https?:)?//", body):
+        return "tashqi CSS/shrift ishlatilgan; hammasi fayl ichida bo'lishi kerak"
+    if "<script" not in body and any(w in _norm(req) for w in _INTERACTIVE_WORDS):
         return "JavaScript yo'q, sahifa interaktiv emas"
-    if re.search(r"(//|/\*|<!--)\s*(\.\.\.|todo|shu yerga|bu yerga|qolgan kod)", low):
+    if re.search(r"(//|/\*|<!--)\s*(\.\.\.|todo|shu yerga|bu yerga|qolgan kod)", body):
         return "kodda to'ldirilmagan joylar (placeholder) bor"
     return None
 
@@ -135,6 +175,7 @@ async def make_html(request: str):
         if not doc:
             issue = "HTML to'liq chiqmadi (boshi yoki oxiri yo'q)"
             continue
+        doc = _repair_html(doc)
         best = doc
         issue = _quality_issue(doc, request)
         if not issue:
@@ -236,7 +277,7 @@ async def try_handle(update: Update, context: ContextTypes.DEFAULT_TYPE, text: s
         if not doc:
             await msg.reply_text("HTML yasab bo'lmadi: " + str(issue) + ". So'rovni biroz aniqroq qilib qayta yuboring.")
             return True
-        caption = "Tayyor. Faylni brauzerda oching."
+        caption = "Tayyor. Faylni telefonda Chrome/Safari orqali oching (Telegram ichida emas)."
         if issue:
             caption = "Tayyor, lekin ogohlantirish: " + issue + ". Ishlamasa, ayting, qayta yozdiraman."
         await msg.reply_document(document=io.BytesIO(doc.encode("utf-8")),
