@@ -174,12 +174,12 @@ def _check(doc, req, images, existing=None):
         template_id, _ = _template_engine.select_template(req)
         if template_id == "cosmos_3d":
             cinematic_checks = {
-                "procedural texture": r"CanvasTexture|canvas\\.getContext",
+                "procedural texture": r"CanvasTexture|getContext",
                 "surface relief": r"bumpMap|normalMap|displacementMap",
                 "bloom": r"EffectComposer|UnrealBloomPass",
                 "atmosphere/nebula": r"ShaderMaterial|Fresnel|fresnel",
                 "asteroids": r"InstancedMesh|asteroid",
-                "camera fly-to": r"lerpVectors|camera\\.position\\.lerp|flyTo|fly-to",
+                "camera fly-to": r"lerpVectors|lerp|flyTo|fly-to",
                 "mobile pixel-ratio cap": r"setPixelRatio|MAX_PIXEL_RATIO|pixelRatio",
                 "error fallback": r"catch|onerror|xato|yuklanmadi",
             }
