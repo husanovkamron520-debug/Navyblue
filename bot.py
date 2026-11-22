@@ -30,6 +30,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer, ThreadingHTTPServer
 import museum
 import supply_chain
 import october_plus
+import october_creative
 from ppt_media_sources import find_commons_photo
 from ppt_story_engine import STORY_ROLES, build_story_guidance, infer_story_role, story_quality_report, enforce_story_quality
 from ppt_visual_director import build_visual_direction_guidance, apply_visual_direction, classify_visual_domain
@@ -571,6 +572,35 @@ def _october_plus_generate_text(prompt: str) -> str:
         prompt, temperature=0.6, max_tokens=12000, json_mode=False,
         models=AI_FALLBACK_MODELS,
     )
+
+def _october_creative_analyze_image(data: bytes, mime: str, request: str) -> str:
+    """Gemini Vision orqali yuborilgan rasmni loyiha kontekstida tahlil qiladi."""
+    if not ai_client:
+        raise RuntimeError("GEMINI_API_KEY sozlanmagan")
+    prompt = (
+        "Rasmni HTML/3D loyiha yaratish uchun qisqa va aniq tasvirla. "
+        "Ko'rinadigan obyektlar, ranglar, kompozitsiya, matn va muhim detallarni ayt. "
+        "Rasmga joylashtirish bo'yicha taxmin qilma; ko'rinmagan narsani o'ylab topma. "
+        "Foydalanuvchi topshirig'i: " + (request or "")[:1200]
+    )
+    last = None
+    for model in AI_FALLBACK_MODELS:
+        try:
+            note_ai_call()
+            part = types.Part.from_bytes(data=data, mime_type=mime or "image/jpeg")
+            response = ai_client.models.generate_content(
+                model=model,
+                contents=[prompt, part],
+                config=types.GenerateContentConfig(temperature=0.2, max_output_tokens=600),
+            )
+            result = (getattr(response, "text", None) or "").strip()
+            if result:
+                return result[:1800]
+            raise RuntimeError("Gemini Vision bo'sh javob qaytardi")
+        except Exception as exc:
+            last = exc
+            logger.warning("October Creative rasm tahlili (%s) xatosi: %s", model, exc)
+    raise last
 
 
 def _db_request(method, path, body=None, prefer=None):
@@ -2701,6 +2731,8 @@ async def attachment_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         if zip_added:
             await msg.reply_text("📦 Fayl ZIP ro'yxatiga ham qo'shildi. Keraklilarini tanlash uchun 📦 ZIP tugmasini bosing yoki /zip yozing.")
         if msg.chat.type == "private" and _oct_owner(update) and (msg.photo or mime.startswith("image/")):
+            if await october_creative.handle_image(update, context, raw, mime, filename):
+                return
             if not _ppt_valid_image(raw):
                 await msg.reply_text("Bu rasm formatini PowerPoint uchun o'qiy olmadim. JPG yoki PNG yuborib ko'ring.")
                 return
@@ -13559,6 +13591,8 @@ async def october_chat(update: Update, text: str, context=None):
     # Himoya qatlami: October shaxsiy AI faqat OWNER_CHAT_ID egasiga ochiq.
     if not _oct_owner(update):
         return
+    if context is not None and await october_creative.try_handle(update, context, text):
+        return
     if context is not None and await october_plus.try_handle(update, context, text):
         return
     msg = update.effective_message
@@ -14302,6 +14336,7 @@ def main():
     if OWNER_CHAT_ID is not None and USE_DB:
         october_plus.setup(OWNER_CHAT_ID, _october_plus_generate_text, _OctoberSupabaseRestClient())
         october_plus.register(app)
+        october_creative.setup(OWNER_CHAT_ID, _october_plus_generate_text, _october_creative_analyze_image)
         logger.info("October Plus moduli ulandi.")
     else:
         logger.warning("October Plus o'chirilgan: OWNER_CHAT_ID yoki Supabase sozlamasi topilmadi.")
