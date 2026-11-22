@@ -4,7 +4,7 @@ from telegram import Update
 
 _owner_id = _gen = _vision = None
 _last = {"html": None}
-_BUILD = re.compile(r"\\b(html|3d|sayyora|xona|ombor|simulyator|interaktiv|sahifa|animatsiya|kosmos|yarat|yasab|qur|dizayn)\\b", re.I)
+_BUILD = re.compile(r"\b(html|3d|sayyora|xona|ombor|simulyator|interaktiv|sahifa|animatsiya|kosmos|yarat|yasab|qur|dizayn)\b", re.I)
 _IMAGE = re.compile(r"(shu rasm|rasmni|rasmimni|suratni|yuborgan rasm|rasm qo.?sh|rasm joylashtir|surat joylashtir|rasm asosida)", re.I)
 _EDIT = re.compile(r"(o.?zgartir|qo.?sh|rangini|joylashtir|endi |yana |devorga|foniga|ichiga|ustiga)", re.I)
 _DONE = {"tayyor", "bo'ldi", "boldi", "tamom", "boshlayver"}
@@ -50,15 +50,15 @@ def _data_uri(item):
 
 def _extract_embedded(doc):
     saved = []
-    pat = re.compile(r"data:image/(?:png|jpeg|jpg|webp);base64,[A-Za-z0-9+/=\\s]+", re.I)
+    pat = re.compile(r"data:image/(?:png|jpeg|jpg|webp);base64,[A-Za-z0-9+/=\s]+", re.I)
     def repl(m):
         token = "__OCTOBER_OLD_IMAGE_" + str(len(saved)) + "__"
-        saved.append(m.group(0).replace("\\n", "").replace(" ", ""))
+        saved.append(m.group(0).replace("\n", "").replace(" ", ""))
         return token
     return pat.sub(repl, doc or ""), saved
 
 def _html(raw):
-    raw = re.sub(r"^```(?:html)?\\s*|\\s*```$", "", (raw or "").strip(), flags=re.I).strip()
+    raw = re.sub(r"^```(?:html)?\s*|\s*```$", "", (raw or "").strip(), flags=re.I).strip()
     a = raw.lower().find("<!doctype")
     if a < 0: a = raw.lower().find("<html")
     b = raw.lower().rfind("</html>")
@@ -73,7 +73,7 @@ def _check(doc, req, images):
     for i in range(len(images)):
         if "__OCTOBER_IMAGE_" + str(i) + "__" not in doc:
             return "Yuborilgan " + str(i+1) + "-rasm sahnaga joylashtirilmagan"
-    if re.search(r"\\b3d\\b|sayyora|kosmos", req, re.I):
+    if re.search(r"\b3d\b|sayyora|kosmos", req, re.I):
         if "three.module.js" not in low or "webglrenderer" not in low:
             return "Haqiqiy Three.js WebGL sahnasi yaratilmagan"
     return None
@@ -89,26 +89,26 @@ async def _vision_text(images, request):
 def _prompt(req, descriptions, existing):
     img = ""
     if descriptions:
-        img = "\\nRASMLAR:\\n" + "\\n".join(descriptions) + (
-            "\\nHar bir rasmni aynan ko'rsatilgan joyga joylashtir. Tokenni img src yoki Three.js TextureLoader ichida ishlat. "
+        img = "\nRASMLAR:\n" + "\n".join(descriptions) + (
+            "\nHar bir rasmni aynan ko'rsatilgan joyga joylashtir. Tokenni img src yoki Three.js TextureLoader ichida ishlat. "
             "3D sahnada poster, ramka yoki texture plane bo'lishi mumkin. Oddiy suratni haqiqiy 3D geometriyaga aylantirdim deb da'vo qilma."
         )
     old = ""
     if existing:
         compact, _ = _extract_embedded(existing)
-        old = "\\nMAVJUD LOYIHA KODI (uni saqla va faqat so'ralgan o'zgarishni kirit):\\n" + compact[:50000]
-    three = bool(re.search(r"\\b3d\\b|sayyora|kosmos|xona|ombor", req, re.I) or existing)
+        old = "\nMAVJUD LOYIHA KODI (uni saqla va faqat so'ralgan o'zgarishni kirit):\n" + compact[:50000]
+    three = bool(re.search(r"\b3d\b|sayyora|kosmos|xona|ombor", req, re.I) or existing)
     rules = (
         "Haqiqiy Three.js WebGL sahnasi qur. Three.js r160 va OrbitControls ni jsDelivr import map orqali yukla; "
-        "responsive renderer, kamera, yoritish, materiallar va mouse/touch orbit-zoom bo'lsin. Internet kerakligini hisobga ol.\\n"
-        if three else "3D so'ralmagan bo'lsa, ortiqcha 3D qo'shma.\\n"
+        "responsive renderer, kamera, yoritish, materiallar va mouse/touch orbit-zoom bo'lsin. Internet kerakligini hisobga ol.\n"
+        if three else "3D so'ralmagan bo'lsa, ortiqcha 3D qo'shma.\n"
     )
     return (
-        "Sen senior creative developer. Foydalanuvchi aytgan loyihani yarat yoki mavjudini tahrirla. Faqat to'liq HTML qaytar.\\n"
+        "Sen senior creative developer. Foydalanuvchi aytgan loyihani yarat yoki mavjudini tahrirla. Faqat to'liq HTML qaytar.\n"
         "Talablar: aytilgan obyekt, matn, rang va joylashuvlarni aynan bajar; zamonaviy, mobil/desktop responsive UI; "
         "barcha tugmalar ishlasin; o'zbekcha matn; TODO yoki soxta funksiya yo'q; bitta HTML fayl; "
-        "remote rasm/font/script ishlatma, faqat Three.js CDN mumkin; rasm tokenlarini aynan saqla.\\n" + rules + img + old +
-        "\\nTOPSHIRIQ:\\n" + req + "\\n<!DOCTYPE html> dan </html> gacha kod qaytar."
+        "remote rasm/font/script ishlatma, faqat Three.js CDN mumkin; rasm tokenlarini aynan saqla.\n" + rules + img + old +
+        "\nTOPSHIRIQ:\n" + req + "\n<!DOCTYPE html> dan </html> gacha kod qaytar."
     )
 
 async def _generate(req, images, existing=None):
@@ -117,7 +117,7 @@ async def _generate(req, images, existing=None):
     issue = None
     best = None
     for _ in range(3):
-        raw = await asyncio.to_thread(_gen, prompt + (("\\nTekshiruv xatosi: " + issue + ". Tuzatib to'liq HTML qaytar.") if issue else ""))
+        raw = await asyncio.to_thread(_gen, prompt + (("\nTekshiruv xatosi: " + issue + ". Tuzatib to'liq HTML qaytar.") if issue else ""))
         doc = _html(raw)
         if not doc:
             issue = "HTML kodi to'liq qaytmadi"; continue
@@ -141,7 +141,7 @@ async def _send(msg, context, doc, req, issue):
     context.user_data["_ocb_last_html"] = doc
     context.user_data.pop("_ocb_pending", None); context.user_data.pop("_ocb_images", None)
     caption = "✅ Loyiha tayyor. HTML faylni yuklab olib Chrome'da oching."
-    if issue: caption += "\\n⚠️ Statik tekshiruv ogohlantirishi: " + issue + ". Brauzerda ham tekshiring."
+    if issue: caption += "\n⚠️ Statik tekshiruv ogohlantirishi: " + issue + ". Brauzerda ham tekshiring."
     await msg.reply_document(document=io.BytesIO(doc.encode("utf-8")), filename="creative_project.html", caption=caption)
 
 async def _run(msg, context, req, edit=False):
@@ -174,7 +174,7 @@ async def try_handle(update, context, text):
         context.user_data.pop("_ocb_pending", None); context.user_data.pop("_ocb_images", None)
         await msg.reply_text("Loyiha yaratish bekor qilindi."); return True
     if pending and imgs and not low.startswith("/"):
-        pending["request"] += "\\nQo'shimcha ko'rsatma: " + t
+        pending["request"] += "\nQo'shimcha ko'rsatma: " + t
         await msg.reply_text("Ko'rsatma qo'shildi. Yana rasm yuboring yoki «tayyor» deb yozing."); return True
     last = context.user_data.get("_ocb_last_html") or _last.get("html")
     if last and _IMAGE.search(t) and _EDIT.search(t):
