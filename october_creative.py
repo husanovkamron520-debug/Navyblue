@@ -108,7 +108,7 @@ def _check(doc, req, images, existing=None):
         if not re.search(r"renderer\.setSize|renderer\.setPixelRatio", doc):
             return "Renderer o'lchami sozlanmagan"
         if re.search(r"sayyor|planet|kosmos", req, re.I):
-            if len(re.findall(r"new\\s+THREE\\.SphereGeometry", doc)) < 2:
+            if len(re.findall(r"new\s+THREE\.SphereGeometry", doc)) < 2:
                 return "Sayyoralar uchun kamida ikkita alohida sfera geometriyasi yaratilmagan"
     for i in range(len(images)):
         token = "__OCTOBER_IMAGE_" + str(i) + "__"
