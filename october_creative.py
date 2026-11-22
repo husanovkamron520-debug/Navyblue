@@ -5,8 +5,10 @@ _owner_id = _gen = _vision = None
 _last = {"html": None}
 _BUILD = re.compile(r"\b(html|3d|sayyora|sayyoralar|xona|ombor|simulyator|interaktiv|sahifa|sayt|veb|web|website|portfolio|landing|animatsiya|kosmos|galaktika|dizayn)\b", re.I)
 _IMAGE = re.compile(r"(rasm|surat|photo|image)", re.I)
-_EDIT = re.compile(r"(o.?zgartir|qo.?sh|olib tashla|rangini|joylashtir|devorga|foniga|ichiga|ustiga)", re.I)
+_EDIT = re.compile(r"(o.?zgartir|qo.?sh|olib tashla|rangini|joylashtir|devorga|devorini|foniga|fonini|ichiga|ustiga|kengaytir|toraytir|yoritishni)", re.I)
+_NEW_REQUEST = re.compile(r"(yarat|yasab ber|qurib ber|yangisini|yangi loyiha|boshidan)", re.I)
 _DONE = {"tayyor", "bo'ldi", "boldi", "tamom", "boshlayver"}
+_CANCEL = {"bekor", "bekor qil", "to'xta", "stop"}
 
 def setup(owner_id, generate_text, analyze_image):
     global _owner_id, _gen, _vision
@@ -18,6 +20,9 @@ def _owner(update):
 
 def wants_builder(text):
     return bool(text and not text.lstrip().startswith("/") and _BUILD.search(text))
+
+def is_edit_request(text, has_project=True):
+    return bool(has_project and _EDIT.search(text or "") and not _NEW_REQUEST.search(text or ""))
 
 def _compress(raw, mime):
     try:
@@ -36,10 +41,13 @@ async def handle_image(update, context, raw, mime, filename):
     if not _owner(update) or not context.user_data.get("_ocb_pending") or not (mime or "").startswith("image/"):
         return False
     items = context.user_data.setdefault("_ocb_images", [])
-    if len(items) >= 4 or sum(len(x["data"]) for x in items) + len(raw) > 8 * 1024 * 1024:
-        await update.effective_message.reply_text("Ko'pi bilan 4 ta rasm va jami 8 MB qabul qilaman. «Tayyor» deb yozing.")
+    if len(items) >= 4:
+        await update.effective_message.reply_text("Ko'pi bilan 4 ta rasm qabul qilaman. «Tayyor» deb yozing.")
         return True
     data, kind = await asyncio.to_thread(_compress, raw, mime)
+    if sum(len(x["data"]) for x in items) + len(data) > 8 * 1024 * 1024:
+        await update.effective_message.reply_text("Rasmlar siqilgandan keyin ham jami 8 MB dan oshdi. Kichikroq rasm yuboring.")
+        return True
     items.append({"data": data, "mime": kind, "name": filename or "reference"})
     await update.effective_message.reply_text("🖼 Rasm qabul qilindi (" + str(len(items)) + "/4). Tugatgach «tayyor» deb yozing.")
     return True
@@ -70,7 +78,7 @@ def _repair(doc):
         doc = re.sub(r"(<head[^>]*>)", lambda m: m.group(1) + '<meta name="viewport" content="width=device-width,initial-scale=1">', doc, count=1, flags=re.I)
     return doc
 
-def _check(doc, req, images):
+def _check(doc, req, images, existing=None):
     low = doc.lower()
     if "</html>" not in low or "<body" not in low or "</body>" not in low:
         return "HTML hujjati to'liq emas"
@@ -79,7 +87,8 @@ def _check(doc, req, images):
     for i in range(len(images)):
         if "__OCTOBER_IMAGE_" + str(i) + "__" not in doc:
             return "Yuborilgan " + str(i+1) + "-rasm sahnaga joylashtirilmagan"
-    if re.search(r"\b3d\b|sayyora|kosmos", req, re.I):
+    needs_three = bool(re.search(r"\b3d\b|sayyora|kosmos|xona|ombor", req, re.I) or (existing and ("three.module.js" in existing.lower() or "webglrenderer" in existing.lower())))
+    if needs_three:
         if "three.module.js" not in low or "webglrenderer" not in low:
             return "Haqiqiy Three.js WebGL sahnasi yaratilmagan"
     return None
@@ -103,7 +112,7 @@ def _prompt(req, descriptions, existing):
     if existing:
         compact, _ = _extract_embedded(existing)
         old = "\nMAVJUD LOYIHA KODI (uni saqla va faqat so'ralgan o'zgarishni kirit):\n" + compact[:50000]
-    three = bool(re.search(r"\b3d\b|sayyora|kosmos|xona|ombor", req, re.I) or existing)
+    three = bool(re.search(r"\b3d\b|sayyora|kosmos|xona|ombor", req, re.I) or (existing and ("three.module.js" in existing.lower() or "webglrenderer" in existing.lower())))
     rules = (
         "Haqiqiy Three.js WebGL sahnasi qur. Three.js r160 va OrbitControls ni jsDelivr import map orqali yukla; "
         "responsive renderer, kamera, yoritish, materiallar va mouse/touch orbit-zoom bo'lsin. Internet kerakligini hisobga ol.\n"
@@ -128,7 +137,7 @@ async def _generate(req, images, existing=None):
         if not doc:
             issue = "HTML kodi to'liq qaytmadi"; continue
         doc = _repair(doc)
-        issue = _check(doc, req, images); best = doc
+        issue = _check(doc, req, images, existing); best = doc
         if not issue and existing:
             compact_old, old_images_check = _extract_embedded(existing)
             for old_i in range(len(old_images_check)):
@@ -180,20 +189,20 @@ async def try_handle(update, context, text):
     imgs = context.user_data.get("_ocb_images") or []
     if pending and low in _DONE:
         if not imgs:
-            await msg.reply_text("Hali rasm kelmadi. Avval rasm yuboring yoki /bekor yozing."); return True
+            await msg.reply_text("Hali rasm kelmadi. Avval rasm yuboring yoki «bekor» deb yozing."); return True
         await _run(msg, context, pending["request"], pending.get("edit", False)); return True
-    if pending and low.startswith("/bekor"):
+    if pending and low in _CANCEL:
         context.user_data.pop("_ocb_pending", None); context.user_data.pop("_ocb_images", None)
         await msg.reply_text("Loyiha yaratish bekor qilindi."); return True
     if pending and not low.startswith("/"):
         pending["request"] += "\nQo'shimcha ko'rsatma: " + t
         await msg.reply_text("Ko'rsatma qo'shildi. Rasm yuboring yoki «tayyor» deb yozing."); return True
     last = context.user_data.get("_ocb_last_html") or _last.get("html")
-    if last and _IMAGE.search(t) and _EDIT.search(t):
+    if last and _IMAGE.search(t) and is_edit_request(t, True):
         context.user_data["_ocb_pending"] = {"request": "Mavjud loyihaga o'zgarish kirit: " + t, "edit": True}
         context.user_data["_ocb_images"] = []
         await msg.reply_text("Rasmni yuboring; mavjud loyihaga joylashtiraman. Tugatgach «tayyor» deb yozing."); return True
-    if last and _EDIT.search(t) and len(t) < 700 and not wants_builder(t):
+    if is_edit_request(t, bool(last)) and len(t) < 700:
         await _run(msg, context, "Mavjud loyihani o'zgartir: " + t, True); return True
     if not wants_builder(t): return False
     if _IMAGE.search(t):

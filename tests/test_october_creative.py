@@ -26,6 +26,15 @@ class CreativeBuilderTests(unittest.TestCase):
         self.assertIn("Three.js", builder._check(
             "<!DOCTYPE html><html><body>2D canvas</body></html>", "3D xona yarat", []))
 
+    def test_room_and_warehouse_requests_require_threejs(self):
+        plain = "<!DOCTYPE html><html><body>2D canvas</body></html>"
+        self.assertIn("Three.js", builder._check(plain, "xona yarat", []))
+        self.assertIn("Three.js", builder._check(plain, "ombor yarat", []))
+
+    def test_editing_a_non_3d_page_does_not_force_threejs(self):
+        plain = "<!DOCTYPE html><html><body><h1>Portfolio</h1></body></html>"
+        self.assertIsNone(builder._check(plain, "rangini ko'k qil", [], existing=plain))
+
     def test_uploaded_image_token_must_be_present(self):
         doc = "<!DOCTYPE html><html><body><img src='__OCTOBER_IMAGE_0__'></body></html>"
         self.assertIsNone(builder._check(doc, "HTML rasm", [{"data": b"x"}]))
