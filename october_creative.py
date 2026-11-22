@@ -171,6 +171,25 @@ def _check(doc, req, images, existing=None):
             return "3D sahnada kamerani aylantirish/zoom boshqaruvi yo'q"
         if not re.search(r"addEventListener\s*\(\s*['\"]resize", doc, re.I):
             return "3D sahna ekran o'lchamiga moslashmaydi"
+        template_id, _ = _template_engine.select_template(req)
+        if template_id == "cosmos_3d":
+            cinematic_checks = {
+                "procedural texture": r"CanvasTexture|canvas\\.getContext",
+                "surface relief": r"bumpMap|normalMap|displacementMap",
+                "bloom": r"EffectComposer|UnrealBloomPass",
+                "atmosphere/nebula": r"ShaderMaterial|Fresnel|fresnel",
+                "asteroids": r"InstancedMesh|asteroid",
+                "camera fly-to": r"lerpVectors|camera\\.position\\.lerp|flyTo|fly-to",
+                "mobile pixel-ratio cap": r"setPixelRatio|MAX_PIXEL_RATIO|pixelRatio",
+                "error fallback": r"catch|onerror|xato|yuklanmadi",
+            }
+            for label, pattern in cinematic_checks.items():
+                if not re.search(pattern, doc, re.I):
+                    return "Cinematic 3D talabi bajarilmagan: " + label
+            if not re.search(r"castShadow", doc) or not re.search(r"receiveShadow", doc):
+                return "Quyosh tizimida castShadow/receiveShadow sozlamalari yo'q"
+            if not re.search(r"MeshPhysicalMaterial|MeshStandardMaterial", doc):
+                return "Fizik yoritiladigan sayyora materiali yo'q"
     for i in range(len(images)):
         token = "__OCTOBER_IMAGE_" + str(i) + "__"
         if token not in doc:
@@ -219,13 +238,27 @@ def _prompt(req, descriptions, existing):
         if three else "3D so'ralmagan bo'lsa, ortiqcha 3D qo'shma.\n"
     )
     starter = _template_engine.template_prompt(req)
+    template_id, _ = _template_engine.select_template(req)
+    cinematic = ""
+    if template_id == "cosmos_3d":
+        cinematic = (
+            "\\nCINEMATIC 3D ENGINE — COSMOS UCHUN: NASA/Interstellar ruhidagi vizualizatsiya. "
+            "Sayyoralar procedural CanvasTexture, qatlamli rang/noise va bumpMap yoki normalMap relyefi bilan; Quyosh emissive animatsiyalanuvchi plasma. "
+            "EffectComposer + RenderPass + UnrealBloomPass bloom; addon ishlamasa base renderer fallback. "
+            "Fresnel/ShaderMaterial atmosfera; oq nuqtalar o'rniga rangli yarim shaffof qatlamli nebula. "
+            "Quyosh PointLight, MeshPhysicalMaterial yoki MeshStandardMaterial, day/night terminator, castShadow/receiveShadow va Saturn ring geometry. "
+            "Mars-Yupiter oralig'ida asteroid belt uchun InstancedMesh, minglab alohida Mesh emas. "
+            "Planet click/raycasting bilan tanlansin; kamera position/target silliq lerp bilan yaqinlashsin, OrbitControls saqlansin. "
+            "Mobil DPR 1.5-2 bilan cheklansin, asteroid va bloom sifati moslashtirilsin. Loading indicator va tushunarli xato paneli; WebGL/import xatosida qora ekran yoki cheksiz loading bo'lmasin. "
+            "Har bir effekt comment emas, ishlaydigan kod bo'lsin.\\n"
+        )
     return (
         "Sen senior creative developer. Foydalanuvchi aytgan loyihani yarat yoki mavjudini tahrirla. Faqat to'liq HTML qaytar.\n"
         "Talablar: aytilgan obyekt, matn, rang va joylashuvlarni aynan bajar; zamonaviy, mobil/desktop responsive UI; "
         "barcha tugmalar ishlasin; o'zbekcha matn; TODO yoki soxta funksiya yo'q; bitta HTML fayl; "
         "remote rasm/font/script ishlatma, faqat Three.js CDN mumkin; rasm tokenlarini aynan saqla. "
         "Foydalanuvchi yuborgan rasmni sahnada darhol ko'rsat; file input, rasm tanlash paneli yoki bo'sh placeholder yasama. "
-        "Hech qachon faqat sarlavha va qora fon bilan tugatma.\\n" + starter + "\\n" + rules + img + old +
+        "Hech qachon faqat sarlavha va qora fon bilan tugatma.\\n" + starter + "\\n" + rules + cinematic + img + old +
         "\nTOPSHIRIQ:\n" + req + "\n<!DOCTYPE html> dan </html> gacha kod qaytar."
     )
 
