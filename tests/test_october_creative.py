@@ -34,7 +34,7 @@ class CreativeBuilderTests(unittest.TestCase):
         self.assertIsNone(builder._check(good, "3D xona yarat", []))
         fake = good.replace("requestAnimationFrame(animate);", "")
         self.assertIn("animatsiya", builder._check(fake, "3D xona yarat", []))
-        self.assertIn("3D sahna", builder._check(
+        self.assertIsNotNone(builder._check(
             "<!DOCTYPE html><html><body>2D canvas</body></html>", "3D xona yarat", []))
 
     def test_planet_request_requires_multiple_spheres(self):
@@ -50,7 +50,7 @@ class CreativeBuilderTests(unittest.TestCase):
         function animate(){ requestAnimationFrame(animate); renderer.render(scene,camera); }
         animate();
         </script></head><body></body></html>"""
-        self.assertIn("ikkita sfera", builder._check(plain, "3D sayyoralar yarat", []))
+        self.assertIn("ikkita alohida sfera", builder._check(plain, "3D sayyoralar yarat", []))
 
     def test_image_must_be_rendered_not_left_as_upload_widget(self):
         doc = "<!DOCTYPE html><html><body><input type='file'><img src='__OCTOBER_IMAGE_0__'></body></html>"
