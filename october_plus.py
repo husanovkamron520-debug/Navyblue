@@ -1,10 +1,13 @@
-"""october_plus.py - October uchun qo'shimcha modul (bot.py'ga tegmaydi).
+"""october_plus.py - October uchun qo'shimcha modul.
 
 Imkoniyatlar:
-1. Bilimlar bazasi (Supabase): /goya, /qayd, /iqtibos va /haftalik_hisobot
-   (mavzular bo'yicha saralangan haftalik jurnal: Bento HTML + PNG rasm).
+1. Bilimlar bazasi (Supabase). Buyruqsiz ham ishlaydi:
+     g'oya: matn            -> g'oya sifatida saqlaydi (qayd:, iqtibos: ham shunday)
+     oxirgi 5 xabarim g'oya -> oxirgi 5 ta xabarni g'oya qilib saqlaydi
+     haftalik hisobot       -> mavzular bo'yicha jurnal (Bento HTML + PNG rasm)
+   Eski /goya, /qayd, /iqtibos, /haftalik_hisobot buyruqlari ham ishlayveradi.
 2. HTML generator: "ombor 3d", "html sahifa", "infografika" kabi so'rovlarda
-   Gemini neon uslubidagi tayyor .html fayl yozadi va bot uni yuboradi.
+   Gemini neon uslubidagi tayyor .html fayl yozadi, sifatini tekshiradi va yuboradi.
 3. Halollik qoidasi: October bajara olmagan ishini "ha" deb o'tkazib yubormaydi.
 
 Ulash: pastdagi "ULASH" bo'limiga qarang.
@@ -16,6 +19,7 @@ import io
 import json
 import re
 import textwrap
+from collections import deque
 
 from telegram import Update
 from telegram.ext import CommandHandler, ContextTypes
@@ -24,7 +28,10 @@ TABLE = "kb_notes"
 
 _owner_id = None
 _gen = None  # sinxron funksiya: gen(prompt: str) -> str  (Gemini javobi matni)
-_sb = None   # Supabase client
+_sb = None   # Supabase client (yoki .table().insert().execute() qo'llaydigan adapter)
+
+# Egasining oxirgi xabarlari ("oxirgi 5 xabarim g'oya" uchun). Bot qayta ishga tushsa tozalanadi.
+_recent = deque(maxlen=50)
 
 # bot.py dagi October promptiga qo'shiladigan qoida matni
 HONESTY_RULES = (
@@ -46,6 +53,7 @@ create index if not exists kb_notes_owner_time on kb_notes (owner, created_at);
 
 _HTML_WORDS = ("html", "3d", "sahifa", "veb", "web", "infografika", "bento",
                "simulyator", "interaktiv")
+_INTERACTIVE_WORDS = ("3d", "o'yin", "oyin", "simulyator", "interaktiv", "kalkulyator")
 
 NEON_PROMPT = """Sen tajribali front-end dasturchisan. Quyidagi so'rov bo'yicha BITTA to'liq, ishlaydigan HTML fayl yoz.
 Talablar:
@@ -53,6 +61,9 @@ Talablar:
 - Neon uslub: to'q fon (#0B0F19), yorqin neon ko'k/pushti/yashil ranglar, yumshoq glow.
 - Telefon ekraniga moslash: viewport meta, katta tugmalar, touch bilan ishlasin.
 - Interfeys matnlari o'zbekcha bo'lsin.
+- Kod TO'LIQ bo'lsin: "...", "shu yerga qo'shing", TODO kabi to'ldirilmagan joy qoldirma.
+- O'yin yoki simulyator bo'lsa: boshlash tugmasi, ball/holat ko'rsatkichi, aniq maqsad va qayta boshlash tugmasi bo'lsin.
+- Yozishdan oldin kod mantiqini ichingda tekshirib chiq (o'zgaruvchi nomlari, yopilmagan teglar).
 - Javobda FAQAT HTML kod bo'lsin: izoh yoki ``` belgilarisiz. <!DOCTYPE html> bilan boshlanib </html> bilan tugasin.
 So'rov: {req}"""
 
@@ -72,9 +83,14 @@ async def _ask(prompt: str) -> str:
     return await asyncio.to_thread(_gen, prompt)
 
 
+def _norm(text: str) -> str:
+    """Kichik harf, har xil apostroflar bitta ' ga."""
+    return re.sub(r"[ʻʼ’‘`]", "'", (text or "").lower()).strip()
+
+
 # ---------------------------------------------------------------- HTML generator
 def wants_html(text: str) -> bool:
-    t = (text or "").lower()
+    t = _norm(text)
     return not t.startswith("/") and any(w in t for w in _HTML_WORDS)
 
 
@@ -91,42 +107,144 @@ def _clean_html(raw: str):
     return doc if len(doc) > 800 else None
 
 
-async def make_html(request: str):
-    """Tayyor HTML matnini qaytaradi; 2 marta urinadi; bo'lmasa None."""
-    for _ in range(2):
-        try:
-            doc = _clean_html(await _ask(NEON_PROMPT.format(req=request)))
-        except Exception:
-            doc = None
-        if doc:
-            return doc
+def _quality_issue(doc: str, req: str):
+    """Aniq kamchilik bo'lsa matn, yaxshi bo'lsa None."""
+    low = doc.lower()
+    if low.count("<script") != low.count("</script>"):
+        return "<script> teglari to'g'ri yopilmagan"
+    if "<script" not in low and any(w in _norm(req) for w in _INTERACTIVE_WORDS):
+        return "JavaScript yo'q, sahifa interaktiv emas"
+    if re.search(r"(//|/\*|<!--)\s*(\.\.\.|todo|shu yerga|bu yerga|qolgan kod)", low):
+        return "kodda to'ldirilmagan joylar (placeholder) bor"
     return None
 
 
-async def try_handle(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str) -> bool:
-    """october_chat() boshida chaqiring: True qaytsa, so'rov shu yerda hal bo'lgan."""
-    if not _is_owner(update) or not wants_html(text):
-        return False
-    msg = update.effective_message
-    await msg.reply_text("HTML yozyapman, bir oz kuting...")
-    doc = await make_html(text)
-    if not doc:
-        await msg.reply_text("HTML yasab bo'lmadi: Gemini yaroqli fayl qaytarmadi. "
-                             "Iltimos, so'rovni biroz aniqroq qilib qayta yuboring.")
-        return True
-    data = io.BytesIO(doc.encode("utf-8"))
-    await msg.reply_document(document=data, filename="october.html",
-                             caption="Tayyor. Faylni brauzerda oching.")
-    return True
+async def make_html(request: str):
+    """(doc, kamchilik) qaytaradi. 3 marta urinadi; yaroqli HTML chiqmasa (None, sabab)."""
+    issue = None
+    best = None
+    for attempt in range(3):
+        prompt = NEON_PROMPT.format(req=request)
+        if issue and attempt:
+            prompt += f"\n\nOldingi urinishdagi kamchilik: {issue}. Buni tuzat va kodni TO'LIQ qayta yoz."
+        try:
+            doc = _clean_html(await _ask(prompt))
+        except Exception as e:
+            doc, issue = None, f"Gemini xato berdi: {e}"
+            continue
+        if not doc:
+            issue = "HTML to'liq chiqmadi (boshi yoki oxiri yo'q)"
+            continue
+        best = doc
+        issue = _quality_issue(doc, request)
+        if not issue:
+            return doc, None
+    return best, issue
 
 
-# ---------------------------------------------------------------- Bilimlar bazasi
+# ---------------------------------------------------------------- Buyruqsiz tushunish
+_KIND = r"(g'?oya|qayd|iqtibos)"
+_RE_SAVE_COLON = re.compile(rf"^\s*{_KIND}\s*[:\-–—]\s*(.+)$", re.S)
+_RE_SAVE_SPACE = re.compile(rf"^\s*{_KIND}\s+(.{{3,}})$", re.S)
+_NUM_WORDS = {"bitta": 1, "ikkita": 2, "uchta": 3, "to'rtta": 4, "beshta": 5,
+              "oltita": 6, "yettita": 7, "sakkizta": 8, "to'qqizta": 9, "o'nta": 10}
+_RE_BULK = re.compile(
+    rf"oxirgi\s+(\d+|{'|'.join(_NUM_WORDS)})\s*(?:ta\s*)?(?:xabar|yozuv|gap)\w*.*?{_KIND}")
+
+
+def _kind_of(word: str) -> str:
+    return "goya" if word.startswith("g") else word
+
+
+_LABEL = {"goya": "G'oya", "qayd": "Qayd", "iqtibos": "Iqtibos"}
+
+
 def _save_note(kind: str, text: str):
     r = _sb.table(TABLE).insert({"owner": _owner_id, "kind": kind, "text": text}).execute()
     rows = r.data or []
     return rows[0].get("id") if rows else None
 
 
+async def _save_many(msg, kind: str, texts):
+    saved, failed = 0, 0
+    for t in texts:
+        try:
+            await asyncio.to_thread(_save_note, kind, t[:4000])
+            saved += 1
+        except Exception:
+            failed += 1
+    if failed:
+        await msg.reply_text(f"{saved} ta {_LABEL[kind].lower()} saqlandi, {failed} tasi saqlanmadi (baza xatosi).")
+    else:
+        await msg.reply_text(f"{saved} ta {_LABEL[kind].lower()} saqlandi.")
+
+
+async def try_handle(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str) -> bool:
+    """october_chat() boshida chaqiring: True qaytsa, so'rov shu yerda hal bo'lgan."""
+    if not _is_owner(update):
+        return False
+    msg = update.effective_message
+    t = _norm(text)
+    if not t:
+        return False
+    previous = list(_recent)  # joriy xabardan oldingilari
+    if not t.startswith("/"):
+        _recent.append((text or "").strip())
+
+    # 1) "oxirgi 5 xabarim g'oya"
+    m = _RE_BULK.search(t)
+    if m and len(t) < 120:
+        raw_n = m.group(1)
+        n = int(raw_n) if raw_n.isdigit() else _NUM_WORDS[raw_n]
+        n = max(1, min(n, 20))
+        texts = previous[-n:]
+        if not texts:
+            await msg.reply_text("Oldingi xabarlaringiz esimda yo'q (bot qayta ishga tushgan bo'lishi mumkin). "
+                                 "Ularni \"g'oya: matn\" ko'rinishida yuboring.")
+            return True
+        if len(texts) < n:
+            await msg.reply_text(f"Faqat {len(texts)} ta xabar esimda, shularni saqlayman.")
+        await _save_many(msg, _kind_of(m.group(2)), texts)
+        return True
+
+    # 2) "g'oya: matn" / "g'oya matn"
+    m = _RE_SAVE_COLON.match(t) or _RE_SAVE_SPACE.match(t)
+    if m:
+        # asl matnni (kichik harfga o'tkazilmagan) saqlash uchun prefiksni kesamiz
+        body = re.sub(rf"^\s*{_KIND.replace('g\'?', 'g[ʻʼ’‘`\']?')}\s*[:\-–—]?\s*", "", text or "",
+                      count=1, flags=re.I | re.S).strip()
+        if body:
+            kind = _kind_of(m.group(1))
+            try:
+                nid = await asyncio.to_thread(_save_note, kind, body[:4000])
+            except Exception as e:
+                await msg.reply_text(f"Saqlab bo'lmadi: {e}")
+                return True
+            await msg.reply_text(f"{_LABEL[kind]} saqlandi" + (f" (#{nid})." if nid else "."))
+            return True
+
+    # 3) "haftalik hisobot"
+    if len(t) < 40 and re.search(r"haftalik\s+(hisobot|jurnal)", t):
+        await haftalik_hisobot(update, context)
+        return True
+
+    # 4) HTML
+    if wants_html(text):
+        await msg.reply_text("HTML yozyapman, bir oz kuting...")
+        doc, issue = await make_html(text)
+        if not doc:
+            await msg.reply_text(f"HTML yasab bo'lmadi: {issue}. So'rovni biroz aniqroq qilib qayta yuboring.")
+            return True
+        caption = "Tayyor. Faylni brauzerda oching."
+        if issue:
+            caption = f"Tayyor, lekin ogohlantirish: {issue}. Ishlamasa, ayting, qayta yozdiraman."
+        await msg.reply_document(document=io.BytesIO(doc.encode("utf-8")),
+                                 filename="october.html", caption=caption)
+        return True
+    return False
+
+
+# ---------------------------------------------------------------- Buyruqlar (eski usul)
 def _make_save_handler(kind: str, label: str):
     async def handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not _is_owner(update):
@@ -147,6 +265,7 @@ def _make_save_handler(kind: str, label: str):
     return handler
 
 
+# ---------------------------------------------------------------- Haftalik jurnal
 def _fetch_week():
     since = (dt.datetime.utcnow() - dt.timedelta(days=7)).isoformat()
     r = (_sb.table(TABLE).select("id,kind,text,created_at")
@@ -267,7 +386,7 @@ async def haftalik_hisobot(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.reply_text(f"Bazadan o'qib bo'lmadi: {e}")
         return
     if not rows:
-        await msg.reply_text("Oxirgi 7 kunda yozuv yo'q. /goya, /qayd yoki /iqtibos bilan qo'shing.")
+        await msg.reply_text("Oxirgi 7 kunda yozuv yo'q. \"g'oya: ...\", \"qayd: ...\" yoki \"iqtibos: ...\" deb yozing.")
         return
     await msg.reply_text(f"{len(rows)} ta yozuv topildi, jurnal tayyorlanyapti...")
     topics, insight = await _group_topics(rows)
@@ -295,10 +414,8 @@ def register(app):
 # ---------------------------------------------------------------- ULASH (bot.py ga)
 # 1) Supabase SQL muharririda SQL_SETUP ni bir marta ishga tushiring.
 # 2) bot.py boshida:   import october_plus
-# 3) Application yaratilgandan keyin (Gemini'ga matn yuboradigan sinxron
-#    funksiyangiz va Supabase client nomini o'zingiznikiga almashtiring):
-#        october_plus.setup(OWNER_ID, gemini_matn_funksiyasi, supabase_client)
-#        october_plus.register(app)
+# 3) october_plus.setup(OWNER_ID, gemini_matn_funksiyasi, supabase_client)
+#    october_plus.register(app)
 # 4) october_chat() funksiyasi boshiga:
 #        if await october_plus.try_handle(update, context, text):
 #            return
