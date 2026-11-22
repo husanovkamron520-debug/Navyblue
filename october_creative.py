@@ -8,6 +8,7 @@ _IMAGE = re.compile(r"(rasm|surat|photo|image)", re.I)
 _EDIT = re.compile(r"(o.?zgartir|qo.?sh|olib tashla|rangini|joylashtir|devorga|devorini|foniga|fonini|ichiga|ustiga|kengaytir|toraytir|yoritishni)", re.I)
 _NEW_REQUEST = re.compile(r"(yarat|yasab ber|qurib ber|yangisini|yangi loyiha|boshidan)", re.I)
 _DONE = {"tayyor", "bo'ldi", "boldi", "tamom", "boshlayver"}
+_CANCEL = {"bekor", "bekor qil", "to'xta", "stop"}
 
 def setup(owner_id, generate_text, analyze_image):
     global _owner_id, _gen, _vision
@@ -185,9 +186,9 @@ async def try_handle(update, context, text):
     imgs = context.user_data.get("_ocb_images") or []
     if pending and low in _DONE:
         if not imgs:
-            await msg.reply_text("Hali rasm kelmadi. Avval rasm yuboring yoki /bekor yozing."); return True
+            await msg.reply_text("Hali rasm kelmadi. Avval rasm yuboring yoki «bekor» deb yozing."); return True
         await _run(msg, context, pending["request"], pending.get("edit", False)); return True
-    if pending and low.startswith("/bekor"):
+    if pending and low in _CANCEL:
         context.user_data.pop("_ocb_pending", None); context.user_data.pop("_ocb_images", None)
         await msg.reply_text("Loyiha yaratish bekor qilindi."); return True
     if pending and not low.startswith("/"):
