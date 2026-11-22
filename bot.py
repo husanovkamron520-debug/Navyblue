@@ -29,6 +29,7 @@ from difflib import SequenceMatcher
 from http.server import BaseHTTPRequestHandler, HTTPServer, ThreadingHTTPServer
 import museum
 import supply_chain
+import october_plus
 from ppt_media_sources import find_commons_photo
 from ppt_story_engine import STORY_ROLES, build_story_guidance, infer_story_role, story_quality_report, enforce_story_quality
 from ppt_visual_director import build_visual_direction_guidance, apply_visual_direction, classify_visual_domain
@@ -509,6 +510,67 @@ _writer_started = False
 
 def _storage_key(filepath):
     return os.path.splitext(os.path.basename(filepath))[0]
+
+
+class _OctoberSupabaseResult:
+    def __init__(self, data):
+        self.data = data
+
+
+class _OctoberSupabaseQuery:
+    """Minimal Supabase Python-client compatible adapter over Navyblue's existing REST client."""
+    def __init__(self, table):
+        self.table_name = table
+        self.method = "GET"
+        self.params = {}
+        self.body = None
+        self.prefer = None
+
+    def insert(self, payload):
+        self.method = "POST"
+        self.body = payload
+        self.prefer = "return=representation"
+        return self
+
+    def select(self, columns):
+        self.method = "GET"
+        self.params["select"] = columns
+        return self
+
+    def eq(self, column, value):
+        self.params[column] = "eq." + str(value)
+        return self
+
+    def gte(self, column, value):
+        self.params[column] = "gte." + str(value)
+        return self
+
+    def order(self, column):
+        self.params["order"] = str(column) + ".asc"
+        return self
+
+    def execute(self):
+        if not USE_DB:
+            raise RuntimeError("Supabase sozlanmagan")
+        query = urllib.parse.urlencode(self.params, safe=",.*")
+        path = self.table_name + ("?" + query if query else "")
+        data = _db_request(self.method, path, self.body, prefer=self.prefer)
+        return _OctoberSupabaseResult(data)
+
+
+class _OctoberSupabaseRestClient:
+    def table(self, name):
+        if name != "kb_notes":
+            raise ValueError("October Plus faqat kb_notes jadvalidan foydalanadi")
+        return _OctoberSupabaseQuery(name)
+
+
+def _october_plus_generate_text(prompt: str) -> str:
+    # HTML kodi JSON formatida emas, oddiy matn sifatida qaytishi kerak.
+    return _ai_generate_text_sync(
+        prompt, temperature=0.6, max_tokens=12000, json_mode=False,
+        models=AI_FALLBACK_MODELS,
+    )
 
 
 def _db_request(method, path, body=None, prefer=None):
@@ -13451,7 +13513,7 @@ Faqat JSON qaytar:
  "do": null,
  "task_action": null}}
 Qoidalar:
-- Avval egasining aynan hozirgi savoli yoki topshirig'iga javob ber; mavzudan chetga chiqma. O'zbekcha yoz, egasi boshqa tilda yozsa o'sha tilga moslash.
+{october_plus.HONESTY_RULES}- Avval egasining aynan hozirgi savoli yoki topshirig'iga javob ber; mavzudan chetga chiqma. O'zbekcha yoz, egasi boshqa tilda yozsa o'sha tilga moslash.
 - Oxirgi suhbat va xotiradan faqat savolga aloqador ma'lumotni ishlat. Yangi, aniq ko'rsatma eski xotiradagi afzallik yoki rejadan ustun.
 - Muhim tafsilot yetishmasa taxmin qilma: bitta qisqa, aniq savol ber. Ma'lumot yetarli bo'lsa ortiqcha savol bermay ishni bajar.
 - Faqat dastur natijasi tasdiqlagan ishni bajarildi de. "do" yoki "set_quota" so'rovi yuborilgani ish muvaffaqiyatli tugaganini anglatmaydi; bajarilish holatini reply'da to'qima.
@@ -13496,6 +13558,8 @@ Qoidalar:
 async def october_chat(update: Update, text: str, context=None):
     # Himoya qatlami: October shaxsiy AI faqat OWNER_CHAT_ID egasiga ochiq.
     if not _oct_owner(update):
+        return
+    if context is not None and await october_plus.try_handle(update, context, text):
         return
     msg = update.effective_message
     now = _jv_now()
@@ -14234,6 +14298,13 @@ def main():
         .concurrent_updates(16)
         .build()
     )
+
+    if OWNER_CHAT_ID is not None and USE_DB:
+        october_plus.setup(OWNER_CHAT_ID, _october_plus_generate_text, _OctoberSupabaseRestClient())
+        october_plus.register(app)
+        logger.info("October Plus moduli ulandi.")
+    else:
+        logger.warning("October Plus o'chirilgan: OWNER_CHAT_ID yoki Supabase sozlamasi topilmadi.")
 
     app.add_handler(TypeHandler(Update, track_usage), group=-1)
     app.add_handler(CommandHandler("start", start_command))
