@@ -1,6 +1,8 @@
 """October Creative Builder: image-aware HTML and Three.js projects."""
 import asyncio, base64, io, re, time
 
+import creative_template_engine as _template_engine
+
 _owner_id = _gen = _vision = None
 _load_state = _save_state = None
 _last = {"html": None}
@@ -209,13 +211,14 @@ def _prompt(req, descriptions, existing):
         "Faqat sarlavha, qora fon yoki bitta dekorativ shar bilan cheklanma. Internet kerakligini hisobga ol.\n"
         if three else "3D so'ralmagan bo'lsa, ortiqcha 3D qo'shma.\n"
     )
+    starter = _template_engine.template_prompt(req)
     return (
         "Sen senior creative developer. Foydalanuvchi aytgan loyihani yarat yoki mavjudini tahrirla. Faqat to'liq HTML qaytar.\n"
         "Talablar: aytilgan obyekt, matn, rang va joylashuvlarni aynan bajar; zamonaviy, mobil/desktop responsive UI; "
         "barcha tugmalar ishlasin; o'zbekcha matn; TODO yoki soxta funksiya yo'q; bitta HTML fayl; "
         "remote rasm/font/script ishlatma, faqat Three.js CDN mumkin; rasm tokenlarini aynan saqla. "
         "Foydalanuvchi yuborgan rasmni sahnada darhol ko'rsat; file input, rasm tanlash paneli yoki bo'sh placeholder yasama. "
-        "Hech qachon faqat sarlavha va qora fon bilan tugatma.\\n" + rules + img + old +
+        "Hech qachon faqat sarlavha va qora fon bilan tugatma.\\n" + starter + "\\n" + rules + img + old +
         "\nTOPSHIRIQ:\n" + req + "\n<!DOCTYPE html> dan </html> gacha kod qaytar."
     )
 
@@ -261,6 +264,18 @@ async def _send(msg, context, doc, req, issue):
     if saved.get("html") is None:
         caption += "\n⚠️ Fayl hajmi 4 MB dan katta: loyiha qayta ishga tushgandan keyin tahrirlash uchun saqlanmadi."
     await msg.reply_document(document=io.BytesIO(doc.encode("utf-8")), filename="creative_project.html", caption=caption)
+    try:
+        template_id, template = _template_engine.select_template(req)
+        if template.get("vite"):
+            archive = _template_engine.create_vite_zip(doc, template_id.replace("_", "-"))
+            await msg.reply_document(
+                document=io.BytesIO(archive),
+                filename="creative_project_vite.zip",
+                caption="📦 Vite loyihasi ham tayyor. ZIP ichidagi README.md ko‘rsatmasi asosida npm install va npm run build bajaring."
+            )
+    except Exception:
+        # The standalone HTML remains the primary deliverable if packaging fails.
+        pass
 
 async def _run(msg, context, req, edit=False):
     imgs = context.user_data.get("_ocb_images") or []
