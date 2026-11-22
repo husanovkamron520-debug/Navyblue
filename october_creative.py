@@ -2,7 +2,11 @@
 import asyncio, base64, io, re, time
 
 _owner_id = _gen = _vision = None
+_load_state = _save_state = None
 _last = {"html": None}
+_PROJECTS_KEY = "october_creative_projects.json"
+_PROJECT_MAX_BYTES = 4 * 1024 * 1024
+_project_cache = {}
 _BUILD = re.compile(r"\b(html|3d|sayyora|sayyoralar|xona|ombor|simulyator|interaktiv|sahifa|sayt|veb|web|website|portfolio|landing|animatsiya|kosmos|galaktika|dizayn)\b", re.I)
 _IMAGE = re.compile(r"(rasm|surat|photo|image)", re.I)
 _EDIT = re.compile(r"(o.?zgartir|qo.?sh|olib tashla|rangini|joylashtir|devorga|devorini|foniga|fonini|ichiga|ustiga|kengaytir|toraytir|yoritishni)", re.I)
@@ -10,9 +14,50 @@ _NEW_REQUEST = re.compile(r"(yarat|yasab ber|qurib ber|yangisini|yangi loyiha|bo
 _DONE = {"tayyor", "bo'ldi", "boldi", "tamom", "boshlayver"}
 _CANCEL = {"bekor", "bekor qil", "to'xta", "stop"}
 
-def setup(owner_id, generate_text, analyze_image):
-    global _owner_id, _gen, _vision
+def setup(owner_id, generate_text, analyze_image, load_state=None, save_state=None):
+    global _owner_id, _gen, _vision, _load_state, _save_state
     _owner_id, _gen, _vision = int(owner_id), generate_text, analyze_image
+    _load_state, _save_state = load_state, save_state
+
+def _project_record():
+    key = str(_owner_id)
+    if key in _project_cache:
+        return _project_cache[key]
+    state = {}
+    if _load_state:
+        try:
+            state = _load_state(_PROJECTS_KEY, {}) or {}
+        except Exception:
+            state = {}
+    record = state.get(key) if isinstance(state, dict) else None
+    record = record if isinstance(record, dict) else {}
+    _project_cache[key] = record
+    return record
+
+def _persist_project(doc, request):
+    size = len(doc.encode("utf-8"))
+    record = {"request": (request or "")[:5000], "updated_at": int(time.time()),
+              "bytes": size, "html": doc if size <= _PROJECT_MAX_BYTES else None}
+    _project_cache[str(_owner_id)] = record
+    if _save_state:
+        try:
+            state = _load_state(_PROJECTS_KEY, {}) if _load_state else {}
+            state = state if isinstance(state, dict) else {}
+            state[str(_owner_id)] = record
+            _save_state(_PROJECTS_KEY, state)
+        except Exception:
+            pass
+    return record
+
+def _restore_project(context):
+    doc = context.user_data.get("_ocb_last_html")
+    if doc:
+        return doc
+    doc = _project_record().get("html")
+    if doc:
+        context.user_data["_ocb_last_html"] = doc
+        return doc
+    return None
 
 def _owner(update):
     u = update.effective_user
@@ -107,9 +152,19 @@ def _check(doc, req, images, existing=None):
             return "3D obyekt mesh ko'rinishida yaratilmagan"
         if not re.search(r"renderer\.setSize|renderer\.setPixelRatio", doc):
             return "Renderer o'lchami sozlanmagan"
+        mesh_count = len(re.findall(r"new\s+THREE\.Mesh\s*\(", doc))
+        add_count = len(re.findall(r"scene\.add\s*\(", doc))
         if re.search(r"sayyor|planet|kosmos", req, re.I):
-            if len(re.findall(r"new\s+THREE\.SphereGeometry", doc)) < 2:
-                return "Sayyoralar uchun kamida ikkita alohida sfera geometriyasi yaratilmagan"
+            if len(re.findall(r"new\s+THREE\.SphereGeometry\s*\(", doc)) < 2 or mesh_count < 2 or add_count < 2:
+                return "Sayyora sahnasida kamida ikkita alohida sfera, mesh va scene.add bo'lishi shart"
+        if re.search(r"\bxona\b|room|interyer", req, re.I) and (mesh_count < 5 or add_count < 5):
+            return "3D xona yetarlicha qurilmagan: pol, devor va mebellar alohida 3D obyekt bo'lishi kerak"
+        if re.search(r"ombor|warehouse|zavod|factory", req, re.I) and (mesh_count < 5 or add_count < 5):
+            return "3D ombor/zavod sahnasida stellaj, pol va obyektlar yetarli emas"
+        if not re.search(r"OrbitControls|enableDamping", doc, re.I):
+            return "3D sahnada kamerani aylantirish/zoom boshqaruvi yo'q"
+        if not re.search(r"addEventListener\s*\(\s*['\"]resize", doc, re.I):
+            return "3D sahna ekran o'lchamiga moslashmaydi"
     for i in range(len(images)):
         token = "__OCTOBER_IMAGE_" + str(i) + "__"
         if token not in doc:
@@ -148,7 +203,10 @@ def _prompt(req, descriptions, existing):
     three = bool(re.search(r"\b3d\b|sayyora|kosmos|xona|ombor", req, re.I) or (existing and ("three.module.js" in existing.lower() or "webglrenderer" in existing.lower())))
     rules = (
         "Haqiqiy Three.js WebGL sahnasi qur. Three.js r160 va OrbitControls ni jsDelivr import map orqali yukla; "
-        "responsive renderer, kamera, yoritish, materiallar va mouse/touch orbit-zoom bo'lsin. Internet kerakligini hisobga ol.\n"
+        "responsive renderer, kamera, yoritish, materiallar, OrbitControls bilan mouse/touch orbit-zoom va resize handler bo'lsin. "
+        "Sayyora so'ralganda kamida 2 ta alohida SphereGeometry, 2 ta Mesh va 2 ta scene.add yarat. "
+        "Xona so'ralganda pol, devorlar va mebellarni ifodalovchi kamida 5 ta Mesh yarat; ombor/zavodda kamida 5 ta Mesh (stellaj, pallet, quti va boshqalar) bo'lsin. "
+        "Faqat sarlavha, qora fon yoki bitta dekorativ shar bilan cheklanma. Internet kerakligini hisobga ol.\n"
         if three else "3D so'ralmagan bo'lsa, ortiqcha 3D qo'shma.\n"
     )
     return (
@@ -196,19 +254,25 @@ async def _send(msg, context, doc, req, issue):
     global _last
     _last = {"html": doc}
     context.user_data["_ocb_last_html"] = doc
+    saved = _persist_project(doc, req)
     context.user_data.pop("_ocb_pending", None); context.user_data.pop("_ocb_images", None)
     caption = "✅ Loyiha tayyor. HTML faylni yuklab olib Chrome'da oching."
     if issue: caption += "\n⚠️ Statik tekshiruv ogohlantirishi: " + issue + ". Brauzerda ham tekshiring."
+    if saved.get("html") is None:
+        caption += "\n⚠️ Fayl hajmi 4 MB dan katta: loyiha qayta ishga tushgandan keyin tahrirlash uchun saqlanmadi."
     await msg.reply_document(document=io.BytesIO(doc.encode("utf-8")), filename="creative_project.html", caption=caption)
 
 async def _run(msg, context, req, edit=False):
     imgs = context.user_data.get("_ocb_images") or []
-    existing = (context.user_data.get("_ocb_last_html") or _last.get("html")) if edit else None
+    existing = (_restore_project(context) or _last.get("html") or _project_record().get("html")) if edit else None
     status = await msg.reply_text("🧠 Talablarni tahlil qilib, loyihani yaratyapman...")
     try:
         doc, issue = await asyncio.wait_for(_generate(req, imgs, existing), timeout=240)
         if not doc:
             await status.edit_text("HTML yaratilmadi: to'liq kod olinmadi. Vazifani qismlarga ajrating."); return
+        if issue:
+            await status.edit_text("Loyiha sifat tekshiruvidan o'tmadi: " + issue + ". Noto'g'ri fayl yubormadim. So'rovni qismlarga ajratib qayta urinib ko'ring.")
+            return
         await _send(msg, context, doc, req, issue)
         try: await status.delete()
         except Exception: pass
@@ -232,7 +296,7 @@ async def try_handle(update, context, text):
     if pending and not low.startswith("/"):
         pending["request"] += "\nQo'shimcha ko'rsatma: " + t
         await msg.reply_text("Ko'rsatma qo'shildi. Rasm yuboring yoki «tayyor» deb yozing."); return True
-    last = context.user_data.get("_ocb_last_html") or _last.get("html")
+    last = _restore_project(context) or _last.get("html")
     if last and _IMAGE.search(t) and is_edit_request(t, True):
         context.user_data["_ocb_pending"] = {"request": "Mavjud loyihaga o'zgarish kirit: " + t, "edit": True}
         context.user_data["_ocb_images"] = []
