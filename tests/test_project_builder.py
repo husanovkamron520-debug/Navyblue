@@ -33,8 +33,11 @@ class ProjectBuilderTests(unittest.TestCase):
         for requirement in ("400–600", "dampingFactor 0.04", "UnrealBloomPass",
                             "Fresnel", "panorama", "no visible HUD"):
             self.assertIn(requirement.casefold(), prompt.casefold())
-        for forbidden in ("scientific HUD values", "temperature", "gravity", "object descriptions"):
-            self.assertNotIn(forbidden.casefold(), prompt.casefold())
+        self.assertNotIn("scientific HUD values", prompt.casefold())
+        self.assertNotIn("temperature", prompt.casefold())
+        self.assertNotIn("gravity", prompt.casefold())
+        self.assertIn("no visible hud", prompt.casefold())
+        self.assertIn("no visible hud, labels, text, tooltips, legends, object descriptions", prompt.casefold())
 
 
 class ModularGenerationAsyncTests(unittest.IsolatedAsyncioTestCase):
