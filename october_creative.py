@@ -199,9 +199,9 @@ def _check(doc, req, images, existing=None):
                 return "Quyosh tizimida castShadow/receiveShadow sozlamalari yo'q"
             if not re.search(r"MeshPhysicalMaterial|MeshStandardMaterial", doc):
                 return "Fizik yoritiladigan sayyora materiali yo'q"
-            if not re.search(r"dampingFactor\\s*=\\s*0\\.04", doc):
+            if not re.search(r"dampingFactor\s*=\s*0\.04", doc):
                 return "OrbitControls dampingFactor 0.04 bo'lishi kerak"
-            if not re.search(r"(?:400|4[1-9]\\d|5\\d\\d|600)", doc):
+            if not re.search(r"(?:400|4[1-9]\d|5\d\d|600)", doc):
                 return "Asteroid kamari 400–600 ta instanced obyekt oralig'ida bo'lishi kerak"
             if not re.search(r"moon|luna|yo'ldosh|yoldosh|satellite", doc, re.I):
                 return "Sayyora yonida kamida bitta tabiiy yo'ldosh bo'lishi kerak"
