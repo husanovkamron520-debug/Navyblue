@@ -12,6 +12,10 @@ class CreativeEditIntentTests(unittest.TestCase):
         self.assertFalse(builder.is_edit_request("3D xona yarat", True))
         self.assertFalse(builder.is_edit_request("yangi loyiha qurib ber", True))
 
+    def test_dashboard_and_platform_requests_are_recognized(self):
+        self.assertTrue(builder.wants_builder("Logistika dashboard yarat"))
+        self.assertTrue(builder.wants_builder("Ta'lim platformasi yarat"))
+
     def test_no_existing_project_means_no_edit(self):
         self.assertFalse(builder.is_edit_request("xona ichiga stol qo'sh", False))
 
