@@ -48,10 +48,26 @@ def template_prompt(request: str) -> str:
         "COSMOS CINEMATIC OVERRIDE: treat the Deep Space & Orbital Simulation specification as a hard acceptance checklist. Implement the exact 400–600 InstancedMesh asteroid range, dampingFactor 0.04, three camera presets with smooth lerp transitions, procedural surface relief, Fresnel rim, layered nebula and bloom fallback as working code. Absolutely no HUD, scientific values, object information, labels, tooltips, legends, instructions or any visible screen text; never replace the pure visual scene with static screenshots or decorative labels.\\n"
         if key == "cosmos_3d" else ""
     )
+    room_note = (
+        "ARCHVIZ ROOM OVERRIDE: this is a premium architectural visualization, not a primitive box room. "
+        "Build an open-front L-shaped room from two perpendicular walls and a floor; keep the camera side completely open. "
+        "Use rounded furniture geometry (THREE.RoundedBoxGeometry from three/addons/geometries/RoundedBoxGeometry.js or a robust custom rounded-box helper), "
+        "never sharp BoxGeometry for furniture. Build a modular sofa from distinct base, seat cushions, backrest and small throw cushions. "
+        "Add a woven rug with procedural canvas fabric texture, a transparent glass coffee table with slim metal legs, a book and a cup. "
+        "The rear wall must have vertical wood slats, concealed warm LED strips and a large screen whose content is drawn dynamically on canvas. "
+        "Add a tall corner plant and a curved modern floor lamp. Use RoomEnvironment + PMREMGenerator to create the scene environment map "
+        "and apply it to glass, metal and polished floor materials. Add angled soft daylight from a side window, PCFSoftShadowMap, "
+        "2048x2048 shadow maps, contact shadows and hidden ceiling cove lights; do not add a ceiling slab that blocks the view. "
+        "Implement two real lighting presets named Daylight and Night Neon / Evening Cozy with smooth interpolated changes to light color, "
+        "intensity and background/environment. Implement three camera presets named Sofa view, TV / desk and Top-down plan with smooth transitions. "
+        "Prioritize photorealistic ArchViz material response, roughness variation, realistic scale and mobile adaptive quality. "
+        "All presets and lighting switches must work, not be decorative buttons.\\n"
+        if key == "room_3d" else ""
+    )
     return ("TANLANGAN STARTER: " + item["title"] + " (ID: " + key + ").\\n"
             "Vizual tuzilma: " + item["layout"] + ".\\n"
             "Majburiy sifat mezonlari: " + "; ".join(item["must_have"]) + ".\\n"
-            + cinematic_note +
+            + cinematic_note + room_note +
             "Bu tayyor dizayn yo'nalishi, foydalanuvchi so'rovining o'rnini bosmaydi. "
             "So'rovdagi rang, obyekt, matn, rasm va joylashuv ko'rsatmalarini birinchi o'ringa qo'y. "
             "Shablonni mazmun va kompozitsiya bo'yicha vazifaga moslashtir.")
