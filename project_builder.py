@@ -163,10 +163,15 @@ async def generate_modular(generate_text, request: str, context_prompt: str) -> 
         + "\nCSS KONTEKSTI:\n" + css[:4000]
         + ("\nThree.js r160 va OrbitControls importmap orqali import qil. "
            "Haqiqiy WebGLRenderer, Scene, Camera, Mesh, Light, render loop, resize va "
-           "touch/mouse OrbitControls bo'lsin. Mobil DPR cheklansin. " if three else "")
+           "touch/mouse OrbitControls bo'lsin. Mobil DPR cheklansin. "
+           "Agar so'rov kosmos yoki sayyoralar haqida bo'lsa: CanvasTexture procedural "
+           "surface, bumpMap yoki normalMap, EffectComposer va UnrealBloomPass (fallback bilan), "
+           "ShaderMaterial/Fresnel atmosfera, InstancedMesh asteroidlar, smooth camera lerp/fly-to, "
+           "castShadow/receiveShadow, MeshStandardMaterial yoki MeshPhysicalMaterial va xato fallback "
+           "hammasi ishlaydigan kodda bo'lsin. " if three else "")
         + "\nFaqat JavaScript. Oxirida aynan " + _MARKERS["js"]
     )
     javascript = await _complete_fragment(generate_text, js_prompt, "js")
-    if javascript is None or len(javascript) > 100000:
+    if not javascript or len(javascript) > 100000:
         return None
     return assemble_document(css, body, javascript, three=three)
