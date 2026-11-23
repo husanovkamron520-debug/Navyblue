@@ -177,14 +177,22 @@ def _check(doc, req, images, existing=None):
         template_id, _ = _template_engine.select_template(req)
         if template_id == "cosmos_3d":
             cinematic_checks = {
-                "procedural texture": r"CanvasTexture|getContext",
+                "procedural high-resolution surface texture": r"CanvasTexture|getContext",
                 "surface relief": r"bumpMap|normalMap|displacementMap",
-                "bloom": r"EffectComposer|UnrealBloomPass",
-                "atmosphere/nebula": r"ShaderMaterial|Fresnel|fresnel",
-                "asteroids": r"InstancedMesh|asteroid",
-                "camera fly-to": r"lerpVectors|lerp|flyTo|fly-to",
+                "UnrealBloomPass post-processing": r"UnrealBloomPass",
+                "Fresnel atmosphere or layered shader nebula": r"ShaderMaterial|Fresnel|fresnel",
+                "InstancedMesh asteroid belt": r"InstancedMesh",
+                "smooth camera fly-to": r"lerpVectors|lerp|flyTo|fly-to",
                 "mobile pixel-ratio cap": r"setPixelRatio|MAX_PIXEL_RATIO|pixelRatio",
-                "error fallback": r"catch|onerror|xato|yuklanmadi",
+                "recoverable loading or error fallback": r"catch|onerror|xato|yuklanmadi",
+                "directional sunlight": r"DirectionalLight",
+                "central point light": r"PointLight",
+                "glass HUD": r"backdrop-filter|glassmorphism|hud",
+                "temperature metric": r"harorat|temperature|temp",
+                "gravity metric": r"tortishish|gravity",
+                "camera preset panorama": r"panorama",
+                "camera preset planet orbit": r"planet.{0,40}orbit|orbit.{0,40}planet",
+                "camera preset asteroid belt": r"asteroid.{0,40}(belt|view|camera|rakurs)|(belt|view|camera|rakurs).{0,40}asteroid",
             }
             for label, pattern in cinematic_checks.items():
                 if not re.search(pattern, doc, re.I):
@@ -193,6 +201,14 @@ def _check(doc, req, images, existing=None):
                 return "Quyosh tizimida castShadow/receiveShadow sozlamalari yo'q"
             if not re.search(r"MeshPhysicalMaterial|MeshStandardMaterial", doc):
                 return "Fizik yoritiladigan sayyora materiali yo'q"
+            if not re.search(r"dampingFactor\s*=\s*0\.04", doc):
+                return "OrbitControls dampingFactor 0.04 bo'lishi kerak"
+            if not re.search(r"(?:400|4[1-9]\d|5\d\d|600)", doc):
+                return "Asteroid kamari 400–600 ta instanced obyekt oralig'ida bo'lishi kerak"
+            if not re.search(r"moon|luna|yo'ldosh|yoldosh|satellite", doc, re.I):
+                return "Sayyora yonida kamida bitta tabiiy yo'ldosh bo'lishi kerak"
+            if not re.search(r"requestAnimationFrame", doc):
+                return "Orbital kamera va sahna animatsiya sikli yo'q"
     for i in range(len(images)):
         token = "__OCTOBER_IMAGE_" + str(i) + "__"
         if token not in doc:
@@ -245,15 +261,20 @@ def _prompt(req, descriptions, existing):
     cinematic = ""
     if template_id == "cosmos_3d":
         cinematic = (
-            "\\nCINEMATIC 3D ENGINE — COSMOS UCHUN: NASA/Interstellar ruhidagi vizualizatsiya. "
-            "Sayyoralar procedural CanvasTexture, qatlamli rang/noise va bumpMap yoki normalMap relyefi bilan; Quyosh emissive animatsiyalanuvchi plasma. "
-            "EffectComposer + RenderPass + UnrealBloomPass bloom; addon ishlamasa base renderer fallback. "
-            "Fresnel/ShaderMaterial atmosfera; oq nuqtalar o'rniga rangli yarim shaffof qatlamli nebula. "
-            "Quyosh PointLight, MeshPhysicalMaterial yoki MeshStandardMaterial, day/night terminator, castShadow/receiveShadow va Saturn ring geometry. "
-            "Mars-Yupiter oralig'ida asteroid belt uchun InstancedMesh, minglab alohida Mesh emas. "
-            "Planet click/raycasting bilan tanlansin; kamera position/target silliq lerp bilan yaqinlashsin, OrbitControls saqlansin. "
-            "Mobil DPR 1.5-2 bilan cheklansin, asteroid va bloom sifati moslashtirilsin. Loading indicator va tushunarli xato paneli; WebGL/import xatosida qora ekran yoki cheksiz loading bo'lmasin. "
-            "Har bir effekt comment emas, ishlaydigan kod bo'lsin.\\n"
+            "\\nCINEMATIC 3D ENGINE — DEEP SPACE & ORBITAL SIMULATION: NASA/IMAX sifatidagi jonli kosmik observatoriya. "
+            "Markazda bitta ulkan gaz giganti yoki okean-bulutli ekzosayyora, yonida 1–2 tabiiy oy; "
+            "orqa fonda qatlamli yarim shaffof ShaderMaterial nebula va turli chuqurlikdagi parallax starfield. "
+            "Sayyora sirtini yuqori aniqlikdagi procedural CanvasTexture bilan yarat: gaz chiziqlari va bo'ronlar yoki kraterlar; "
+            "bumpMap/normalMap relyef qo'sh. Fresnel ShaderMaterial atmosfera quyoshga qaragan chetda moviy yoki oltin nur bersin. "
+            "Quyosh uchun DirectionalLight, markaziy emissive quyosh va PointLight; MeshStandardMaterial/MeshPhysicalMaterial, "
+            "day-night terminator, castShadow/receiveShadow. EffectComposer + RenderPass + UnrealBloomPass; bloom xato bersa "
+            "oddiy WebGLRenderer bilan davom et. Ekvatorial kamarda 400–600 notekis asteroidni THREE.InstancedMesh orqali chiz. "
+            "OrbitControls enableDamping=true va dampingFactor=0.04; avtomatik juda sekin orbital kamera faqat foydalanuvchi "
+            "qo'lda boshqarmayotganida ishlasin. Glassmorphism HUD: harorat, tortishish, orbital tezlik/masofa; bular simulyatsiya "
+            "qiymati ekanini ko'rsat. Uchta ishlaydigan rakurs tugmasi: Planet Orbit, Asteroid Belt, Wide Panorama; "
+            "kamera va target Vector3.lerp/lerpVectors bilan silliq o'tsin. Sayyorani raycast bilan tanlash va fly-to; "
+            "halqali sayyorada ring shadow, oy o'tishida ixtiyoriy eclipse. Mobil DPR, asteroidlar va bloom avtomatik yengillashsin. "
+            "Loading progress, WebGL/import xatosi uchun qayta urinishli fallback. Bularning barchasi haqiqiy ishlaydigan kod bo'lsin.\\n"
         )
     return (
         "Sen senior creative developer. Foydalanuvchi aytgan loyihani yarat yoki mavjudini tahrirla. Faqat to'liq HTML qaytar.\n"
