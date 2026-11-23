@@ -2,6 +2,7 @@
 import asyncio, base64, io, logging, re, time
 
 import creative_template_engine as _template_engine
+import project_builder as _project_builder
 
 logger = logging.getLogger(__name__)
 
@@ -306,6 +307,23 @@ async def _generate(req, images, existing=None):
     issue = None
     best = None
     continuation_budget = 2
+    if _project_builder.should_use_modular(req, existing):
+        modular_doc = await _project_builder.generate_modular(_gen, req, prompt)
+        if modular_doc:
+            modular_doc = _repair(modular_doc)
+            modular_issue = _check(modular_doc, req, images, existing)
+            if not modular_issue:
+                for i, item in enumerate(images):
+                    modular_doc = modular_doc.replace("__OCTOBER_IMAGE_" + str(i) + "__", _data_uri(item))
+                if existing:
+                    _, old_images = _extract_embedded(existing)
+                    for i, uri in enumerate(old_images):
+                        modular_doc = modular_doc.replace("__OCTOBER_OLD_IMAGE_" + str(i) + "__", uri)
+                return modular_doc, None
+            issue = "Modulli tekshiruv: " + modular_issue
+            best = modular_doc
+        else:
+            issue = "Modulli bosqichlardan biri to'liq tugamadi; yagona HTML usuli bilan qayta urinilmoqda"
     for _ in range(3):
         raw = await asyncio.to_thread(_gen, prompt + (("\nTekshiruv xatosi: " + issue + ". Tuzatib to'liq HTML qaytar.") if issue else ""))
         doc = _html(raw)
@@ -351,7 +369,8 @@ async def _run(msg, context, req, edit=False):
     existing = (_restore_project(context) or _last.get("html") or _project_record().get("html")) if edit else None
     status = await msg.reply_text("🧠 Talablarni tahlil qilib, loyihani yaratyapman...")
     try:
-        doc, issue = await asyncio.wait_for(_generate(req, imgs, existing), timeout=480)
+        build_timeout = 900 if _project_builder.should_use_modular(req, existing) else 480
+        doc, issue = await asyncio.wait_for(_generate(req, imgs, existing), timeout=build_timeout)
         if not doc:
             await status.edit_text("HTML yaratilmadi: to'liq kod olinmadi. Vazifani qismlarga ajrating."); return
         if issue:
