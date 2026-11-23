@@ -153,34 +153,62 @@ async def generate_modular(generate_text, request: str, context_prompt: str) -> 
     if not body or len(body) > 60000:
         return None
 
+    three_prompt = ""
+    if three and re.search(r"\\broom\\b|xona|interyer|interior|penthouse|studio", request, re.I):
+        three_prompt = (
+            "\\nThree.js r160 bilan premium architectural interior ArchViz sahnasi yarat. "
+            "Haqiqiy WebGLRenderer, PerspectiveCamera, Scene, render loop, resize handler va OrbitControls ishlasin; "
+            "importlarni Three.js addons importmap orqali qil, mobil DPRni chekla. "
+            "Xona shell'i ochiq old tomonga ega L-shape bo'lsin: faqat bir-biriga 90 daraja tutashgan ikki devor va pol; "
+            "kamera tomonda hech qanday old devor yoki ko'rinishni to'suvchi shift bo'lmasin. "
+            "Mebelning o'tkir qirrali BoxGeometry variantlarini ishlatma: RoundedBoxGeometry import qil "
+            "('three/addons/geometries/RoundedBoxGeometry.js') yoki radiusli custom rounded-box helper yoz. "
+            "Markazda modulli divan: alohida yumaloq asos, seat cushionlar, orqa suyanchiq va 2-3 dekorativ yostiq. "
+            "Divan oldida procedural CanvasTexture bilan to'qilgan mato ko'rinishidagi gilam. "
+            "Shaffof glass coffee table, ingichka metall oyoqlar, stol ustida bitta kitob va finjon. "
+            "Orqa devorda vertikal yog'och reykalar, yashirin iliq LED chiziqlar va ichidagi dinamik kontent "
+            "CanvasTexture/Canvas orqali chiziladigan katta ekran bo'lsin. Burchakda baland xona o'simligi, "
+            "egri zamonaviy floor lamp. "
+            "RoomEnvironment va PMREMGenerator dan foydalanib environment texture yarating; uni shisha, metall "
+            "va silliqlangan pol materiallariga qo'llang. "
+            "Yon derazadan burchak ostida tushadigan yumshoq quyosh nuri, PCFSoftShadowMap, 2048x2048 shadow map, "
+            "castShadow/receiveShadow va yumshoq kontakt soyalar. Shift ichidagi yashirin cove lights bo'lsin, "
+            "lekin kamera ko'rinishini to'suvchi shift mesh bo'lmasin. "
+            "Daylight va Night Neon / Evening Cozy nomli ikkita haqiqiy lighting mode: tugma bosilganda "
+            "light intensity/color, emissive LED va fon/environment qiymatlarini vaqt bo'yicha silliq lerp qiling. "
+            "Sofa view, TV / desk va Top-down plan nomli uchta kamera presetini yarating; camera position va controls.target "
+            "silliq lerp bilan o'zgarsin. Tugmalar ishlasin, active holati ko'rinsin. "
+            "ArchViz sifatiga intiling: fizik materiallar, real scale, roughness variation, glass/metal reflections, "
+            "yumshoq soyalar, ambient occlusionga o'xshash chuqurlik. Mobil qurilmada DPR, shadow map va detal sonini moslashtiring. "
+            "Yuklanish va WebGL xatolarini boshqaring. Barcha obyektlar haqiqiy 3D mesh bo'lsin; oddiy quti ichidagi kublar "
+            "yoki tekis 2D rasm bilan almashtirmang.\\n"
+        )
+    elif three and re.search(r"sayyora|kosmos|planet|galaktika|space", request, re.I):
+        three_prompt = (
+            "\\nThree.js r160 and OrbitControls. Build the full deep-space scene: dominant gas giant/exoplanet, 1–2 moons, "
+            "layered ShaderMaterial nebula and parallax stars, 400–600 irregular asteroid instances using THREE.InstancedMesh, "
+            "procedural CanvasTexture plus bumpMap/normalMap, Fresnel atmosphere, DirectionalLight and PointLight, "
+            "EffectComposer/RenderPass/UnrealBloomPass with fallback, shadows and physical materials, enableDamping=true "
+            "and dampingFactor=0.04, slow auto-orbit only when not manually controlled, three smooth camera presets, "
+            "raycast selection and mobile quality adaptation. Absolutely no visible HUD, labels, object information, "
+            "metrics, tooltip, legend or on-screen text. No mouse/touch instruction text.\\n"
+        )
+    elif three:
+        three_prompt = (
+            "\\nThree.js r160 scene with actual WebGLRenderer, Scene, Camera, meshes, lights, responsive resize, "
+            "OrbitControls and a requestAnimationFrame render loop. Optimize for mobile.\\n"
+        )
+
     js_prompt = (
-        common + "\nBOSQICH 4/4 — FAQAT ISHLAYDIGAN JAVASCRIPT. "
+        common + "\\nBOSQICH 4/4 — FAQAT ISHLAYDIGAN JAVASCRIPT. "
         "HTML/CSS qaytarma. Yuqoridagi HTML elementlarining ID'lariga mos kod yoz. "
         "Barcha tugmalar, qidiruv, filter, sort, forma validatsiyasi, modal, tab, "
         "grafik va interaksiyalar ishlasin. Ma'lumotlar uchun izchil namunaviy dataset "
         "ishlat; KPI va grafik qiymatlari o'zaro mos bo'lsin. Xatolarni try/catch bilan "
-        "ushla, element topilmasa sahifani yiqitma.\nHTML KONTEKSTI:\n" + body[:9000]
-        + "\nCSS KONTEKSTI:\n" + css[:4000]
-        + ("\\nThree.js r160 va OrbitControls importmap orqali import qil. "
-           "Haqiqiy WebGLRenderer, Scene, Camera, Mesh, Light, render loop, resize va "
-           "touch/mouse OrbitControls bo'lsin. Mobil DPR cheklansin. "
-           "Agar so'rov kosmos yoki sayyoralar haqida bo'lsa, quyidagi talablarning barchasini "
-           "ishlaydigan kodda bajar: markaziy ulkan gaz giganti yoki okean-bulutli ekzosayyora, "
-           "uning yonida 1–2 oy, qatlamli ShaderMaterial nebula va chuqurlik/parallax yulduzlar; "
-           "400–600 notekis asteroidni THREE.InstancedMesh bilan yarat (har birini alohida Mesh qilma); "
-           "yuqori aniqlikdagi procedural CanvasTexture (gaz chiziqlari/bo'ron yoki kraterlar) va "
-           "bumpMap/normalMap; Fresnel ShaderMaterial atmosfera, quyosh tomonda moviy yoki oltin rim; "
-           "DirectionalLight quyosh va markaziy PointLight; EffectComposer, RenderPass, UnrealBloomPass "
-           "va post-processing xatosida oddiy renderer fallback; castShadow/receiveShadow va fizik material; "
-           "OrbitControls enableDamping=true, dampingFactor=0.04; foydalanuvchi qo'lda boshqarmayotganida "
-           "juda sekin orbital kamera, qo'lda boshqaruvda avtomatik harakatni pauza qil; "
-           "Hech qanday HUD, obyekt haqida ma'lumot, harorat/tortishish/masofa/tezlik raqamlari, sarlavha, izoh, tooltip, legenda yoki ekrandagi matn bo'lmasin; faqat vizual 3D kosmos qolsin. Sichqoncha/touch boshqaruvi haqida ko'rsatma yozma; uchta ishlaydigan "
-           "kamera tugmasi — planet orbit, asteroid belt, wide panorama — va silliq Vector3.lerp/lerpVectors "
-           "o'tishi; sayyorani raycast orqali tanlash va kamera fly-to; halqali sayyorada halqa soyasi, "
-           "oy uchun ixtiyoriy eclipse; mobil qurilmada DPR, asteroidlar va bloom sifatini moslashtir; "
-           "loading progress va WebGL/import xatosi uchun qayta urinishli fallback. "
-           "Ko'rsatkichlar simulyatsiya qiymati ekanini HUDda aniq belgila. " if three else "")
-        + "\nFaqat JavaScript. Oxirida aynan " + _MARKERS["js"]
+        "ushla, element topilmasa sahifani yiqitma.\\nHTML KONTEKSTI:\\n" + body[:9000]
+        + "\\nCSS KONTEKSTI:\\n" + css[:4000]
+        + three_prompt
+        + "\\nFaqat JavaScript. Oxirida aynan " + _MARKERS["js"]
     )
     javascript = await _complete_fragment(generate_text, js_prompt, "js")
     if not javascript or len(javascript) > 100000:
