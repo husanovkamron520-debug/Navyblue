@@ -102,7 +102,7 @@ def template_prompt(request: str) -> str:
     return ("TANLANGAN STARTER: " + item["title"] + " (ID: " + key + ").\\n"
             "Vizual tuzilma: " + item["layout"] + ".\\n"
             "Majburiy sifat mezonlari: " + "; ".join(item["must_have"]) + ".\\n"
-            + cinematic_note + room_note +
+            + cinematic_note + room_note + warehouse_note +
             "Bu tayyor dizayn yo'nalishi, foydalanuvchi so'rovining o'rnini bosmaydi. "
             "So'rovdagi rang, obyekt, matn, rasm va joylashuv ko'rsatmalarini birinchi o'ringa qo'y. "
             "Shablonni mazmun va kompozitsiya bo'yicha vazifaga moslashtir.")
