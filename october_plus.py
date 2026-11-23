@@ -9,25 +9,32 @@ Imkoniyatlar:
 2. HTML generator: "ombor 3d", "html sahifa", "infografika" kabi so'rovlarda
    Gemini neon uslubidagi tayyor .html fayl yozadi, avtomatik tuzatadi,
    sifatini tekshiradi va yuboradi. Fayl tashqi kutubxonasiz (offline) ishlaydi.
-   Oxirgi HTML'ni eslab qoladi: "koding yubor" desangiz kodni yuboradi,
-   HTML faylga javob (reply) qilib o'zgartirish yozsangiz, uni yangilaydi.
-3. Halollik qoidasi: October bajara olmagan ishini "ha" deb o'tkazib yubormaydi.
+   3D so'ralsa, sinalgan tayyor 3D yadro (october_core3d.js) ishlatiladi.
+   Oxirgi HTML Supabase'da ham saqlanadi: bot qayta ishga tushsa ham "koding yubor"
+   ishlaydi; HTML faylga javob (reply) qilib o'zgartirish yozsangiz, uni yangilaydi.
+3. October xotirasi: bu modul bajargan ishlar October'ning suhbat tarixiga yoziladi,
+   shuning uchun October "hozirgina nima qildim" ni biladi.
+4. Halollik qoidasi: October bajara olmagan ishini "ha" deb o'tkazib yubormaydi.
 
-Ulash: pastdagi "ULASH" bo'limiga qarang.
+Ulash: pastdagi "ULASH" bo'limiga qarang (bot.py'da allaqachon ulangan).
 """
 import asyncio
 import datetime as dt
 import html as _html
 import io
 import json
+import os
 import re
+import sys
 import textwrap
+import time
 from collections import deque
 
 from telegram import Update
 from telegram.ext import CommandHandler, ContextTypes
 
 TABLE = "kb_notes"
+_HTML_TTL_H = 6  # oxirgi HTML necha soat eslab qolinadi
 
 _owner_id = None
 _gen = None  # sinxron funksiya: gen(prompt: str) -> str  (Gemini javobi matni)
@@ -35,8 +42,8 @@ _sb = None   # Supabase client (yoki .table().insert().execute() qo'llaydigan ad
 
 # Egasining oxirgi xabarlari ("oxirgi 5 xabarim g'oya" uchun). Bot qayta ishga tushsa tozalanadi.
 _recent = deque(maxlen=50)
-# Oxirgi yasalgan HTML (kod so'ralganda yoki o'zgartirishda kerak). Qayta ishga tushsa tozalanadi.
-_last_html = {"doc": None, "req": None}
+# Oxirgi yasalgan HTML (kod so'ralganda yoki o'zgartirishda kerak).
+_last_html = {"doc": None, "req": None, "ts": 0.0}
 
 # bot.py dagi October promptiga qo'shiladigan qoida matni
 HONESTY_RULES = (
@@ -73,7 +80,18 @@ Asosiy qoidalar:
 - O'yin yoki simulyator bo'lsa: boshlash tugmasi, ball/holat ko'rsatkichi, aniq maqsad va qayta boshlash tugmasi bo'lsin.
 - Yozishdan oldin kod mantiqini ichingda tekshirib chiq (o'zgaruvchi nomlari, yopilmagan teglar, mavjud element id'lari).
 - Javobda FAQAT HTML kod bo'lsin: izoh yoki ``` belgilarisiz. <!DOCTYPE html> bilan boshlanib </html> bilan tugasin.
-So'rov: {req}"""
+So'rov: {req}{extra}"""
+
+_EXTRA_3D = (
+    "\n\nSINALGAN 3D YADRO (o'zgartirmasdan ishlat): sahifada "
+    "<canvas id=\"scene\" style=\"position:fixed;inset:0;width:100%;height:100%;touch-action:none\"></canvas> bo'lsin. "
+    "Quyidagi JavaScript'ni <script> ichiga AYNAN nusxalab qo'y, so'ng sahnani addBox(x,y,z,w,h,d,rang) chaqiruvlari bilan "
+    "to'ldir (pol, javonlar, qutilar, yo'laklar, mashinalar...; y - balandlik, rang - '#rrggbb'), oxirida loop() ni chaqir. "
+    "Aylantirish, yaqinlashtirish (zoomBy(1.2) / zoomBy(0.8)) va touch yadroda tayyor. Tugmalar, panel, ball kabi UI'ni "
+    "canvas ustiga o'zing qo'sh (position:fixed). Yadro kodi:\n"
+)
+
+_CORE3D_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "october_core3d.js")
 
 # Sahifa ichida xato bo'lsa (yoki skript yuklanmasa), ekran bo'sh qolmasligi uchun
 # pastda qizil qutida xato matnini ko'rsatadi.
@@ -104,6 +122,44 @@ async def _ask(prompt: str) -> str:
 def _norm(text: str) -> str:
     """Kichik harf, har xil apostroflar bitta ' ga."""
     return re.sub(r"[ʻʼ’‘`]", "'", (text or "").lower()).strip()
+
+
+def _core3d() -> str:
+    try:
+        with open(_CORE3D_PATH, encoding="utf-8") as f:
+            return f.read()
+    except Exception:
+        return ""
+
+
+# ---------------------------------------------------------------- October xotirasi
+def _bot_module():
+    """Ishlayotgan bot.py modulini topadi (October tarixiga yozish uchun)."""
+    for name in ("__main__", "bot"):
+        m = sys.modules.get(name)
+        if m is not None and all(hasattr(m, a) for a in ("_oct_data", "save_json", "OCT_FILE")):
+            return m
+    return None
+
+
+def _remember(user_text: str, reply_text: str):
+    """Shu modul bajargan ishni October suhbat tarixiga yozadi, October ham bilib tursin."""
+    m = _bot_module()
+    if m is None:
+        return
+    try:
+        d = m._oct_data()
+        d["hist"].append({"r": "u", "t": str(user_text)[:800]})
+        d["hist"].append({"r": "m", "t": str(reply_text)[:800]})
+        d["hist"] = d["hist"][-60:]
+        m.save_json(m.OCT_FILE, d)
+    except Exception:
+        pass
+
+
+async def _say(msg, user_text: str, reply: str):
+    await msg.reply_text(reply)
+    _remember(user_text, reply)
 
 
 # ---------------------------------------------------------------- HTML generator
@@ -163,12 +219,17 @@ def _quality_issue(doc: str, req: str):
     return None
 
 
-async def make_html(request: str):
+async def make_html(request: str, use_core: bool = True):
     """(doc, kamchilik) qaytaradi. 3 marta urinadi; yaroqli HTML chiqmasa (None, sabab)."""
+    extra = ""
+    if use_core and "3d" in _norm(request):
+        core = _core3d()
+        if core:
+            extra = _EXTRA_3D + core
     issue = None
     best = None
     for attempt in range(3):
-        prompt = NEON_PROMPT.format(req=request)
+        prompt = NEON_PROMPT.format(req=request, extra=extra)
         if issue and attempt:
             prompt += "\n\nOldingi urinishdagi kamchilik: " + issue + ". Buni tuzat va kodni TO'LIQ qayta yoz."
         try:
@@ -187,14 +248,47 @@ async def make_html(request: str):
     return best, issue
 
 
-async def _send_html(msg, doc: str, issue, req: str):
-    """HTML'ni yuboradi va keyingi savol/o'zgartirish uchun eslab qoladi."""
-    _last_html["doc"], _last_html["req"] = doc, req
+def _persist_html(doc: str):
+    _sb.table(TABLE).insert({"owner": _owner_id, "kind": "html_kod", "text": doc}).execute()
+
+
+def _load_html():
+    since = (dt.datetime.utcnow() - dt.timedelta(hours=_HTML_TTL_H)).isoformat()
+    r = (_sb.table(TABLE).select("id,text,created_at")
+         .eq("owner", _owner_id).eq("kind", "html_kod")
+         .gte("created_at", since).order("created_at").execute())
+    rows = r.data or []
+    return rows[-1].get("text") if rows else None
+
+
+async def _get_last_html():
+    """Oxirgi HTML: avval xotiradan, bo'lmasa (bot qayta ishga tushgan bo'lsa) bazadan."""
+    if _last_html["doc"] and time.time() - _last_html["ts"] < _HTML_TTL_H * 3600:
+        return _last_html["doc"]
+    try:
+        doc = await asyncio.to_thread(_load_html)
+    except Exception:
+        doc = None
+    if doc:
+        _last_html["doc"], _last_html["ts"] = doc, time.time()
+    return doc
+
+
+async def _send_html(msg, doc: str, issue, req: str, user_text: str):
+    """HTML'ni yuboradi, keyingi savol/o'zgartirish uchun eslab qoladi va October tarixiga yozadi."""
+    _last_html["doc"], _last_html["req"], _last_html["ts"] = doc, req, time.time()
     caption = "Tayyor. Faylni telefonda Chrome/Safari orqali oching (Telegram ichida emas)."
     if issue:
         caption = "Tayyor, lekin ogohlantirish: " + issue + ". Ishlamasa, ayting, qayta yozdiraman."
     await msg.reply_document(document=io.BytesIO(doc.encode("utf-8")),
                              filename="october.html", caption=caption)
+    try:
+        await asyncio.to_thread(_persist_html, doc)
+    except Exception:
+        pass
+    kb = max(1, len(doc) // 1024)
+    _remember(user_text, "\"" + user_text[:120] + "\" bo'yicha october.html yasab yubordim (HTML/CSS/JavaScript, "
+              + str(kb) + " KB). Kodini so'rasa yoki o'zgartirmoqchi bo'lsa, fayl ustiga reply qilsin.")
 
 
 # ---------------------------------------------------------------- Buyruqsiz tushunish
@@ -224,7 +318,7 @@ def _save_note(kind: str, text: str):
     return rows[0].get("id") if rows else None
 
 
-async def _save_many(msg, kind: str, texts):
+async def _save_many(msg, kind: str, texts, user_text: str):
     saved, failed = 0, 0
     for t in texts:
         try:
@@ -234,13 +328,14 @@ async def _save_many(msg, kind: str, texts):
             failed += 1
     name = _LABEL[kind].lower()
     if failed:
-        await msg.reply_text(str(saved) + " ta " + name + " saqlandi, " + str(failed) + " tasi saqlanmadi (baza xatosi).")
+        reply = str(saved) + " ta " + name + " saqlandi, " + str(failed) + " tasi saqlanmadi (baza xatosi)."
     else:
-        await msg.reply_text(str(saved) + " ta " + name + " saqlandi.")
+        reply = str(saved) + " ta " + name + " saqlandi."
+    await _say(msg, user_text, reply)
 
 
 async def try_handle(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str) -> bool:
-    """october_chat() boshida chaqiring: True qaytsa, so'rov shu yerda hal bo'lgan."""
+    """october_chat() boshida chaqiriladi: True qaytsa, so'rov shu yerda hal bo'lgan."""
     if not _is_owner(update):
         return False
     msg = update.effective_message
@@ -259,12 +354,12 @@ async def try_handle(update: Update, context: ContextTypes.DEFAULT_TYPE, text: s
         n = max(1, min(n, 20))
         texts = previous[-n:]
         if not texts:
-            await msg.reply_text("Oldingi xabarlaringiz esimda yo'q (bot qayta ishga tushgan bo'lishi mumkin). "
-                                 "Ularni \"g'oya: matn\" ko'rinishida yuboring.")
+            await _say(msg, text, "Oldingi xabarlaringiz esimda yo'q (bot qayta ishga tushgan bo'lishi mumkin). "
+                                  "Ularni \"g'oya: matn\" ko'rinishida yuboring.")
             return True
         if len(texts) < n:
             await msg.reply_text("Faqat " + str(len(texts)) + " ta xabar esimda, shularni saqlayman.")
-        await _save_many(msg, _kind_of(m.group(2)), texts)
+        await _save_many(msg, _kind_of(m.group(2)), texts, text)
         return True
 
     # 2) "g'oya: matn" / "g'oya matn"
@@ -276,9 +371,9 @@ async def try_handle(update: Update, context: ContextTypes.DEFAULT_TYPE, text: s
             try:
                 nid = await asyncio.to_thread(_save_note, kind, body[:4000])
             except Exception as e:
-                await msg.reply_text("Saqlab bo'lmadi: " + str(e))
+                await _say(msg, text, "Saqlab bo'lmadi: " + str(e))
                 return True
-            await msg.reply_text(_LABEL[kind] + " saqlandi" + (" (#" + str(nid) + ")." if nid else "."))
+            await _say(msg, text, _LABEL[kind] + " saqlandi" + (" (#" + str(nid) + ")." if nid else "."))
             return True
 
     # 3) "haftalik hisobot"
@@ -286,30 +381,33 @@ async def try_handle(update: Update, context: ContextTypes.DEFAULT_TYPE, text: s
         await haftalik_hisobot(update, context)
         return True
 
-    last = _last_html["doc"]
     rm = msg.reply_to_message
     replied_file = bool(
         rm and ((rm.document and (rm.document.file_name or "").lower().endswith(".html"))
                 or (rm.caption or "").startswith("Tayyor"))
     )
+    wants_code = len(t) < 80 and bool(_RE_CODE_Q.search(t)) and not _RE_NEW_BUILD.search(t)
+    wants_edit = replied_file and len(t) < 300 and not t.startswith("/")
+    last = await _get_last_html() if (wants_code or wants_edit) else None
 
     # 4) oxirgi HTML haqida savol: "koding yubor", "qanday kodda yozding"
-    if last and len(t) < 80 and _RE_CODE_Q.search(t) and not _RE_NEW_BUILD.search(t):
+    if last and wants_code:
         await msg.reply_text("Bu sahifani HTML, CSS va JavaScript'da yozdim (Python bu botning o'zi, sahifa emas). "
                              "To'liq kodi pastdagi faylda.")
         await msg.reply_document(document=io.BytesIO(last.encode("utf-8")), filename="october_kodi.txt")
+        _remember(text, "Sahifa HTML/CSS/JavaScript'da yozilgan; kodini october_kodi.txt fayl qilib yubordim.")
         return True
 
     # 5) HTML faylga javob (reply) bilan o'zgartirish: "rangini ko'k qil", "tezroq qil"
-    if last and replied_file and len(t) < 300 and not t.startswith("/"):
+    if last and wants_edit:
         await msg.reply_text("Sahifani o'zgartiryapman, bir oz kuting...")
         req = ("Mavjud HTML sahifani quyidagi o'zgartirish bo'yicha yangila va TO'LIQ yangi faylni qaytar. "
                "O'zgartirish: " + (text or "") + "\n\nMavjud kod:\n" + last[:40000])
-        doc, issue = await make_html(req)
+        doc, issue = await make_html(req, use_core=False)
         if not doc:
-            await msg.reply_text("O'zgartirib bo'lmadi: " + str(issue) + ". Avvalgi fayl o'zgarishsiz qoldi.")
+            await _say(msg, text, "O'zgartirib bo'lmadi: " + str(issue) + ". Avvalgi fayl o'zgarishsiz qoldi.")
             return True
-        await _send_html(msg, doc, issue, req)
+        await _send_html(msg, doc, issue, req, text)
         return True
 
     # 6) yangi HTML
@@ -317,9 +415,9 @@ async def try_handle(update: Update, context: ContextTypes.DEFAULT_TYPE, text: s
         await msg.reply_text("HTML yozyapman, bir oz kuting...")
         doc, issue = await make_html(text)
         if not doc:
-            await msg.reply_text("HTML yasab bo'lmadi: " + str(issue) + ". So'rovni biroz aniqroq qilib qayta yuboring.")
+            await _say(msg, text, "HTML yasab bo'lmadi: " + str(issue) + ". So'rovni biroz aniqroq qilib qayta yuboring.")
             return True
-        await _send_html(msg, doc, issue, text)
+        await _send_html(msg, doc, issue, text, text)
         return True
     return False
 
@@ -341,17 +439,21 @@ def _make_save_handler(kind: str, label: str):
         except Exception as e:
             await msg.reply_text("Saqlab bo'lmadi: " + str(e))
             return
-        await msg.reply_text(label + " saqlandi" + (" (#" + str(nid) + ")." if nid else "."))
+        await _say(msg, "/" + kind + " " + text, label + " saqlandi" + (" (#" + str(nid) + ")." if nid else "."))
     return handler
 
 
 # ---------------------------------------------------------------- Haftalik jurnal
 def _fetch_week():
     since = (dt.datetime.utcnow() - dt.timedelta(days=7)).isoformat()
-    r = (_sb.table(TABLE).select("id,kind,text,created_at")
-         .eq("owner", _owner_id).gte("created_at", since)
-         .order("created_at").execute())
-    return r.data or []
+    rows = []
+    for kind in ("goya", "qayd", "iqtibos"):  # html_kod yozuvlari jurnalga kirmasin
+        r = (_sb.table(TABLE).select("id,kind,text,created_at")
+             .eq("owner", _owner_id).eq("kind", kind)
+             .gte("created_at", since).order("created_at").execute())
+        rows.extend(r.data or [])
+    rows.sort(key=lambda x: str(x.get("created_at")))
+    return rows
 
 
 def _loose_json(t: str):
@@ -473,7 +575,8 @@ async def haftalik_hisobot(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.reply_text("Bazadan o'qib bo'lmadi: " + str(e))
         return
     if not rows:
-        await msg.reply_text("Oxirgi 7 kunda yozuv yo'q. \"g'oya: ...\", \"qayd: ...\" yoki \"iqtibos: ...\" deb yozing.")
+        await _say(msg, "haftalik hisobot",
+                   "Oxirgi 7 kunda yozuv yo'q. \"g'oya: ...\", \"qayd: ...\" yoki \"iqtibos: ...\" deb yozing.")
         return
     await msg.reply_text(str(len(rows)) + " ta yozuv topildi, jurnal tayyorlanyapti...")
     topics, insight = await _group_topics(rows)
@@ -488,6 +591,8 @@ async def haftalik_hisobot(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.reply_photo(photo=io.BytesIO(png), caption="Haftalik jurnal (rasm)")
     except Exception as ex:
         await msg.reply_text("Rasm yasab bo'lmadi (" + str(ex) + "), lekin HTML jurnal yuqorida.")
+    _remember("haftalik hisobot", "Haftalik jurnalni (" + str(len(rows)) + " ta yozuv, " + s + " - " + e
+              + ") HTML va rasm qilib yubordim.")
 
 
 def register(app):
@@ -499,11 +604,6 @@ def register(app):
 
 
 # ---------------------------------------------------------------- ULASH (bot.py ga)
-# 1) Supabase SQL muharririda SQL_SETUP ni bir marta ishga tushiring.
-# 2) bot.py boshida:   import october_plus
-# 3) october_plus.setup(OWNER_ID, gemini_matn_funksiyasi, supabase_client)
-#    october_plus.register(app)
-# 4) october_chat() funksiyasi boshiga:
-#        if await october_plus.try_handle(update, context, text):
-#            return
-# 5) _oct_parse_sync ichidagi "Qoidalar:" ro'yxatiga october_plus.HONESTY_RULES qo'shing.
+# bot.py'da allaqachon ulangan: setup(), register() va october_chat() boshida try_handle().
+# Faqat bir marta: Supabase SQL muharririda SQL_SETUP ni ishga tushirish (bajarilgan).
+# Fayllar: october_plus.py va october_core3d.js bir papkada turishi kerak.
