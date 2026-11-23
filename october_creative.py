@@ -307,7 +307,7 @@ async def _generate(req, images, existing=None):
     best = None
     continuation_budget = 2
     for _ in range(3):
-        raw = await asyncio.to_thread(_gen, prompt + (("\\nTekshiruv xatosi: " + issue + ". Tuzatib to'liq HTML qaytar.") if issue else ""))
+        raw = await asyncio.to_thread(_gen, prompt + (("\nTekshiruv xatosi: " + issue + ". Tuzatib to'liq HTML qaytar.") if issue else ""))
         doc = _html(raw)
         if not doc and raw:
             doc, continuation_budget = await _continue_html(raw, continuation_budget)
