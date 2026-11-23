@@ -27,6 +27,16 @@ class ProjectBuilderTests(unittest.TestCase):
         self.assertIn('type="module"', doc)
         self.assertIn("cdn.jsdelivr.net/npm/three@0.160.0", doc)
 
+    def test_room_template_contains_archviz_acceptance_requirements(self):
+        import creative_template_engine as templates
+        prompt = templates.template_prompt("3D xona interyer penthouse divan")
+        for requirement in ("L-shaped", "RoundedBoxGeometry", "RoomEnvironment",
+                            "PMREMGenerator", "2048x2048", "Daylight",
+                            "Night Neon / Evening Cozy", "Sofa view",
+                            "TV / desk", "Top-down plan", "vertical wood slats",
+                            "woven", "glass coffee table"):
+            self.assertIn(requirement.casefold(), prompt.casefold())
+
     def test_cosmos_template_contains_deep_space_acceptance_requirements(self):
         import creative_template_engine as templates
         prompt = templates.template_prompt("Cinematic 3D kosmos yarat")
@@ -58,6 +68,34 @@ class ModularGenerationAsyncTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn(".app{display:grid;gap:1rem}", doc)
         self.assertIn("id='refresh'", doc)
         self.assertIn("addEventListener", doc)
+
+    async def test_room_generation_uses_archviz_specific_js_prompt(self):
+        prompts = []
+        def fake_generate(prompt):
+            prompts.append(prompt)
+            if "BOSQICH 1/4" in prompt:
+                return "Reja: L-shaped xona, divan, yoritish rejimlari va kamera presetlari."
+            if "BOSQICH 2/4" in prompt:
+                return ".room{display:block}" + builder._MARKERS["css"]
+            if "BOSQICH 3/4" in prompt:
+                return "<main id='room'><canvas id='scene'></canvas></main>" + builder._MARKERS["html"]
+            if "BOSQICH 4/4" in prompt:
+                return "const scene = new THREE.Scene();" + builder._MARKERS["js"]
+            raise AssertionError("Unexpected generation stage")
+
+        doc = await builder.generate_modular(
+            fake_generate,
+            "3D xona interyer penthouse yarat: modulli divan, gilam, shisha stol, LED, Daylight va Night Neon",
+            "ArchViz konteksti"
+        )
+        self.assertIsNotNone(doc)
+        js_prompt = prompts[-1]
+        for requirement in ("RoundedBoxGeometry", "RoomEnvironment", "PMREMGenerator",
+                            "PCFSoftShadowMap", "2048x2048", "Daylight",
+                            "Night Neon / Evening Cozy", "Sofa view", "TV / desk",
+                            "Top-down plan"):
+            self.assertIn(requirement.casefold(), js_prompt.casefold())
+        self.assertNotIn("glassmorphism HUD", js_prompt.casefold())
 
     async def test_continues_a_truncated_fragment(self):
         calls = {"count": 0}
