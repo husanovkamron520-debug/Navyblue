@@ -10,7 +10,7 @@ import re
 
 
 _COMPLEX = re.compile(
-    r"\b(dashboard|web[- ]?app|web[- ]?ilova|platforma|ta'lim platformasi|"
+    r"\b(dashboard\w*|web[- ]?app|web[- ]?ilova|platform\w*|ta'lim platformasi|"
     r"boshqaruv tizimi|admin panel|crm|erp|analytics|monitoring|"
     r"login|autentifikatsiya|foydalanuvchi kabineti|ko'p sahifa|"
     r"multiple pages|interactive system|interaktiv tizim|"
