@@ -7,6 +7,7 @@ class ProjectBuilderTests(unittest.TestCase):
     def test_routes_complex_projects_to_staged_generation(self):
         self.assertTrue(builder.should_use_modular("Menga logistika uchun interaktiv dashboard yarat"))
         self.assertTrue(builder.should_use_modular("3D sayyoralar va galaktika yarat"))
+        self.assertTrue(builder.should_use_modular("Ta'lim platformasi yarat"))
         self.assertFalse(builder.should_use_modular("Oddiy salom sahifasi"))
 
     def test_existing_project_edits_stay_on_legacy_path(self):
