@@ -31,8 +31,13 @@ class ProjectBuilderTests(unittest.TestCase):
         import creative_template_engine as templates
         prompt = templates.template_prompt("Cinematic 3D kosmos yarat")
         for requirement in ("400–600", "dampingFactor 0.04", "UnrealBloomPass",
-                            "Fresnel", "temperature", "gravity", "panorama"):
+                            "Fresnel", "panorama", "no visible HUD"):
             self.assertIn(requirement.casefold(), prompt.casefold())
+        self.assertNotIn("scientific HUD values", prompt.casefold())
+        self.assertNotIn("temperature", prompt.casefold())
+        self.assertNotIn("gravity", prompt.casefold())
+        self.assertIn("no visible hud", prompt.casefold())
+        self.assertIn("no visible hud, labels, text, tooltips, legends, object descriptions", prompt.casefold())
 
 
 class ModularGenerationAsyncTests(unittest.IsolatedAsyncioTestCase):

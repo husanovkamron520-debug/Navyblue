@@ -187,9 +187,6 @@ def _check(doc, req, images, existing=None):
                 "recoverable loading or error fallback": r"catch|onerror|xato|yuklanmadi",
                 "directional sunlight": r"DirectionalLight",
                 "central point light": r"PointLight",
-                "glass HUD": r"backdrop-filter|glassmorphism|hud",
-                "temperature metric": r"harorat|temperature|temp",
-                "gravity metric": r"tortishish|gravity",
                 "camera preset panorama": r"panorama",
                 "camera preset planet orbit": r"planet.{0,40}orbit|orbit.{0,40}planet",
                 "camera preset asteroid belt": r"asteroid.{0,40}(belt|view|camera|rakurs)|(belt|view|camera|rakurs).{0,40}asteroid",
@@ -250,7 +247,7 @@ def _prompt(req, descriptions, existing):
         "three: https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js; " +
         "three/addons/: https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/. " +
         "Domen faqat cdn.jsdelivr.net bo'lsin; cdn.jsdelivr.5net yoki boshqa variant mutlaqo taqiqlanadi. "
-        "responsive renderer, kamera, yoritish, materiallar, OrbitControls bilan mouse/touch orbit-zoom va resize handler bo'lsin. "
+        "responsive renderer, kamera, yoritish, materiallar, OrbitControls faqat jim ishlasin; ekranda boshqaruv bo'yicha yozuv chiqmasin. "
         "Sayyora so'ralganda kamida 2 ta alohida SphereGeometry, 2 ta Mesh va 2 ta scene.add yarat. "
         "Xona so'ralganda pol, devorlar va mebellarni ifodalovchi kamida 5 ta Mesh yarat; ombor/zavodda kamida 5 ta Mesh (stellaj, pallet, quti va boshqalar) bo'lsin. "
         "Faqat sarlavha, qora fon yoki bitta dekorativ shar bilan cheklanma. Internet kerakligini hisobga ol.\n"
@@ -278,7 +275,8 @@ def _prompt(req, descriptions, existing):
         )
     return (
         "Sen senior creative developer. Foydalanuvchi aytgan loyihani yarat yoki mavjudini tahrirla. Faqat to'liq HTML qaytar.\n"
-        "Talablar: aytilgan obyekt, matn, rang va joylashuvlarni aynan bajar; zamonaviy, mobil/desktop responsive UI; "
+        "Talablar: aytilgan obyekt, rang va joylashuvlarni aynan bajar; zamonaviy, mobil/desktop responsive UI; "
+        "Kosmos/sayyora sahnasida hech qanday matn, ma'lumot paneli, HUD, tooltip, legenda, obyekt nomi yoki statistik ko'rsatkich ko'rinmasin; faqat vizual 3D kosmos qolsin. Sichqoncha yoki sensor bilan boshqarish haqida hech qanday ko'rsatma matni chiqmasin. "
         "barcha tugmalar ishlasin; o'zbekcha matn; TODO yoki soxta funksiya yo'q; bitta HTML fayl; "
         "remote rasm/font/script ishlatma, faqat Three.js CDN mumkin; rasm tokenlarini aynan saqla. "
         "Foydalanuvchi yuborgan rasmni sahnada darhol ko'rsat; file input, rasm tanlash paneli yoki bo'sh placeholder yasama. "
