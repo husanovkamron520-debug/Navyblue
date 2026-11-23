@@ -37,6 +37,17 @@ class ProjectBuilderTests(unittest.TestCase):
                             "woven", "glass coffee table"):
             self.assertIn(requirement.casefold(), prompt.casefold())
 
+    def test_warehouse_template_contains_digital_twin_requirements(self):
+        import creative_template_engine as templates
+        key, item = templates.select_template("3D ombor zavod logistika stellaj forklift")
+        self.assertEqual(key, "warehouse_3d")
+        prompt = templates.template_prompt("3D ombor zavod logistika stellaj forklift")
+        for requirement in ("CanvasTexture", "ZONE A", "ZONE B", "DOCK 01",
+                            "InstancedMesh", "Raycaster", "WMS", "88%",
+                            "420 ta", "+18°C", "Top-Down", "Aisle Walkthrough",
+                            "Loading Dock", "HemisphereLight", "DirectionalLight"):
+            self.assertIn(requirement.casefold(), prompt.casefold())
+
     def test_cosmos_template_contains_deep_space_acceptance_requirements(self):
         import creative_template_engine as templates
         prompt = templates.template_prompt("Cinematic 3D kosmos yarat")
@@ -96,6 +107,33 @@ class ModularGenerationAsyncTests(unittest.IsolatedAsyncioTestCase):
                             "Top-down plan"):
             self.assertIn(requirement.casefold(), js_prompt.casefold())
         self.assertNotIn("glassmorphism HUD", js_prompt.casefold())
+
+    async def test_warehouse_generation_uses_digital_twin_specific_js_prompt(self):
+        prompts = []
+        def fake_generate(prompt):
+            prompts.append(prompt)
+            if "BOSQICH 1/4" in prompt:
+                return "Reja: 6 qator stellaj, dock, forklift, WMS HUD va uch kamera."
+            if "BOSQICH 2/4" in prompt:
+                return ".warehouse{display:grid}" + builder._MARKERS["css"]
+            if "BOSQICH 3/4" in prompt:
+                return "<main id='warehouse'><canvas id='scene'></canvas><aside id='wms'></aside></main>" + builder._MARKERS["html"]
+            if "BOSQICH 4/4" in prompt:
+                return "const scene = new THREE.Scene();" + builder._MARKERS["js"]
+            raise AssertionError("Unexpected generation stage")
+
+        doc = await builder.generate_modular(
+            fake_generate,
+            "3D ombor Smart Warehouse Digital Twin: stellaj, forklift, WMS va loading dock yarat",
+            "Warehouse konteksti"
+        )
+        self.assertIsNotNone(doc)
+        js_prompt = prompts[-1]
+        for requirement in ("THREE.InstancedMesh", "THREE.Raycaster", "CanvasTexture",
+                            "HemisphereLight", "DirectionalLight", "ZONE A", "ZONE B",
+                            "DOCK 01", "WMS", "Top-Down", "Aisle Walkthrough",
+                            "Loading Dock", "88%", "420 ta", "+18°C"):
+            self.assertIn(requirement.casefold(), js_prompt.casefold())
 
     async def test_continues_a_truncated_fragment(self):
         calls = {"count": 0}
