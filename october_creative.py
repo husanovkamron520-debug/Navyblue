@@ -190,7 +190,9 @@ def _check(doc, req, images, existing=None):
                 "glass HUD": r"backdrop-filter|glassmorphism|hud",
                 "temperature metric": r"harorat|temperature|temp",
                 "gravity metric": r"tortishish|gravity",
-                "three camera presets": r"panorama|asteroid.{0,20}(view|camera|rakurs)|planet.{0,20}(orbit|view|camera)",
+                "camera preset panorama": r"panorama",
+                "camera preset planet orbit": r"planet.{0,40}orbit|orbit.{0,40}planet",
+                "camera preset asteroid belt": r"asteroid.{0,40}(belt|view|camera|rakurs)|(belt|view|camera|rakurs).{0,40}asteroid",
             }
             for label, pattern in cinematic_checks.items():
                 if not re.search(pattern, doc, re.I):
