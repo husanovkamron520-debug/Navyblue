@@ -15,6 +15,8 @@ Imkoniyatlar:
 3. October xotirasi: bu modul bajargan ishlar October'ning suhbat tarixiga yoziladi,
    shuning uchun October "hozirgina nima qildim" ni biladi.
 4. Halollik qoidasi: October bajara olmagan ishini "ha" deb o'tkazib yubormaydi.
+5. Task yaratish: "ombor logistikasi bo'yicha krossvord task yarat" -> october_tasks.py orqali
+   krossvord + so'z qidirish yaratiladi va saqlanadi (TASK_INTEGRATION.md'ga qarang).
 
 Ulash: pastdagi "ULASH" bo'limiga qarang (bot.py'da allaqachon ulangan).
 """
@@ -32,6 +34,11 @@ from collections import deque
 
 from telegram import Update
 from telegram.ext import CommandHandler, ContextTypes
+
+try:
+    import october_tasks as _tasks
+except Exception:  # modul yo'q yoki xato bo'lsa, qolgan funksiyalar ishlayveradi
+    _tasks = None
 
 TABLE = "kb_notes"
 _HTML_TTL_H = 6  # oxirgi HTML necha soat eslab qolinadi
@@ -304,6 +311,54 @@ _RE_BULK = re.compile(
 _RE_CODE_Q = re.compile(r"\bkod\w*")
 _RE_NEW_BUILD = re.compile(r"(yasab|yozib|yaratib|qilib)\s+ber|\byarat\b|\byasa\b")
 
+_RE_TASK_WORD = re.compile(r"\btask\w*")
+_RE_TASK_KIND = re.compile(r"krossvord|qidirish")
+_RE_TASK_VERB = re.compile(r"yarat|yasa|tayyorla|\btuz|\bqil\b|qilib")
+_RE_TASK_NOISE = re.compile(
+    r"\b(task\w*|krossvord\w*|so'?z\s+qidirish\w*|qidirish\w*|yarat\w*|yasa\w*|tayyorla\w*|tuz\w*|qil\w*|"
+    r"ber|va|bo'yicha|haqida|mavzusida|mavzuda|mavzu|uchun|menga|iltimos)\b")
+
+
+def _is_task_request(t: str) -> bool:
+    return bool(_RE_TASK_WORD.search(t) and _RE_TASK_KIND.search(t) and _RE_TASK_VERB.search(t))
+
+
+async def _make_task(msg, text: str, t: str) -> bool:
+    """"ombor logistikasi bo'yicha krossvord task yarat" -> Gemini task yasaydi, saqlaydi, namuna yuboradi."""
+    topic = re.sub(r"[\s:,\-–—]+", " ", _RE_TASK_NOISE.sub(" ", t)).strip()
+    if len(topic) < 3:
+        await _say(msg, text, "Qaysi mavzu bo'yicha? Masalan: \"ombor logistikasi bo'yicha krossvord task yarat\".")
+        return True
+    await msg.reply_text("\"" + topic + "\" bo'yicha task tayyorlanyapti (30-60 soniya)...")
+    try:
+        task = await asyncio.to_thread(_tasks.create_task, topic, _gen)
+    except Exception as e:
+        await _say(msg, text, "Task yasab bo'lmadi: " + str(e) + ". Mavzuni aniqroq yozib, qayta urinib ko'ring.")
+        return True
+    saved = True
+    try:
+        await asyncio.to_thread(_tasks.save, _sb, _owner_id, task)
+        html_doc = await asyncio.to_thread(_tasks.build_html, task)
+    except Exception as e:
+        saved = False
+        html_doc = None
+        await msg.reply_text("Task yasaldi, lekin saqlab bo'lmadi: " + str(e))
+    info = ("\"" + task["title"] + "\" tayyor (ID: " + task["id"] + "): "
+            + str(len(task["data"]["cw1"]["ents"])) + " ta krossvord so'zi, "
+            + str(len(task["data"]["ws"]["words"])) + " ta so'z qidirish so'zi.")
+    if saved and _tasks.INTEGRATED:
+        info += " Talabalar uni Task tugmasida ko'radi, natija avtomatik tekshirilib ustozga ketadi."
+    elif saved:
+        info += " Saqlandi. Talabalarga Task tugmasida chiqishi uchun bot.py ulanishi kerak (TASK_INTEGRATION.md)."
+    if html_doc:
+        await msg.reply_document(document=io.BytesIO(html_doc.encode("utf-8")),
+                                 filename="task_" + task["id"] + ".html",
+                                 caption=info + " Fayl faqat oldindan ko'rish uchun (natija yuborilmaydi).")
+        _remember(text, info)
+    else:
+        await _say(msg, text, info)
+    return True
+
 
 def _kind_of(word: str) -> str:
     return "goya" if word.startswith("g") else word
@@ -380,6 +435,10 @@ async def try_handle(update: Update, context: ContextTypes.DEFAULT_TYPE, text: s
     if len(t) < 40 and re.search(r"haftalik\s+(hisobot|jurnal)", t):
         await haftalik_hisobot(update, context)
         return True
+
+    # 3b) "... bo'yicha krossvord task yarat"
+    if _tasks is not None and _is_task_request(t):
+        return await _make_task(msg, text, t)
 
     rm = msg.reply_to_message
     replied_file = bool(
@@ -606,4 +665,4 @@ def register(app):
 # ---------------------------------------------------------------- ULASH (bot.py ga)
 # bot.py'da allaqachon ulangan: setup(), register() va october_chat() boshida try_handle().
 # Faqat bir marta: Supabase SQL muharririda SQL_SETUP ni ishga tushirish (bajarilgan).
-# Fayllar: october_plus.py va october_core3d.js bir papkada turishi kerak.
+# Fayllar: october_plus.py, october_core3d.js, october_tasks.py va krossvord_ombor.html bir papkada turishi kerak.
