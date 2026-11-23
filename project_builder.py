@@ -174,7 +174,7 @@ async def generate_modular(generate_text, request: str, context_prompt: str) -> 
            "va post-processing xatosida oddiy renderer fallback; castShadow/receiveShadow va fizik material; "
            "OrbitControls enableDamping=true, dampingFactor=0.04; foydalanuvchi qo'lda boshqarmayotganida "
            "juda sekin orbital kamera, qo'lda boshqaruvda avtomatik harakatni pauza qil; "
-           "HUD glassmorphism ichida harorat, tortishish va orbital parametrlar; uchta ishlaydigan "
+           "Hech qanday HUD, obyekt haqida ma'lumot, harorat/tortishish/masofa/tezlik raqamlari, sarlavha, izoh, tooltip, legenda yoki ekrandagi matn bo'lmasin; faqat vizual 3D kosmos qolsin. Sichqoncha/touch boshqaruvi haqida ko'rsatma yozma; uchta ishlaydigan "
            "kamera tugmasi — planet orbit, asteroid belt, wide panorama — va silliq Vector3.lerp/lerpVectors "
            "o'tishi; sayyorani raycast orqali tanlash va kamera fly-to; halqali sayyorada halqa soyasi, "
            "oy uchun ixtiyoriy eclipse; mobil qurilmada DPR, asteroidlar va bloom sifatini moslashtir; "
