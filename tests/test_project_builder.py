@@ -27,6 +27,13 @@ class ProjectBuilderTests(unittest.TestCase):
         self.assertIn('type="module"', doc)
         self.assertIn("cdn.jsdelivr.net/npm/three@0.160.0", doc)
 
+    def test_cosmos_template_contains_deep_space_acceptance_requirements(self):
+        import creative_template_engine as templates
+        prompt = templates.template_prompt("Cinematic 3D kosmos yarat")
+        for requirement in ("400–600", "dampingFactor 0.04", "UnrealBloomPass",
+                            "Fresnel", "temperature", "gravity", "panorama"):
+            self.assertIn(requirement.casefold(), prompt.casefold())
+
 
 class ModularGenerationAsyncTests(unittest.IsolatedAsyncioTestCase):
     async def test_generates_plan_css_body_and_javascript(self):
