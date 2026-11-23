@@ -177,14 +177,20 @@ def _check(doc, req, images, existing=None):
         template_id, _ = _template_engine.select_template(req)
         if template_id == "cosmos_3d":
             cinematic_checks = {
-                "procedural texture": r"CanvasTexture|getContext",
+                "procedural high-resolution surface texture": r"CanvasTexture|getContext",
                 "surface relief": r"bumpMap|normalMap|displacementMap",
-                "bloom": r"EffectComposer|UnrealBloomPass",
-                "atmosphere/nebula": r"ShaderMaterial|Fresnel|fresnel",
-                "asteroids": r"InstancedMesh|asteroid",
-                "camera fly-to": r"lerpVectors|lerp|flyTo|fly-to",
+                "UnrealBloomPass post-processing": r"UnrealBloomPass",
+                "Fresnel atmosphere or layered shader nebula": r"ShaderMaterial|Fresnel|fresnel",
+                "InstancedMesh asteroid belt": r"InstancedMesh",
+                "smooth camera fly-to": r"lerpVectors|lerp|flyTo|fly-to",
                 "mobile pixel-ratio cap": r"setPixelRatio|MAX_PIXEL_RATIO|pixelRatio",
-                "error fallback": r"catch|onerror|xato|yuklanmadi",
+                "recoverable loading or error fallback": r"catch|onerror|xato|yuklanmadi",
+                "directional sunlight": r"DirectionalLight",
+                "central point light": r"PointLight",
+                "glass HUD": r"backdrop-filter|glassmorphism|hud",
+                "temperature metric": r"harorat|temperature|temp",
+                "gravity metric": r"tortishish|gravity",
+                "three camera presets": r"panorama|asteroid.{0,20}(view|camera|rakurs)|planet.{0,20}(orbit|view|camera)",
             }
             for label, pattern in cinematic_checks.items():
                 if not re.search(pattern, doc, re.I):
@@ -193,6 +199,14 @@ def _check(doc, req, images, existing=None):
                 return "Quyosh tizimida castShadow/receiveShadow sozlamalari yo'q"
             if not re.search(r"MeshPhysicalMaterial|MeshStandardMaterial", doc):
                 return "Fizik yoritiladigan sayyora materiali yo'q"
+            if not re.search(r"dampingFactor\\s*=\\s*0\\.04", doc):
+                return "OrbitControls dampingFactor 0.04 bo'lishi kerak"
+            if not re.search(r"(?:400|4[1-9]\\d|5\\d\\d|600)", doc):
+                return "Asteroid kamari 400–600 ta instanced obyekt oralig'ida bo'lishi kerak"
+            if not re.search(r"moon|luna|yo'ldosh|yoldosh|satellite", doc, re.I):
+                return "Sayyora yonida kamida bitta tabiiy yo'ldosh bo'lishi kerak"
+            if not re.search(r"requestAnimationFrame", doc):
+                return "Orbital kamera va sahna animatsiya sikli yo'q"
     for i in range(len(images)):
         token = "__OCTOBER_IMAGE_" + str(i) + "__"
         if token not in doc:
