@@ -154,7 +154,7 @@ async def generate_modular(generate_text, request: str, context_prompt: str) -> 
         return None
 
     three_prompt = ""
-    if three and re.search(r"\\broom\\b|xona|interyer|interior|penthouse|studio", request, re.I):
+    if three and re.search(r"\broom\b|xona|interyer|interior|penthouse|studio", request, re.I):
         three_prompt = (
             "\\nThree.js r160 bilan premium architectural interior ArchViz sahnasi yarat. "
             "Haqiqiy WebGLRenderer, PerspectiveCamera, Scene, render loop, resize handler va OrbitControls ishlasin; "
