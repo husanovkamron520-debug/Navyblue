@@ -269,13 +269,13 @@ async def _continue_html(raw, remaining=2):
     combined = (raw or "").strip()
     remaining = max(0, int(remaining))
     while remaining and not _html(combined):
-        if not re.search(r"<!doctype\\s+html|<html\\b", combined, re.I):
+        if not re.search(r"<!doctype\s+html|<html\b", combined, re.I):
             break
         anchor = combined[-240:]
         continuation_prompt = (
             "Oldingi HTML javobi token chegarasida uzildi. Boshidan yaratma, aynan uzilgan joyidan davom ettir. "
             "Javobni quyidagi oxirgi qismni aynan bir marta takrorlashdan boshla, keyin darhol davom etib </html> bilan tugat. "
-            "Izoh yoki yangi doctype qo'shma.\\nOXIRGI QISM:\\n" + anchor
+            "Izoh yoki yangi doctype qo'shma.\nOXIRGI QISM:\n" + anchor
         )
         remaining -= 1
         try:
@@ -294,7 +294,7 @@ async def _continue_html(raw, remaining=2):
         marker_at = part.find(anchor)
         if marker_at >= 0:
             part = part[marker_at + len(anchor):]
-        elif re.search(r"<!doctype\\s+html|<html\\b", part, re.I):
+        elif re.search(r"<!doctype\s+html|<html\b", part, re.I):
             logger.warning("Gemini repeated the HTML prefix; duplicate part skipped.")
             continue
         combined += part
