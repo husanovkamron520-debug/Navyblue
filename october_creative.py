@@ -1,7 +1,9 @@
 """October Creative Builder: image-aware HTML and Three.js projects."""
-import asyncio, base64, io, re, time
+import asyncio, base64, io, logging, re, time
 
 import creative_template_engine as _template_engine
+
+logger = logging.getLogger(__name__)
 
 _owner_id = _gen = _vision = None
 _load_state = _save_state = None
@@ -262,16 +264,55 @@ def _prompt(req, descriptions, existing):
         "\nTOPSHIRIQ:\n" + req + "\n<!DOCTYPE html> dan </html> gacha kod qaytar."
     )
 
+async def _continue_html(raw, remaining=2):
+    """Continue a truncated HTML response without regenerating its completed prefix."""
+    combined = (raw or "").strip()
+    remaining = max(0, int(remaining))
+    while remaining and not _html(combined):
+        if not re.search(r"<!doctype\\s+html|<html\\b", combined, re.I):
+            break
+        anchor = combined[-240:]
+        continuation_prompt = (
+            "Oldingi HTML javobi token chegarasida uzildi. Boshidan yaratma, aynan uzilgan joyidan davom ettir. "
+            "Javobni quyidagi oxirgi qismni aynan bir marta takrorlashdan boshla, keyin darhol davom etib </html> bilan tugat. "
+            "Izoh yoki yangi doctype qo'shma.\\nOXIRGI QISM:\\n" + anchor
+        )
+        remaining -= 1
+        try:
+            part = await asyncio.to_thread(_gen, continuation_prompt)
+        except Exception as exc:
+            logger.warning("HTML continuation failed: %s", exc)
+            break
+        fence = chr(96) * 3
+        part = (part or "").replace(fence + "html", "").replace(fence, "").strip()
+        if not part:
+            break
+        complete_part = _html(part)
+        if complete_part:
+            combined = complete_part
+            break
+        marker_at = part.find(anchor)
+        if marker_at >= 0:
+            part = part[marker_at + len(anchor):]
+        elif re.search(r"<!doctype\\s+html|<html\\b", part, re.I):
+            logger.warning("Gemini repeated the HTML prefix; duplicate part skipped.")
+            continue
+        combined += part
+    return _html(combined), remaining
+
 async def _generate(req, images, existing=None):
     desc = await _vision_text(images, req)
     prompt = _prompt(req, desc, existing)
     issue = None
     best = None
+    continuation_budget = 2
     for _ in range(3):
-        raw = await asyncio.to_thread(_gen, prompt + (("\nTekshiruv xatosi: " + issue + ". Tuzatib to'liq HTML qaytar.") if issue else ""))
+        raw = await asyncio.to_thread(_gen, prompt + (("\\nTekshiruv xatosi: " + issue + ". Tuzatib to'liq HTML qaytar.") if issue else ""))
         doc = _html(raw)
+        if not doc and raw:
+            doc, continuation_budget = await _continue_html(raw, continuation_budget)
         if not doc:
-            issue = "HTML kodi to'liq qaytmadi"; continue
+            issue = "HTML kodi to'liq qaytmadi (davom ettirishga qaramay)"; continue
         doc = _repair(doc)
         issue = _check(doc, req, images, existing); best = doc
         if not issue and existing:
@@ -310,7 +351,7 @@ async def _run(msg, context, req, edit=False):
     existing = (_restore_project(context) or _last.get("html") or _project_record().get("html")) if edit else None
     status = await msg.reply_text("🧠 Talablarni tahlil qilib, loyihani yaratyapman...")
     try:
-        doc, issue = await asyncio.wait_for(_generate(req, imgs, existing), timeout=240)
+        doc, issue = await asyncio.wait_for(_generate(req, imgs, existing), timeout=480)
         if not doc:
             await status.edit_text("HTML yaratilmadi: to'liq kod olinmadi. Vazifani qismlarga ajrating."); return
         if issue:
