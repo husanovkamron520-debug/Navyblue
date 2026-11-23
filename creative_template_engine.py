@@ -3,7 +3,29 @@ from __future__ import annotations
 
 TEMPLATES = {
     "cosmos_3d": {"title": "Cinematic 3D kosmos — Deep Space & Orbital Simulation", "keywords": ("sayyora", "sayyoralar", "planet", "kosmos", "galaktika", "space"), "layout": "NASA/IMAX-grade deep-space observatory: one dominant gas giant or ocean-cloud exoplanet, one or two moons, layered volumetric-looking nebula, deep parallax starfield and an equatorial orbital asteroid belt", "must_have": ("high-resolution procedural CanvasTexture with storms, gas bands or craters plus bumpMap/normalMap relief", "Fresnel ShaderMaterial atmosphere with sun-facing blue or gold rim", "DirectionalLight sun plus central PointLight and day/night terminator", "EffectComposer + RenderPass + UnrealBloomPass with graceful base-render fallback", "400–600 irregular rocks rendered using THREE.InstancedMesh", "OrbitControls with enableDamping and dampingFactor 0.04", "slow automatic orbital camera motion without fighting manual input", "three camera presets: planet orbit, asteroid belt and wide panorama, smoothly interpolated with Vector3.lerp/lerpVectors", "no visible HUD, labels, text, tooltips, legends, object descriptions or numeric metrics; pure visual scene only", "planet selection via raycasting and smooth camera fly-to", "layered ShaderMaterial nebula and parallax starfield", "conditional ring shadows and optional moon eclipse", "mobile adaptive quality, capped pixel ratio and asteroid/bloom budgets", "visible loading progress and recoverable WebGL/import error state")},
-    "room_3d": {"title": "3D xona/interyer", "keywords": ("xona", "interyer", "mebel", "stol", "divan", "yotoqxona", "room", "interior"), "layout": "architectural room shell, visible floor and walls, furniture grouped by function", "must_have": ("floor and walls as separate meshes", "at least three furniture objects", "orbit and zoom controls", "soft lighting")},
+    "room_3d": {
+        "title": "3D xona/interyer — Architectural Interior & Smart Living",
+        "keywords": ("xona", "interyer", "mebel", "stol", "divan", "yotoqxona", "room", "interior", "penthouse", "studio"),
+        "layout": "premium minimalist studio or penthouse architectural visualization, open-front L-shaped two-wall room shell with a continuous floor, realistic scale, carefully composed furniture and warm modern styling",
+        "must_have": (
+            "open-front architectural shell made from exactly two visible perpendicular walls and a floor; never place a front wall across the camera",
+            "rounded furniture silhouettes using THREE.RoundedBoxGeometry or a custom rounded-box geometry; avoid sharp default BoxGeometry furniture",
+            "central modular sofa built from separate base, seat cushions, backrest and small decorative cushions",
+            "woven fabric rug in front of the sofa with a visible procedural woven texture",
+            "transparent glass coffee table with slim metallic legs, plus a small book and cup",
+            "back wall vertical wood slats with concealed warm LED strip lighting",
+            "large wall-mounted screen with a live dynamic canvas visualization, not a static blank rectangle",
+            "tall indoor plant in a corner and a curved modern floor lamp",
+            "RoomEnvironment and PMREMGenerator-generated environment map for convincing glass, metal and polished-floor reflections",
+            "soft angled daylight from a side window, physically plausible contact shadows, PCFSoftShadowMap and 2048x2048 shadow maps",
+            "hidden ceiling cove lighting; no visible ceiling slab blocking the camera",
+            "two smooth lighting moods: Daylight and Night Neon / Evening Cozy, with animated transitions for light intensity, color and environment",
+            "three working camera presets: Sofa view, TV / desk view and Top-down plan, smoothly interpolated",
+            "realistic ArchViz materials, roughness variation, ambient occlusion-like depth, soft shadows and balanced exposure",
+            "mobile adaptive quality, capped pixel ratio, responsive canvas and touch-friendly camera controls",
+            "recoverable WebGL/import error state and a visible loading state"
+        )
+    },
     "warehouse_3d": {"title": "3D ombor va zavod", "keywords": ("ombor", "warehouse", "zavod", "factory", "pallet", "stellaj", "logistika"), "layout": "readable warehouse floor plan in 3D, racks and pallets, clear aisle spacing", "must_have": ("racks and pallets as distinct meshes", "visible aisles", "orbit controls", "responsive renderer")},
     "birthday_gallery": {"title": "Tug‘ilgan kun va foto-galereya", "keywords": ("tug'ilgan", "tugilgan", "birthday", "tabrik", "surat", "rasm", "photo", "gallery"), "layout": "warm celebratory hero, elegant typography, photo-led composition and restrained motion", "must_have": ("uploaded photos displayed directly", "mobile-friendly layout", "working interactions", "reduced-motion support")},
     "portfolio": {"title": "Portfolio va biznes sayti", "keywords": ("portfolio", "biznes", "business", "landing", "sayt", "website", "agency", "company"), "layout": "strong hero, clear navigation, proof/services section and concise CTA", "must_have": ("responsive navigation", "working CTA links", "semantic sections", "accessible contrast")},
