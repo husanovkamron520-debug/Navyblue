@@ -120,7 +120,7 @@ async def generate_modular(generate_text, request: str, context_prompt: str) -> 
     if len(plan) < 20:
         return None
     plan = plan[:6000]
-    three = bool(re.search(r"\b3d\b|sayyora|kosmos|xona|ombor|warehouse", request, re.I))
+    three = bool(re.search(r"\b3d\b|sayyora|kosmos|xona|ombor|warehouse|zavod|factory|stellaj|forklift", request, re.I))
     common = (
         "\n\nASOSIY REJA:\n" + plan
         + "\n\nFoydalanuvchi so'rovi: " + request
@@ -154,7 +154,35 @@ async def generate_modular(generate_text, request: str, context_prompt: str) -> 
         return None
 
     three_prompt = ""
-    if three and re.search(r"\broom\b|xona|interyer|interior|penthouse|studio", request, re.I):
+    if three and re.search(r"ombor|warehouse|zavod|factory|stellaj|forklift|loading dock|logistika", request, re.I):
+        three_prompt = (
+            "\\nThree.js r160 bilan to'liq interaktiv Smart Warehouse & Logistics Digital Twin qur. "
+            "Haqiqiy WebGLRenderer, Scene, PerspectiveCamera, render loop, resize handler va OrbitControls ishlasin; "
+            "Three.js addons importmap'dan foydalan, mobil DPRni 1.5 yoki undan past qiymat bilan chekla. "
+            "Katta sanoat omborini real masshtabda yarat: keng silliq beton/epoksi pol, polga procedural CanvasTexture chiz; "
+            "teksturada sariq xavfsizlik chiziqlari, piyodalar zebra crossing'i, ZONE A, ZONE B va DOCK 01 yozuvlari aniq ko'rinsin. "
+            "4–6 ta uzun parallel stellaj qatori, har biri ko'p yarusli: ko'k yoki kulrang po'lat ustunlar, to'q sariq traversalar, "
+            "real konstruktiv qalinlik va mustahkam diagonal tayanchlar. Har bir stellaj katagiga yuzlab turli o'lcham/rangdagi "
+            "karton qutilar va yog'och palletlarni joylashtir; takrorlanuvchi quti/pallet geometriyasi uchun THREE.InstancedMesh ishlat, "
+            "transformlarni deterministik joylashtir, qutilar havoda qolmasin va stellajdan chiqib ketmasin. "
+            "Bir yon tomonda bir nechta Loading Dock darvozasi, dock leveler/bamperlar va kamida bitta yuk mashinasi yoki trailer. "
+            "Markaziy yo'lakda forklift (yoki konveyer) uzluksiz belgilangan marshrut bo'ylab harakatlansin; "
+            "harakat silliq, tezligi past, polga yopishgan va stellajlarga urilmaydigan bo'lsin. "
+            "Shift konstruksiyasi ostida qator sanoat LED lampalari; HemisphereLight va DirectionalLight bilan neytral kulrang-ko'k "
+            "yoritish, yumshoq soyalar va material roughness variation. "
+            "HTML HUD panelini o'ng tomonda joylashtir: panel sarlavhasi WMS / Warehouse Control, unda tanlangan stellaj qatori "
+            "nomi, Sig'im foizi, Aktiv SKU soni va Harorat °C ko'rsatilsin. "
+            "THREE.Raycaster bilan stellaj qatorlarini bosish/tap orqali tanla; tanlangan qatorni emissive/outline yoki kontrast "
+            "highlight bilan ajrat, HUD ma'lumotlarini shu qatorga moslab yangila. Masalan Zona A-2 | Sig'im 88% | Aktiv SKU 420 ta | "
+            "Harorat +18°C. Bir nechta qator uchun mantiqan farqli, barqaror demo qiymatlar ber; bular simulyatsiya ekanini panelda ko'rsat. "
+            "Uchta haqiqiy kamera tugmasi yarat: Top-Down, Aisle Walkthrough, Loading Dock. Har birida camera.position va controls.target "
+            "silliq lerp/easing bilan o'zgarsin; faol rejim tugmasi ajralib tursin. "
+            "Pointer/touch raycast koordinatalarini canvas bounds bo'yicha hisobla; HUD ustiga bosilganda stellaj tanlanib ketmasin. "
+            "Responsive HUD va mobil boshqaruv, renderer.setPixelRatio cheklovi, telefonda instancing/shadow sifatini pasaytirish, "
+            "resize observer, loading holati va WebGL/import xatolari uchun tushunarli fallback qo'sh. "
+            "Barcha obyektlar haqiqiy 3D mesh bo'lsin, statik rasm yoki bir nechta kub bilan almashtirma.\\n"
+        )
+    elif three and re.search(r"\broom\b|xona|interyer|interior|penthouse|studio", request, re.I):
         three_prompt = (
             "\\nThree.js r160 bilan premium architectural interior ArchViz sahnasi yarat. "
             "Haqiqiy WebGLRenderer, PerspectiveCamera, Scene, render loop, resize handler va OrbitControls ishlasin; "

@@ -26,7 +26,24 @@ TEMPLATES = {
             "recoverable WebGL/import error state and a visible loading state"
         )
     },
-    "warehouse_3d": {"title": "3D ombor va zavod", "keywords": ("ombor", "warehouse", "zavod", "factory", "pallet", "stellaj", "logistika"), "layout": "readable warehouse floor plan in 3D, racks and pallets, clear aisle spacing", "must_have": ("racks and pallets as distinct meshes", "visible aisles", "orbit controls", "responsive renderer")},
+    "warehouse_3d": {
+        "title": "3D ombor/zavod — Smart Warehouse & Logistics Twin",
+        "keywords": ("ombor", "warehouse", "zavod", "factory", "pallet", "stellaj", "logistika", "forklift", "loading dock", "wms"),
+        "layout": "a premium industrial digital twin of a modern automated distribution center, with a broad epoxy-concrete floor, six long multi-level rack aisles, loading docks and a clearly readable central material-flow route",
+        "must_have": (
+            "large smooth industrial epoxy/concrete floor with a procedural CanvasTexture, yellow safety lines, pedestrian crossing and clearly painted ZONE A, ZONE B and DOCK 01 markings",
+            "four to six long multi-level steel pallet-rack rows with blue or grey uprights and safety-orange beams",
+            "hundreds of varied cardboard cartons and wooden pallets distributed across rack bays using THREE.InstancedMesh for repeated geometry",
+            "distinct loading dock doors along one side, with a parked delivery truck or trailer at a dock",
+            "a continuously moving forklift following a defined aisle route, or a working animated conveyor line; avoid collisions with racks",
+            "suspended industrial LED fixtures and clean neutral grey-blue lighting using HemisphereLight and DirectionalLight",
+            "clickable rack rows selected with THREE.Raycaster, with clear visual highlighting and a right-side WMS information panel",
+            "WMS sample fields for selected rack: zone/row name, capacity percentage, active SKU count and temperature in Celsius; clearly simulated demo data",
+            "three working camera presets: Top-Down bird's-eye, Aisle Walkthrough and Loading Dock",
+            "mobile-adaptive rendering, capped pixel ratio, reduced instance/shadow budget on smaller devices and touch-friendly controls",
+            "visible loading progress and recoverable WebGL/import error state"
+        )
+    },
     "birthday_gallery": {"title": "Tug‘ilgan kun va foto-galereya", "keywords": ("tug'ilgan", "tugilgan", "birthday", "tabrik", "surat", "rasm", "photo", "gallery"), "layout": "warm celebratory hero, elegant typography, photo-led composition and restrained motion", "must_have": ("uploaded photos displayed directly", "mobile-friendly layout", "working interactions", "reduced-motion support")},
     "portfolio": {"title": "Portfolio va biznes sayti", "keywords": ("portfolio", "biznes", "business", "landing", "sayt", "website", "agency", "company"), "layout": "strong hero, clear navigation, proof/services section and concise CTA", "must_have": ("responsive navigation", "working CTA links", "semantic sections", "accessible contrast")},
     "dashboard": {"title": "Dashboard va interaktiv panel", "keywords": ("dashboard", "panel", "statistika", "grafik", "chart", "monitoring", "analytics", "admin"), "layout": "calm dashboard, KPI cards, chart area, filters and responsive navigation", "must_have": ("meaningful sample data", "working filters", "readable chart labels", "mobile layout")},
@@ -64,10 +81,28 @@ def template_prompt(request: str) -> str:
         "All presets and lighting switches must work, not be decorative buttons.\\n"
         if key == "room_3d" else ""
     )
+    warehouse_note = (
+        "SMART WAREHOUSE DIGITAL TWIN OVERRIDE: create an industrial-grade, visually rich warehouse simulation, not a toy room or a few floating cubes. "
+        "Use a large concrete/epoxy floor with a procedural CanvasTexture that visibly includes yellow safety boundaries, pedestrian zebra crossing, "
+        "ZONE A, ZONE B and DOCK 01 floor paint. Build four to six long parallel steel rack rows, each with multiple storage levels, blue/grey vertical "
+        "uprights and orange horizontal beams. Populate rack bays densely but legibly with hundreds of differently sized and colored carton boxes and "
+        "wooden pallets; use THREE.InstancedMesh for repeated cartons/pallets and deterministic placement so they sit correctly inside rack bays. "
+        "At one side create realistic loading dock doors, dock bumpers/levelers and a delivery truck or trailer. In the central aisle animate a forklift "
+        "continuously along a closed, clearly marked route at a safe speed, or build a moving conveyor; it must not clip through racks or the floor. "
+        "Suspend rows of industrial LED fixtures below the roof structure and light with HemisphereLight + DirectionalLight in a neutral grey-blue palette. "
+        "Create a right-side WMS HUD panel. Use THREE.Raycaster on pointer/touch input to select an entire rack row; highlight the selected row with a "
+        "subtle emissive/outline treatment and update the panel with zone/row, capacity %, active SKU count and temperature. Use coherent, explicitly "
+        "simulated sample values such as Zona A-2 | Sig'im: 88% | Aktiv SKU: 420 ta | Harorat: +18°C; values should vary by selected row and remain stable "
+        "between selections. Implement three real camera presets: Top-Down bird's-eye, Aisle Walkthrough and Loading Dock, smoothly interpolating camera "
+        "position and OrbitControls target. All controls must work, selected rack must be visually obvious, and the WMS panel must remain readable without "
+        "covering the 3D scene. Add responsive mobile layout, capped DPR, lower instance/shadow budgets on phones, resize handling, loading state and "
+        "recoverable WebGL/import errors. Never substitute a static image for the interactive Three.js scene.\\n"
+        if key == "warehouse_3d" else ""
+    )
     return ("TANLANGAN STARTER: " + item["title"] + " (ID: " + key + ").\\n"
             "Vizual tuzilma: " + item["layout"] + ".\\n"
             "Majburiy sifat mezonlari: " + "; ".join(item["must_have"]) + ".\\n"
-            + cinematic_note + room_note +
+            + cinematic_note + room_note + warehouse_note +
             "Bu tayyor dizayn yo'nalishi, foydalanuvchi so'rovining o'rnini bosmaydi. "
             "So'rovdagi rang, obyekt, matn, rasm va joylashuv ko'rsatmalarini birinchi o'ringa qo'y. "
             "Shablonni mazmun va kompozitsiya bo'yicha vazifaga moslashtir.")
