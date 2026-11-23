@@ -161,14 +161,25 @@ async def generate_modular(generate_text, request: str, context_prompt: str) -> 
         "ishlat; KPI va grafik qiymatlari o'zaro mos bo'lsin. Xatolarni try/catch bilan "
         "ushla, element topilmasa sahifani yiqitma.\nHTML KONTEKSTI:\n" + body[:9000]
         + "\nCSS KONTEKSTI:\n" + css[:4000]
-        + ("\nThree.js r160 va OrbitControls importmap orqali import qil. "
+        + ("\\nThree.js r160 va OrbitControls importmap orqali import qil. "
            "Haqiqiy WebGLRenderer, Scene, Camera, Mesh, Light, render loop, resize va "
            "touch/mouse OrbitControls bo'lsin. Mobil DPR cheklansin. "
-           "Agar so'rov kosmos yoki sayyoralar haqida bo'lsa: CanvasTexture procedural "
-           "surface, bumpMap yoki normalMap, EffectComposer va UnrealBloomPass (fallback bilan), "
-           "ShaderMaterial/Fresnel atmosfera, InstancedMesh asteroidlar, smooth camera lerp/fly-to, "
-           "castShadow/receiveShadow, MeshStandardMaterial yoki MeshPhysicalMaterial va xato fallback "
-           "hammasi ishlaydigan kodda bo'lsin. " if three else "")
+           "Agar so'rov kosmos yoki sayyoralar haqida bo'lsa, quyidagi talablarning barchasini "
+           "ishlaydigan kodda bajar: markaziy ulkan gaz giganti yoki okean-bulutli ekzosayyora, "
+           "uning yonida 1–2 oy, qatlamli ShaderMaterial nebula va chuqurlik/parallax yulduzlar; "
+           "400–600 notekis asteroidni THREE.InstancedMesh bilan yarat (har birini alohida Mesh qilma); "
+           "yuqori aniqlikdagi procedural CanvasTexture (gaz chiziqlari/bo'ron yoki kraterlar) va "
+           "bumpMap/normalMap; Fresnel ShaderMaterial atmosfera, quyosh tomonda moviy yoki oltin rim; "
+           "DirectionalLight quyosh va markaziy PointLight; EffectComposer, RenderPass, UnrealBloomPass "
+           "va post-processing xatosida oddiy renderer fallback; castShadow/receiveShadow va fizik material; "
+           "OrbitControls enableDamping=true, dampingFactor=0.04; foydalanuvchi qo'lda boshqarmayotganida "
+           "juda sekin orbital kamera, qo'lda boshqaruvda avtomatik harakatni pauza qil; "
+           "HUD glassmorphism ichida harorat, tortishish va orbital parametrlar; uchta ishlaydigan "
+           "kamera tugmasi — planet orbit, asteroid belt, wide panorama — va silliq Vector3.lerp/lerpVectors "
+           "o'tishi; sayyorani raycast orqali tanlash va kamera fly-to; halqali sayyorada halqa soyasi, "
+           "oy uchun ixtiyoriy eclipse; mobil qurilmada DPR, asteroidlar va bloom sifatini moslashtir; "
+           "loading progress va WebGL/import xatosi uchun qayta urinishli fallback. "
+           "Ko'rsatkichlar simulyatsiya qiymati ekanini HUDda aniq belgila. " if three else "")
         + "\nFaqat JavaScript. Oxirida aynan " + _MARKERS["js"]
     )
     javascript = await _complete_fragment(generate_text, js_prompt, "js")
