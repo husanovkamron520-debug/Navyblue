@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="uz"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Quyosh sistemasi</title>
+<style>
+html,body{margin:0;height:100%;background:#050914;color:#e8f4ff;font-family:system-ui,sans-serif;overflow:hidden;-webkit-user-select:none;user-select:none}
+canvas{position:fixed;inset:0;width:100%;height:100%;touch-action:none}
+.top{position:fixed;left:10px;right:10px;top:10px;pointer-events:none}
+.badge{display:inline-block;background:#0d1526cc;border:1px solid #00e5ff66;border-radius:12px;padding:8px 12px;font-size:14px}
+#info{position:fixed;left:10px;right:10px;bottom:84px;background:#0d1526ee;border:1px solid #ff2bd6aa;border-radius:14px;padding:12px 14px;box-shadow:0 0 16px #ff2bd644;display:none;font-size:14px;line-height:1.45}
+#info h3{margin:0 0 4px;font-size:17px;color:#00e5ff}
+.bar{position:fixed;left:10px;right:10px;bottom:calc(12px + env(safe-area-inset-bottom,0px));display:flex;gap:10px;align-items:center;justify-content:center}
+button{background:#0d1526dd;color:#e8f4ff;border:1px solid #00e5ff88;border-radius:12px;padding:12px 14px;font-size:15px}
+input[type=range]{width:46%;accent-color:#00e5ff}
+</style></head><body>
+<canvas id="c"></canvas>
+<div class="top"><span class="badge">☀️ Quyosh sistemasi: sayyorani bosing</span></div>
+<div id="info"></div>
+<div class="bar"><button id="bPause">⏸ To'xtatish</button><input id="spd" type="range" min="0.2" max="4" step="0.1" value="1"><span id="spdv">1×</span></div>
+<script>
+var cv = document.getElementById("c"), ctx = cv.getContext("2d"), W = 0, H = 0, DPR = window.devicePixelRatio || 1;
+function resize() { W = cv.clientWidth || window.innerWidth; H = cv.clientHeight || window.innerHeight; cv.width = W * DPR; cv.height = H * DPR; ctx.setTransform(DPR, 0, 0, DPR, 0, 0); }
+window.addEventListener("resize", resize); resize();
+var P = [
+ {n:"Merkuriy", c:"#b8b8b8", r:4, o:0.14, s:4.15, d:"Quyoshdan 58 mln km. Yili 88 kun. Eng kichik va eng tez sayyora."},
+ {n:"Venera", c:"#f5c26b", r:6, o:0.2, s:1.62, d:"Quyoshdan 108 mln km. Yili 225 kun. Eng issiq sayyora, harorati ~465 °C."},
+ {n:"Yer", c:"#4ea1ff", r:6.5, o:0.27, s:1.0, d:"Quyoshdan 150 mln km. Yili 365 kun. Hayot ma'lum bo'lgan yagona sayyora."},
+ {n:"Mars", c:"#ff6b4a", r:5, o:0.35, s:0.53, d:"Quyoshdan 228 mln km. Yili 687 kun. Qizil sayyora, ikkita yo'ldoshi bor."},
+ {n:"Yupiter", c:"#d9a066", r:13, o:0.5, s:0.084, d:"Quyoshdan 778 mln km. Yili ~12 yil. Eng katta sayyora, 95 dan ortiq yo'ldoshi bor."},
+ {n:"Saturn", c:"#e8d18a", r:11, o:0.65, s:0.034, d:"Quyoshdan 1,4 mlrd km. Yili ~29 yil. Mashhur halqalari bor.", ring:true},
+ {n:"Uran", c:"#7fe0e8", r:8, o:0.8, s:0.012, d:"Quyoshdan 2,9 mlrd km. Yili ~84 yil. Yonboshlab aylanadi."},
+ {n:"Neptun", c:"#4a6bff", r:8, o:0.94, s:0.006, d:"Quyoshdan 4,5 mlrd km. Yili ~165 yil. Eng uzoq sayyora, kuchli shamollari bor."}
+];
+P.forEach(function (p, i) { p.a = Math.random() * 6.28; p.x = 0; p.y = 0; });
+var stars = []; for (var i = 0; i < 90; i++) stars.push({ x: Math.random(), y: Math.random(), r: Math.random() * 1.4 + 0.3 });
+var speed = 1, paused = false, sel = null, t0 = 0;
+function draw(t) {
+  var dt = Math.min(0.05, (t - t0) / 1000 || 0); t0 = t;
+  ctx.clearRect(0, 0, W, H);
+  stars.forEach(function (s) { ctx.fillStyle = "rgba(255,255,255," + (0.4 + 0.4 * Math.sin(t / 700 + s.x * 20)) + ")"; ctx.fillRect(s.x * W, s.y * H, s.r, s.r); });
+  var cx = W / 2, cy = H * 0.47, R = Math.min(W * 0.48, H * 0.4) , tilt = 0.5;
+  var g = ctx.createRadialGradient(cx, cy, 4, cx, cy, 46); g.addColorStop(0, "#fff6b0"); g.addColorStop(0.4, "#ffb703"); g.addColorStop(1, "rgba(255,120,0,0)");
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(cx, cy, 46, 0, 6.283); ctx.fill();
+  ctx.fillStyle = "#ffd54a"; ctx.beginPath(); ctx.arc(cx, cy, 18, 0, 6.283); ctx.fill();
+  P.forEach(function (p) {
+    if (!paused) p.a += dt * p.s * speed * 0.9;
+    var rx = R * p.o + 20, ry = rx * tilt;
+    ctx.strokeStyle = "rgba(0,229,255,0.18)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.ellipse(cx, cy, rx, ry, 0, 0, 6.283); ctx.stroke();
+    p.x = cx + Math.cos(p.a) * rx; p.y = cy + Math.sin(p.a) * ry;
+  });
+  P.slice().sort(function (a, b) { return a.y - b.y; }).forEach(function (p) {
+    var gl = ctx.createRadialGradient(p.x, p.y, 1, p.x, p.y, p.r * 2.2); gl.addColorStop(0, p.c); gl.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = gl; ctx.globalAlpha = 0.35; ctx.beginPath(); ctx.arc(p.x, p.y, p.r * 2.2, 0, 6.283); ctx.fill(); ctx.globalAlpha = 1;
+    ctx.fillStyle = p.c; ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, 6.283); ctx.fill();
+    if (p.ring) { ctx.strokeStyle = "rgba(232,209,138,0.8)"; ctx.lineWidth = 2; ctx.beginPath(); ctx.ellipse(p.x, p.y, p.r * 1.9, p.r * 0.7, -0.3, 0, 6.283); ctx.stroke(); }
+    if (sel === p) { ctx.strokeStyle = "#ff2bd6"; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(p.x, p.y, p.r + 6, 0, 6.283); ctx.stroke(); }
+  });
+  requestAnimationFrame(draw);
+}
+function pick(x, y) {
+  var best = null, bd = 28;
+  P.forEach(function (p) { var d = Math.hypot(p.x - x, p.y - y); if (d < bd) { bd = d; best = p; } });
+  sel = best;
+  var box = document.getElementById("info");
+  if (best) { box.style.display = "block"; box.innerHTML = "<h3>" + best.n + "</h3>" + best.d; } else box.style.display = "none";
+}
+cv.addEventListener("pointerdown", function (e) { var r = cv.getBoundingClientRect(); pick(e.clientX - r.left, e.clientY - r.top); });
+document.getElementById("bPause").onclick = function () { paused = !paused; this.textContent = paused ? "▶ Davom" : "⏸ To'xtatish"; };
+document.getElementById("spd").oninput = function () { speed = +this.value; document.getElementById("spdv").textContent = speed.toFixed(1) + "×"; };
+requestAnimationFrame(draw);
+</script></body></html>
