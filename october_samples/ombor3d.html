@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="uz"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Ombor 3D</title>
+<style>
+html,body{margin:0;height:100%;background:#0B0F19;color:#e8f4ff;font-family:system-ui,sans-serif;overflow:hidden;-webkit-user-select:none;user-select:none}
+#scene{position:fixed;inset:0;width:100%;height:100%;touch-action:none;background:radial-gradient(ellipse at 50% 30%,#14213d 0%,#0B0F19 70%)}
+.panel{position:fixed;left:10px;right:10px;top:10px;display:flex;justify-content:space-between;align-items:center;gap:8px;pointer-events:none}
+.badge{background:#0d1526cc;border:1px solid #00e5ff66;border-radius:12px;padding:8px 12px;font-size:14px;box-shadow:0 0 12px #00e5ff33}
+.badge b{color:#00e5ff}
+.bar{position:fixed;left:10px;right:10px;bottom:calc(12px + env(safe-area-inset-bottom,0px));display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
+button{background:#0d1526dd;color:#e8f4ff;border:1px solid #00e5ff88;border-radius:12px;padding:12px 14px;font-size:15px;box-shadow:0 0 10px #00e5ff33}
+button:active{background:#00e5ff33}
+button.on{border-color:#ff2bd6;box-shadow:0 0 12px #ff2bd666}
+</style></head><body>
+<canvas id="scene"></canvas>
+<div class="panel"><div class="badge">📦 Qutilar: <b id="cnt">0</b></div><div class="badge">🚜 Forklift: <b id="fst">yuryapti</b></div></div>
+<div class="bar">
+<button id="bRot" class="on">⟳ Avto aylanish</button>
+<button id="bFork">🚜 To'xtatish</button>
+<button id="bAdd">＋ Quti qo'shish</button>
+<button id="bIn">🔍＋</button><button id="bOut">🔍－</button>
+</div>
+<script>
+/* 3D yadro: canvas 2D, WebGL'siz. Sahna addBox() bilan to'ldiriladi. */
+var cv = document.getElementById("scene"), ctx = cv.getContext("2d");
+var W = 300, H = 300, DPR = window.devicePixelRatio || 1;
+function resize() {
+  W = cv.clientWidth || window.innerWidth; H = cv.clientHeight || window.innerHeight;
+  cv.width = W * DPR; cv.height = H * DPR; ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+}
+window.addEventListener("resize", resize); resize();
+var cam = { yaw: 0.8, pitch: 0.55, dist: 22, focal: 700 };
+var boxes = [];
+function addBox(x, y, z, w, h, d, color) { boxes.push({ x: x, y: y, z: z, w: w, h: h, d: d, color: color || "#00e5ff" }); }
+function clearBoxes() { boxes.length = 0; }
+function shade(hex, k) {
+  var n = parseInt(hex.slice(1), 16);
+  var r = Math.min(255, ((n >> 16) & 255) * k) | 0, g = Math.min(255, ((n >> 8) & 255) * k) | 0, b = Math.min(255, (n & 255) * k) | 0;
+  return "rgb(" + r + "," + g + "," + b + ")";
+}
+function project(px, py, pz) {
+  var cy = Math.cos(cam.yaw), sy = Math.sin(cam.yaw), cp = Math.cos(cam.pitch), sp = Math.sin(cam.pitch);
+  var x = px * cy - pz * sy, z = px * sy + pz * cy;
+  var y = py * cp - z * sp, zz = py * sp + z * cp;
+  var depth = Math.max(0.5, cam.dist + zz), s = cam.focal / depth;
+  return { x: W / 2 + x * s, y: H * 0.62 - y * s, d: depth };
+}
+function drawScene() {
+  ctx.clearRect(0, 0, W, H);
+  var faces = [];
+  for (var i = 0; i < boxes.length; i++) {
+    var b = boxes[i], x0 = b.x, x1 = b.x + b.w, y0 = b.y, y1 = b.y + b.h, z0 = b.z, z1 = b.z + b.d;
+    var c = [[x0,y0,z0],[x1,y0,z0],[x1,y0,z1],[x0,y0,z1],[x0,y1,z0],[x1,y1,z0],[x1,y1,z1],[x0,y1,z1]].map(function (p) { return project(p[0], p[1], p[2]); });
+    var defs = [[[4,5,6,7],1.15],[[0,1,5,4],0.9],[[1,2,6,5],0.7],[[2,3,7,6],0.8],[[3,0,4,7],0.6],[[0,3,2,1],0.5]];
+    for (var j = 0; j < defs.length; j++) {
+      var idx = defs[j][0], pts = idx.map(function (k) { return c[k]; });
+      var dd = (pts[0].d + pts[1].d + pts[2].d + pts[3].d) / 4;
+      faces.push({ pts: pts, d: dd, col: shade(b.color, defs[j][1]) });
+    }
+  }
+  faces.sort(function (a, b) { return b.d - a.d; });
+  for (var f = 0; f < faces.length; f++) {
+    var F = faces[f]; ctx.beginPath(); ctx.moveTo(F.pts[0].x, F.pts[0].y);
+    for (var q = 1; q < 4; q++) ctx.lineTo(F.pts[q].x, F.pts[q].y);
+    ctx.closePath(); ctx.fillStyle = F.col; ctx.fill(); ctx.strokeStyle = "rgba(0,229,255,0.35)"; ctx.lineWidth = 1; ctx.stroke();
+  }
+}
+var drag = null;
+function pdown(x, y) { drag = { x: x, y: y }; }
+function pmove(x, y) {
+  if (!drag) return;
+  cam.yaw += (x - drag.x) * 0.01; cam.pitch = Math.max(0.1, Math.min(1.45, cam.pitch + (y - drag.y) * 0.01));
+  drag = { x: x, y: y };
+}
+cv.addEventListener("mousedown", function (e) { pdown(e.clientX, e.clientY); });
+window.addEventListener("mousemove", function (e) { pmove(e.clientX, e.clientY); });
+window.addEventListener("mouseup", function () { drag = null; });
+cv.addEventListener("touchstart", function (e) { var t = e.touches[0]; pdown(t.clientX, t.clientY); e.preventDefault(); }, { passive: false });
+cv.addEventListener("touchmove", function (e) { var t = e.touches[0]; pmove(t.clientX, t.clientY); e.preventDefault(); }, { passive: false });
+cv.addEventListener("touchend", function () { drag = null; });
+cv.addEventListener("wheel", function (e) { cam.dist = Math.max(8, Math.min(60, cam.dist + e.deltaY * 0.02)); e.preventDefault(); }, { passive: false });
+function zoomBy(k) { cam.dist = Math.max(8, Math.min(60, cam.dist * k)); }
+
+var staticCount = 0, slots = [], boxCount = 0;
+var palette = ["#00e5ff", "#ff2bd6", "#39ff88", "#ffd54a", "#7c8cff"];
+function buildWarehouse() {
+  clearBoxes();
+  addBox(-13, -0.3, -11, 26, 0.3, 22, "#18294d");           // pol
+  for (var s = 0; s < 3; s++) {                              // 3 ta javon qatori
+    var z = -8 + s * 6.5;
+    for (var x = -10; x <= 6; x += 4) {
+      addBox(x, 0, z, 0.25, 4.2, 0.25, "#2a3b66"); addBox(x + 3.75, 0, z, 0.25, 4.2, 0.25, "#2a3b66");
+      addBox(x + 0.25, 0, z + 1.6, 0.25, 4.2, 0.25, "#2a3b66"); addBox(x + 3.5, 0, z + 1.6, 0.25, 4.2, 0.25, "#2a3b66");
+      for (var lv = 0; lv < 3; lv++) {
+        var y = 0.4 + lv * 1.35;
+        addBox(x, y, z, 4, 0.12, 1.85, "#3d5190");
+        slots.push({ x: x + 0.3, y: y + 0.12, z: z + 0.2, used: false });
+        if (Math.random() < 0.7) { putBox(slots[slots.length - 1]); }
+      }
+    }
+  }
+  staticCount = boxes.length;
+}
+function putBox(slot) {
+  slot.used = true; boxCount++;
+  var w = 1 + Math.random() * 0.5, h = 0.7 + Math.random() * 0.4;
+  addBox(slot.x + Math.random() * 1.2, slot.y, slot.z + Math.random() * 0.2, w, h, 1.3, palette[(Math.random() * palette.length) | 0]);
+  document.getElementById("cnt").textContent = boxCount;
+}
+var fork = { x: -11, dir: 1, run: true }, autoRot = true;
+function drawForklift() {
+  var fx = fork.x, fz = -1.3;
+  addBox(fx, 0, fz, 2.2, 0.9, 1.2, "#ffb703");               // tana
+  addBox(fx + (fork.dir > 0 ? 1.4 : 0), 0.9, fz + 0.1, 0.8, 0.8, 1.0, "#ff8c00");   // kabina
+  addBox(fx + (fork.dir > 0 ? 2.2 : -0.3), 0, fz + 0.1, 0.3, 2.2, 0.15, "#c9d4e5");  // machta
+  addBox(fx + (fork.dir > 0 ? 2.2 : -1.2), 0.15, fz + 0.2, 1.2, 0.1, 0.25, "#c9d4e5"); // vilka
+}
+function frame() {
+  boxes.length = staticCount;
+  if (fork.run) { fork.x += fork.dir * 0.05; if (fork.x > 9) fork.dir = -1; if (fork.x < -11) fork.dir = 1; }
+  drawForklift();
+  if (autoRot && !drag) cam.yaw += 0.004;
+  drawScene();
+  requestAnimationFrame(frame);
+}
+function toggle(id, on) { document.getElementById(id).classList.toggle("on", on); }
+document.getElementById("bRot").onclick = function () { autoRot = !autoRot; toggle("bRot", autoRot); };
+document.getElementById("bFork").onclick = function () {
+  fork.run = !fork.run; this.textContent = fork.run ? "🚜 To'xtatish" : "🚜 Yurgizish";
+  document.getElementById("fst").textContent = fork.run ? "yuryapti" : "turibdi";
+};
+document.getElementById("bAdd").onclick = function () {
+  var free = slots.filter(function (s) { return !s.used; });
+  if (!free.length) { this.textContent = "Joy qolmadi"; return; }
+  var s = free[(Math.random() * free.length) | 0]; putBox(s); staticCount = boxes.length;
+};
+document.getElementById("bIn").onclick = function () { zoomBy(0.85); };
+document.getElementById("bOut").onclick = function () { zoomBy(1.18); };
+cam.dist = 40; cam.pitch = 0.6; cam.yaw = 0.7; cam.focal = 760;
+buildWarehouse(); frame();
+</script></body></html>
