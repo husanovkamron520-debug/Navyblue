@@ -1,0 +1,4 @@
+[
+  {"file": "ombor3d.html", "title": "3D ombor", "keys": ["ombor", "sklad", "warehouse", "javon", "forklift", "stellaj"], "needs": ["3d"]},
+  {"file": "quyosh.html", "title": "Quyosh sistemasi", "keys": ["quyosh", "sayyora", "planet", "kosmos", "galaktika", "yulduz"], "needs": []}
+]
