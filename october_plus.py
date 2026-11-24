@@ -99,6 +99,60 @@ _EXTRA_3D = (
 )
 
 _CORE3D_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "october_core3d.js")
+_SAMPLES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "october_samples")
+_builtin_cache = {"items": None}
+
+_EXTRA_SAMPLE = (
+    "\n\nTAYYOR, SINALGAN NAMUNA ({title}). Shuni ASOS qilib ol: tuzilmasi, uslubi va ishlaydigan qismlarini saqla, "
+    "so'rovdagi o'zgarishlar va qo'shimchalarni shu namuna ustiga qo'sh. Namunadagi ishlaydigan mexanikani (aylantirish, "
+    "tugmalar, animatsiya) buzma. To'liq yangi faylni qaytar. Namuna:\n"
+)
+_SAMPLE_STOP = {"yasab", "yozib", "yaratib", "ber", "menga", "html", "sahifa", "uchun", "bo'yicha", "qil", "iltimos", "shuni", "namuna", "saqla"}
+
+
+def _builtin_samples():
+    """october_samples/index.json dagi tayyor namunalar (bir marta o'qiladi)."""
+    if _builtin_cache["items"] is not None:
+        return _builtin_cache["items"]
+    items = []
+    try:
+        with open(os.path.join(_SAMPLES_DIR, "index.json"), encoding="utf-8") as f:
+            index = json.load(f)
+        for e in index:
+            with open(os.path.join(_SAMPLES_DIR, e["file"]), encoding="utf-8") as f:
+                items.append({"title": e["title"], "keys": [k.lower() for k in e["keys"]],
+                              "needs": [n.lower() for n in e.get("needs", [])], "html": f.read()})
+    except Exception:
+        items = []
+    _builtin_cache["items"] = items
+    return items
+
+
+def _load_user_samples():
+    """Siz "namuna qil" deb saqlagan HTML'lar (Supabase)."""
+    r = _sb.table(TABLE).select("id,text").eq("owner", _owner_id).eq("kind", "html_namuna").order("id").execute()
+    out = []
+    for row in (r.data or []):
+        try:
+            d = json.loads(row["text"])
+            if d.get("html") and d.get("keys"):
+                out.append({"title": d.get("title", "namuna"), "keys": d["keys"], "needs": [], "html": d["html"]})
+        except Exception:
+            continue
+    return out[-20:]
+
+
+def _pick_sample(request: str, user_samples=()):
+    """So'rovga eng mos namuna (kalit so'zlar bo'yicha); mos kelmasa None."""
+    t = _norm(request)
+    best, best_score = None, 0
+    for s in list(user_samples)[::-1] + _builtin_samples():  # o'zingiz saqlaganlar ustun
+        if any(n not in t for n in s.get("needs", [])):
+            continue
+        score = sum(1 for k in s["keys"] if k in t)
+        if score > best_score:
+            best, best_score = s, score
+    return best
 
 # Sahifa ichida xato bo'lsa (yoki skript yuklanmasa), ekran bo'sh qolmasligi uchun
 # pastda qizil qutida xato matnini ko'rsatadi.
@@ -229,10 +283,18 @@ def _quality_issue(doc: str, req: str):
 async def make_html(request: str, use_core: bool = True):
     """(doc, kamchilik) qaytaradi. 3 marta urinadi; yaroqli HTML chiqmasa (None, sabab)."""
     extra = ""
-    if use_core and "3d" in _norm(request):
-        core = _core3d()
-        if core:
-            extra = _EXTRA_3D + core
+    if use_core:
+        try:
+            user_samples = await asyncio.to_thread(_load_user_samples)
+        except Exception:
+            user_samples = []
+        sample = _pick_sample(request, user_samples)
+        if sample:
+            extra = _EXTRA_SAMPLE.format(title=sample["title"]) + sample["html"]
+        elif "3d" in _norm(request):
+            core = _core3d()
+            if core:
+                extra = _EXTRA_3D + core
     issue = None
     best = None
     for attempt in range(3):
@@ -447,7 +509,33 @@ async def try_handle(update: Update, context: ContextTypes.DEFAULT_TYPE, text: s
     )
     wants_code = len(t) < 80 and bool(_RE_CODE_Q.search(t)) and not _RE_NEW_BUILD.search(t)
     wants_edit = replied_file and len(t) < 300 and not t.startswith("/")
-    last = await _get_last_html() if (wants_code or wants_edit) else None
+    wants_sample = replied_file and len(t) < 160 and "namuna" in t and bool(re.search(r"qil|saqla|qo'sh", t))
+    last = await _get_last_html() if (wants_code or wants_edit or wants_sample) else None
+
+    # 3c) "shuni namuna qil: kalit1, kalit2" (HTML faylga javob) -> kutubxonaga qo'shish
+    if last and wants_sample:
+        tail = t.split(":", 1)[1] if ":" in t else ""
+        keys = [w for w in re.split(r"[\s,;]+", tail) if len(w) >= 3]
+        if not keys:
+            base = _norm(_last_html.get("req") or "")
+            keys = [w for w in re.findall(r"[a-z0-9']{4,}", base) if w not in _SAMPLE_STOP][:6]
+        if not keys:
+            await _say(msg, text, "Kalit so'zlarni ham yozing, masalan: \"namuna qil: kalkulyator, hisoblagich\".")
+            return True
+        if len(last) > 60000:
+            await _say(msg, text, "Bu HTML namuna bo'lishi uchun juda katta (60 KB dan oshdi).")
+            return True
+        title = ((_last_html.get("req") or "namuna")[:40]).strip()
+        try:
+            await asyncio.to_thread(
+                lambda: _sb.table(TABLE).insert({"owner": _owner_id, "kind": "html_namuna", "text": json.dumps(
+                    {"title": title, "keys": keys, "html": last}, ensure_ascii=False)}).execute())
+        except Exception as e:
+            await _say(msg, text, "Namunani saqlab bo'lmadi: " + str(e))
+            return True
+        await _say(msg, text, "Namuna saqlandi. Kalit so'zlar: " + ", ".join(keys)
+                   + ". Shu so'zlar bilan HTML so'rasangiz, shuni asos qilib oladi.")
+        return True
 
     # 4) oxirgi HTML haqida savol: "koding yubor", "qanday kodda yozding"
     if last and wants_code:
