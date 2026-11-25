@@ -50,6 +50,46 @@ def make_xlsx(rows, sheet_name="Sheet1"):
     return out.getvalue()
 
 
+def make_multi_xlsx(sheet_rows):
+    out = io.BytesIO()
+    workbook_sheets = []
+    relationships = []
+    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zf:
+        for index, (sheet_name, rows) in enumerate(sheet_rows.items(), 1):
+            cells = []
+            for row_no, values in enumerate(rows, 1):
+                row_cells = []
+                for col_no, value in enumerate(values):
+                    ref = f"{_col(col_no)}{row_no}"
+                    row_cells.append(f'<c r="{ref}" t="inlineStr"><is><t>{value}</t></is></c>')
+                cells.append(f'<row r="{row_no}">{"".join(row_cells)}</row>')
+            sheet_xml = (
+                '<?xml version="1.0" encoding="UTF-8"?>'
+                '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+                f'<sheetData>{"".join(cells)}</sheetData></worksheet>'
+            )
+            zf.writestr(f"xl/worksheets/sheet{index}.xml", sheet_xml)
+            workbook_sheets.append(f'<sheet name="{sheet_name}" sheetId="{index}" r:id="rId{index}"/>')
+            relationships.append(
+                f'<Relationship Id="rId{index}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" '
+                f'Target="worksheets/sheet{index}.xml"/>'
+            )
+        workbook = (
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+            'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+            f'<sheets>{"".join(workbook_sheets)}</sheets></workbook>'
+        )
+        rels = (
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            f'{"".join(relationships)}</Relationships>'
+        )
+        zf.writestr("xl/workbook.xml", workbook)
+        zf.writestr("xl/_rels/workbook.xml.rels", rels)
+    return out.getvalue()
+
+
 class SupplyChainImportTests(unittest.TestCase):
     def test_tovar_and_soni_headers_are_recognized(self):
         raw = make_xlsx([["Tovar", "Soni", "Birlik", "Narxi"], ["Paxta ipi", "120", "kg", "28000"]])
@@ -79,6 +119,34 @@ class SupplyChainImportTests(unittest.TestCase):
         mapped = supply_chain_import.inspect_workbook(raw, {"A": "product_name", "B": "quantity"})
         self.assertEqual(mapped["questions"], [])
         self.assertEqual(mapped["sheets"][0]["kind"], "products")
+    def test_sheet_specific_column_mapping_does_not_leak_between_sheets(self):
+        raw = make_multi_xlsx({
+            "OrderList": [["Product ID", "Unit quantity"], ["1700106", "808"]],
+            "WhCapacities": [["Plant ID", "Daily Capacity"], ["PLANT01", "1070"]],
+        })
+        preview = supply_chain_import.inspect_workbook(raw, {
+            "OrderList": {"A": "product_name", "B": "quantity"},
+            "WhCapacities": {"A": "ignore", "B": "ignore"},
+        })
+        self.assertEqual(preview["questions"], [])
+        order_sheet = next(x for x in preview["sheets"] if x["name"] == "OrderList")
+        self.assertEqual(order_sheet["kind"], "products")
+        self.assertEqual(order_sheet["records"][0]["product_name"], "1700106")
+        self.assertTrue(any(e["sheet"] == "WhCapacities" for e in preview["errors"]))
+
+    def test_logistics_dataset_headers_are_not_guessed_as_inventory_fields(self):
+        raw = make_multi_xlsx({
+            "OrderList": [["Order ID", "Order Date", "Carrier", "Product ID", "Unit quantity", "Weight"],
+                          ["1447296446.7", "2013-05-26", "V44_3", "1700106", "808", "14.3"]],
+            "FreightRates": [["Carrier", "orig_port_cd", "dest_port_cd", "minimum cost", "rate", "tpt_day_cnt"],
+                             ["V444_6", "PORT08", "PORT09", "43.22", "0.71", "2"]],
+        })
+        preview = supply_chain_import.inspect_workbook(raw)
+        self.assertTrue(preview["questions"])
+        self.assertEqual(preview["sheets"], [])
+        self.assertFalse(any(q["header"] in {"Product ID", "Unit quantity"} and q["sheet"] == "OrderList"
+                             for q in preview["questions"]) is False)
+
     def test_bad_quantity_is_reported_with_exact_row(self):
         raw = make_xlsx([["Mahsulot", "Miqdor"], ["Paxta", "ikki yuz"]])
         preview = supply_chain_import.inspect_workbook(raw)
