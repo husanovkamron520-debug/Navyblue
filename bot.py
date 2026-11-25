@@ -480,15 +480,15 @@ FEEDBACKS_FILE = "feedbacks.json"
 USAGE_FILE = "usage.json"
 OMBOR_FILE = "ombor_results.json"
 PUZZLE_FILE = "puzzle_results.json"
-BTN_EDU = "📚 Ta'lim"
+BTN_EDU = "🎓 Ta'lim"
 BTN_SC14 = "🎓 SupplyChain14"
-BTN_SUPPLY = "🚚 Supply Chain"
+BTN_SUPPLY = "🚚 Logistika"
 BTN_SLIDE = "📊 Slide"
 BTN_CROSS = "🧩 Krossvord"
 BTN_TASK = "📝 Task"
 BTN_VIDEO = "🎬 Video"
 BTN_FOTO = "🖼 Foto"
-BTN_EDU_BACK = "⬅️ Yopish"
+BTN_EDU_BACK = "⬅️ Asosiy menyu"
 BTN_MUSEUM = museum.BTN_MUSEUM
 MENU_OPEN = set()  # Ta'lim bo'limi ochilgan chatlar (qayta ishga tushsa yopiladi)
 
@@ -1799,23 +1799,30 @@ async def ai_grade(case, answer):
 # START / ROLE HANDLERS
 # ============================================================
 def collapsed_menu(chat_id=None):
-    # Foto/video qidiruv tugmalari faqat bot egasiga ko'rsatiladi.
-    rows = [[BTN_EDU], [BTN_SC14], [BTN_SLIDE]]
+    # Asosiy menyu ataylab ixcham: faqat logistika va ta'lim.
+    rows = []
     if chat_id is not None and is_bot_owner(chat_id):
         rows.append([BTN_SUPPLY])
-        rows.append([BTN_VIDEO, BTN_FOTO])
-    rows.extend([[BTN_REFERAT, BTN_TESTF], [BTN_MAQOLA, BTN_TEZIS],
-                 [BTN_GLOS, BTN_CASEW], [BTN_FROMF, BTN_ZIP], [BTN_MUSEUM]])
+    rows.append([BTN_EDU])
     return ReplyKeyboardMarkup(rows, resize_keyboard=True)
 
 
 def teacher_menu(chat_id=None):
     if chat_id is None or int(chat_id) not in MENU_OPEN:
         return collapsed_menu(chat_id)
-    rows = [[BTN_SC14], [BTN_CROSS], [BTN_NEW_CASE, BTN_GEN_CASE], [BTN_MY_CASES, BTN_STUDENTS], [BTN_FEEDBACK, BTN_ROLE]]
+    rows = [
+        [BTN_SC14],
+        [BTN_SLIDE, BTN_CROSS],
+        [BTN_REFERAT, BTN_TESTF],
+        [BTN_MAQOLA, BTN_TEZIS],
+        [BTN_GLOS, BTN_CASEW],
+        [BTN_FROMF, BTN_ZIP],
+        [BTN_NEW_CASE, BTN_GEN_CASE],
+        [BTN_MY_CASES, BTN_STUDENTS],
+        [BTN_FEEDBACK, BTN_ROLE],
+    ]
     if OWNER_CHAT_ID is not None and chat_id is not None and int(chat_id) == OWNER_CHAT_ID:
         rows.insert(-1, [BTN_FEEDBACK_INBOX, BTN_STATS])
-        rows.insert(-1, [BTN_SUPPLY])
     rows.append([BTN_EDU_BACK])
     return ReplyKeyboardMarkup(rows, resize_keyboard=True)
 
@@ -1823,67 +1830,42 @@ def teacher_menu(chat_id=None):
 def student_menu(chat_id=None):
     if chat_id is None or int(chat_id) not in MENU_OPEN:
         return collapsed_menu(chat_id)
-    rows = [[BTN_SC14], [BTN_TASK], [BTN_START_CASE], [BTN_FEEDBACK]]
+    rows = [
+        [BTN_SC14],
+        [BTN_TASK],
+        [BTN_START_CASE],
+        [BTN_SLIDE, BTN_CROSS],
+        [BTN_REFERAT, BTN_TESTF],
+        [BTN_MAQOLA, BTN_TEZIS],
+        [BTN_GLOS, BTN_CASEW],
+        [BTN_FROMF, BTN_ZIP],
+        [BTN_FEEDBACK],
+        [BTN_ROLE],
+        [BTN_EDU_BACK],
+    ]
     if OWNER_CHAT_ID is not None and chat_id is not None and int(chat_id) == OWNER_CHAT_ID:
-        rows.append([BTN_FEEDBACK_INBOX, BTN_STATS])
-        rows.append([BTN_SUPPLY])
-    rows.append([BTN_ROLE])
-    rows.append([BTN_EDU_BACK])
+        rows.insert(-3, [BTN_FEEDBACK_INBOX, BTN_STATS])
     return ReplyKeyboardMarkup(rows, resize_keyboard=True)
 
 
 async def show_role_picker(message):
-    keyboard = [
-        [InlineKeyboardButton("🎓 SupplyChain14 ro'yxatdan o'tish", callback_data="sc14_register")],
-        [
-            InlineKeyboardButton("👨‍🏫 O'qituvchi sifatida kirish", callback_data="role_teacher"),
-            InlineKeyboardButton("👨‍🎓 Talaba sifatida kirish", callback_data="role_student"),
-        ],
-    ]
+    keyboard = [[
+        InlineKeyboardButton("👨‍🏫 Ustoz", callback_data="role_teacher"),
+        InlineKeyboardButton("👨‍🎓 Shogird", callback_data="role_student"),
+    ]]
     await message.reply_text(
-        "👋 Assalomu alaykum! Botga xush kelibsiz.\n\n"
-        "SupplyChain14 platformasiga ro'yxatdan o'tish uchun yuqoridagi tugmani bosing. "
-        "Email talab qilinmaydi — sayt akkauntingiz Telegram bilan bog'lanadi.\n\n"
-        "Parolni unutgan bo'lsangiz: /sc14_reset\n\n"
-        "Pastdagi eski bot rejimlari ham saqlangan.",
+        "🎓 Ta'lim bo'limi\n\nDavom etish uchun rolingizni tanlang:",
         reply_markup=InlineKeyboardMarkup(keyboard),
     )
 
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
-    # Avval kirgan foydalanuvchini eslab qolamiz: rolni qayta so'ramaymiz.
-    t_code = get_teacher_code_by_chat_id(chat_id)
-    if t_code:
-        await update.message.reply_text(
-            f"👨‍🏫 Qaytganingiz bilan! O'qituvchi kodingiz: {t_code}\n"
-            "(Boshqa rolni tanlash uchun: /rol)",
-            reply_markup=teacher_menu(chat_id),
-        )
-        return
-
-    student = get_students().get(str(chat_id))
-    if student and student.get("teacher_code") in get_teachers():
-        teacher_name = get_teachers()[student["teacher_code"]].get("name", "")
-        await update.message.reply_text(
-            f"👨‍🎓 Qaytganingiz bilan, {student.get('name', '')}!\n"
-            f"O'qituvchi: {teacher_name} ({student['teacher_code']})\n"
-            "(Boshqa rolni tanlash uchun: /rol)",
-            reply_markup=student_menu(chat_id),
-        )
-        return
-
-    if is_bot_owner(chat_id):
-        await update.message.reply_text(
-            "👑 Bot egasi menyusi. Feedbacklarni ko'rish uchun «📥 Feedbacklar» tugmasini bosing.",
-            reply_markup=(ReplyKeyboardMarkup(
-                [[BTN_FEEDBACK_INBOX, BTN_STATS], [BTN_SUPPLY], [BTN_FEEDBACK], [BTN_ROLE], [BTN_EDU_BACK]],
-                resize_keyboard=True
-            ) if int(chat_id) in MENU_OPEN else collapsed_menu(chat_id))
-        )
-        return
-
-    await show_role_picker(update.message)
+    greeting = "👑 NAVYBLUE — logistika bosh menyusi." if is_bot_owner(chat_id) else "NAVYBLUE — asosiy menyu."
+    await update.message.reply_text(
+        greeting + "\n\nLogistika yoki Ta'lim bo'limini tanlang.",
+        reply_markup=collapsed_menu(chat_id),
+    )
 
 
 async def myid_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -11869,7 +11851,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if _paper_wait:
         kind, started = _paper_wait[0], _paper_wait[1]
         stage = _paper_wait[2] if len(_paper_wait) > 2 else "topic"
-        if time.time() - started > 900 or text in (BTN_EDU, BTN_MAIN_MENU):
+        if time.time() - started > 900 or text in (BTN_EDU, BTN_EDU_BACK, BTN_MAIN_MENU):
             context.user_data.pop("_paper_wait", None)
         elif text and not text.startswith("/"):
             context.user_data.pop("_paper_wait", None)
@@ -11954,14 +11936,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     _rw = context.user_data.get("_ref_wait")
     if _rw:
-        if text in (BTN_EDU, BTN_MAIN_MENU) or time.time() - _rw[1] > 900:
+        if text in (BTN_EDU, BTN_EDU_BACK, BTN_MAIN_MENU) or time.time() - _rw[1] > 900:
             context.user_data.pop("_ref_wait", None)
         elif text and not text.startswith("/"):
             await _ref_on_text(update.message, context, text)
             return
     _pw = context.user_data.get("_pxb_wait")
     if _pw:
-        if text in (BTN_EDU, BTN_MAIN_MENU) or time.time() - _pw[0] > 600:
+        if text in (BTN_EDU, BTN_EDU_BACK, BTN_MAIN_MENU) or time.time() - _pw[0] > 600:
             context.user_data.pop("_pxb_wait", None)
         elif text and not text.startswith("/"):
             context.user_data.pop("_pxb_wait", None)
@@ -11969,7 +11951,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
     _cvw = context.user_data.get("_ppt_cover_wait")
     if _cvw:
-        if text in (BTN_EDU, BTN_MAIN_MENU) or time.time() - _cvw > 900:
+        if text in (BTN_EDU, BTN_EDU_BACK, BTN_MAIN_MENU) or time.time() - _cvw > 900:
             context.user_data.pop("_ppt_cover_wait", None)
         elif text and not text.startswith("/"):
             context.user_data.pop("_ppt_cover_wait", None)
@@ -11979,7 +11961,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         _wait = context.user_data.get(_flag)
         if not _wait:
             continue
-        if text in (BTN_EDU, BTN_MAIN_MENU) or time.time() - _wait > 600:
+        if text in (BTN_EDU, BTN_EDU_BACK, BTN_MAIN_MENU) or time.time() - _wait > 600:
             context.user_data.pop(_flag, None)
         elif text and not text.startswith("/"):
             context.user_data.pop(_flag, None)
@@ -12034,32 +12016,25 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             save_students(students)
     teacher_code = get_teacher_code_by_chat_id(update.effective_chat.id)
 
-    # October faqat bot egasining shaxsiy chatida avtomatik ishlaydi.
-    # /october buyrug'i endi shart emas; ta'lim menyusi tugmalari odatdagidek ishlaydi.
-    if update.effective_chat.type == "private" and _oct_owner(update) and text:
-        if text not in (BTN_EDU, BTN_EDU_BACK):
-            _od = _oct_data()
-            if not _od.get("on"):
-                _od["on"] = True
-                save_json(OCT_FILE, _od)
-            await october_chat(update, text, context)
-            return
+    # October endi avtomatik javob bermaydi; faqat foydalanuvchi /october bilan chaqirganda ishlaydi.
 
     if text in (BTN_EDU, BTN_EDU_BACK):
         context.user_data["awaiting_feedback"] = False
         cid = int(update.effective_chat.id)
         if text == BTN_EDU:
             MENU_OPEN.add(cid)
+            student = students.get(user_id) or {}
             if teacher_code:
                 kb = teacher_menu(cid)
-            elif is_bot_owner(cid) and user_id not in students:
-                kb = ReplyKeyboardMarkup([[BTN_FEEDBACK_INBOX, BTN_STATS], [BTN_FEEDBACK], [BTN_ROLE], [BTN_EDU_BACK]], resize_keyboard=True)
-            else:
+                await update.message.reply_text("👨‍🏫 Ustoz bo'limi ochildi.", reply_markup=kb)
+            elif student.get("teacher_code") in teachers:
                 kb = student_menu(cid)
-            await update.message.reply_text("📚 Ta'lim bo'limi ochildi. Kerakli tugmani tanlang:", reply_markup=kb)
+                await update.message.reply_text("👨‍🎓 Shogird bo'limi ochildi.", reply_markup=kb)
+            else:
+                await show_role_picker(update.message)
         else:
             MENU_OPEN.discard(cid)
-            await update.message.reply_text("Menyu yopildi. Qayta ochish uchun «📚 Ta'lim» ni bosing.", reply_markup=collapsed_menu(update.effective_chat.id))
+            await update.message.reply_text("Asosiy menyu:", reply_markup=collapsed_menu(cid))
         return
 
     # Feedback oqimi avval tekshiriladi, shunda boshqa jarayonlarga aralashmaydi.
@@ -13736,7 +13711,7 @@ async def october_off_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     d = _oct_data()
     d["on"] = False
     save_json(OCT_FILE, d)
-    await update.effective_message.reply_text("October vaqtincha pauza qilindi. Keyingi shaxsiy xabaringizda avtomatik qayta ishga tushadi. Xotira saqlanib qoldi.", reply_markup=collapsed_menu(update.effective_chat.id))
+    await update.effective_message.reply_text("October pauza qilindi. Faqat /october buyrug'i bilan qayta yoqiladi. Xotira saqlanib qoldi.", reply_markup=collapsed_menu(update.effective_chat.id))
 
 
 async def october_memory_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
