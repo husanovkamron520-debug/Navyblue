@@ -1830,11 +1830,13 @@ async def _excel_finish_import(message, context, raw_file: bytes, overrides: dic
     try:
         preview = supply_chain_import.inspect_workbook(raw_file, overrides or {})
     except Exception as exc:
-        context.user_data["_sc_wait"] = {"action": "excel_clarify", "parent": "home", "started": datetime.now().timestamp()}
+        context.user_data["_sc_wait"] = {"action": "excel_upload", "parent": "home", "started": datetime.now().timestamp()}
+        context.user_data["_sc_excel_read_error"] = str(exc)[:300]
         await _reply(message,
-            "⚠️ Excel faylini o'qishda muammo: " + _friendly_error(exc) +
-            "\n\nBu fayl qaysi ish uchun? Ichida qanday ma'lumotlar bor va ustunlar nimani anglatadi? "
-            "Masalan: A=mahsulot nomi, B=miqdor, C=narx. Tushuntiring, keyin moslab ko'raman.")
+            "⚠️ Faylni ocholmadim: " + _friendly_error(exc) +
+            "\n\nBu fayl haqiqiy Excel Workbook (.xlsx) bo'lmasligi yoki buzilgan bo'lishi mumkin. "
+            "Qaysi dasturdan olinganini va ichida qanday ma'lumot borligini yozing. "
+            "Keyin Excel Workbook (.xlsx) qilib qayta saqlab yuboring.")
         return
 
     context.user_data["_sc_excel_preview"] = preview
@@ -1957,7 +1959,14 @@ async def _text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
             await status.edit_text("⚠️ AI tahlili bajarilmadi.\n" + str(exc)[:500], reply_markup=_home_keyboard())
         return True
     if action == "excel_upload":
-        await update.message.reply_text("Excel faylini yuboring (.xlsx formatida). Agar xato chiqsa, sababini ko'rsatib, tushuntirishingizni so'rayman.")
+        if raw:
+            context.user_data["_sc_excel_user_note"] = raw[:1000]
+            await update.message.reply_text(
+                "Tushundim. Izohingizni saqladim. Endi faylni Excel Workbook (.xlsx) formatida qayta yuboring. "
+                "Fayl ochilgach, ustunlarni shu izoh asosida aniqlashtiramiz."
+            )
+        else:
+            await update.message.reply_text("Excel faylini yuboring (.xlsx formatida). Agar xato chiqsa, sababini ko'rsatib, tushuntirishingizni so'rayman.")
         return True
     if action == "excel_clarify":
         raw_file = context.user_data.get("_sc_excel_raw")
