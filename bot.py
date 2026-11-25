@@ -1083,6 +1083,8 @@ def run_health_server():
                 "/sc-api/v1/bootstrap", "/sc-api/v1/dashboard", "/sc-api/v1/inventory",
                 "/sc-api/v1/analytics/demand", "/sc-api/v1/analytics/abc",
                 "/sc-api/v1/analytics/eoq", "/sc-api/v1/analytics/replenishment",
+                "/sc-api/v1/procurement/orders", "/sc-api/v1/procurement/suppliers",
+                "/sc-api/v1/logistics/shipments", "/sc-api/v1/logistics/vehicles",
             }
             inventory_detail = parsed.path.startswith("/sc-api/v1/inventory/")
             if parsed.path not in allowed_paths and not inventory_detail:
@@ -1127,6 +1129,18 @@ def run_health_server():
                 result = sc_api.build_abc_analysis(snapshot)
             elif parsed.path == "/sc-api/v1/analytics/eoq":
                 result = sc_api.build_eoq_analysis(snapshot)
+            elif parsed.path == "/sc-api/v1/analytics/replenishment":
+                result = sc_api.build_replenishment(snapshot)
+            elif parsed.path == "/sc-api/v1/procurement/orders":
+                result = sc_api.list_purchase_orders(snapshot, (query.get("status") or ["all"])[0],
+                                                     _int_arg("page", 1), _int_arg("page_size", 10))
+            elif parsed.path == "/sc-api/v1/procurement/suppliers":
+                result = sc_api.list_suppliers(snapshot)
+            elif parsed.path == "/sc-api/v1/logistics/shipments":
+                result = sc_api.list_shipments(snapshot, (query.get("status") or ["all"])[0],
+                                               _int_arg("page", 1), _int_arg("page_size", 10))
+            elif parsed.path == "/sc-api/v1/logistics/vehicles":
+                result = sc_api.list_vehicles(snapshot)
             else:
                 result = sc_api.build_replenishment(snapshot)
             self._sc_json(result)
