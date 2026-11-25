@@ -103,6 +103,30 @@ class SessionStore:
                 self._sessions.pop(token, None)
 
 
+
+class RateLimiter:
+    """Small process-local sliding-window limiter for sensitive endpoints."""
+    def __init__(self, max_requests: int = 8, window_seconds: int = 60):
+        self.max_requests = max(1, int(max_requests))
+        self.window_seconds = max(1, int(window_seconds))
+        self._events: dict[str, list[float]] = {}
+        self._lock = threading.Lock()
+
+    def allow(self, key: str, now: float | None = None) -> bool:
+        current = time.time() if now is None else float(now)
+        bucket_key = str(key or "global")
+        cutoff = current - self.window_seconds
+        with self._lock:
+            events = [stamp for stamp in self._events.get(bucket_key, [])
+                      if stamp > cutoff]
+            if len(events) >= self.max_requests:
+                self._events[bucket_key] = events
+                return False
+            events.append(current)
+            self._events[bucket_key] = events
+            return True
+
+
 def _number(value):
     try:
         result = float(value)
