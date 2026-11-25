@@ -409,7 +409,7 @@ def apply_import(data: dict[str, Any], validated: dict[str, Any]) -> dict[str, A
                 result["errors"].append({"sheet": row["sheet"], "row": row["source_row"], "message": f"'{row['product_name']}' mahsuloti topilmadi."})
                 continue
             qty = row["quantity"]
-            if row["direction"] == "out" and float(product.get("quantity", 0)) < qty:
+            if not has_product_snapshot and row["direction"] == "out" and float(product.get("quantity", 0)) < qty:
                 result["errors"].append({"sheet": row["sheet"], "row": row["source_row"], "message": "Chiqim uchun omborda yetarli qoldiq yo'q."})
                 continue
             if not has_product_snapshot:
