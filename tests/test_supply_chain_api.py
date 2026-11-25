@@ -101,6 +101,19 @@ class ReadOnlyApiServiceTests(unittest.TestCase):
         sessions.revoke_all()
         self.assertFalse(sessions.authenticate(token, OWNER_ID, now=201))
 
+    def test_session_rate_limiter_blocks_after_window_limit(self):
+        limiter = api.RateLimiter(max_requests=2, window_seconds=10)
+        self.assertTrue(limiter.allow("session", now=100))
+        self.assertTrue(limiter.allow("session", now=101))
+        self.assertFalse(limiter.allow("session", now=102))
+        self.assertTrue(limiter.allow("session", now=111))
+
+    def test_rate_limiter_buckets_are_independent(self):
+        limiter = api.RateLimiter(max_requests=1, window_seconds=10)
+        self.assertTrue(limiter.allow("one", now=100))
+        self.assertFalse(limiter.allow("one", now=101))
+        self.assertTrue(limiter.allow("two", now=101))
+
 
 if __name__ == "__main__":
     unittest.main()
