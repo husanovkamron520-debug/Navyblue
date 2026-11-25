@@ -1099,16 +1099,16 @@ def run_health_server():
             snapshot = load_json(supply_chain.DATA_FILE, {})
             from urllib.parse import parse_qs
             query = parse_qs(parsed.query)
+            def _int_arg(key, default):
+                try:
+                    return int((query.get(key) or [str(default)])[0])
+                except (TypeError, ValueError):
+                    return default
             if parsed.path == "/sc-api/v1/bootstrap":
                 result = sc_api.build_bootstrap(snapshot)
             elif parsed.path == "/sc-api/v1/dashboard":
                 result = sc_api.build_dashboard(snapshot)
             elif parsed.path == "/sc-api/v1/inventory":
-                def _int_arg(key, default):
-                    try:
-                        return int((query.get(key) or [str(default)])[0])
-                    except (TypeError, ValueError):
-                        return default
                 result = sc_api.list_inventory(
                     snapshot,
                     search=(query.get("search") or [""])[0],
