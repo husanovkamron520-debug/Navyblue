@@ -157,7 +157,7 @@
       values.forEach((v,i)=>tr.append(el("td",i===0?"sku":"",v)));ft.append(tr);
       if(item.forecast_status==="available")available++;
     });
-    if(!demand.items.length)ft.append(el("tr","")).lastChild?.append(el("td","muted","Mahsulot yo‘q"));
+    if(!demand.items.length){const tr=el("tr","");tr.append(el("td","muted","Mahsulot yo‘q"));ft.append(tr);}
     $("forecast-note").textContent=available+" ta mahsulotda prognoz hisoblandi; qolganlarida kamida 3 oylik tarix kerak.";
     const summary=$("abc-summary");summary.replaceChildren();
     ["A","B","C"].forEach(key=>{
