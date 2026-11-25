@@ -127,7 +127,7 @@
     $("prev").disabled=page<=1;$("next").disabled=page>=totalPages;
     const table=$("inventory-table");table.replaceChildren();
     const mobile=$("inventory-mobile");mobile.replaceChildren();
-    if(!data.items.length){table.append(el("tr","")).lastChild.append(el("td","muted","Mahsulot topilmadi"));mobile.append(el("div","notice","Mahsulot topilmadi"));return;}
+    if(!data.items.length){const tr=el("tr","");tr.append(el("td","muted","Mahsulot topilmadi"));table.append(tr);mobile.append(el("div","notice","Mahsulot topilmadi"));return;}
     data.items.forEach(p=>{
       const tr=el("tr","");const status=p.quantity==null||p.reorder_point==null?"Noma’lum":p.quantity<=p.reorder_point?"Kam":"Me’yorda";
       [p.sku+" · "+p.name,fmt(p.quantity,1)+" "+(p.unit||""),fmt(p.reorder_point,1),money(p.unit_cost),status].forEach((v,i)=>{const td=el("td",i===0?"sku":i===4?"stock "+(status==="Kam"?"low":"ok"):"",v);tr.append(td);});table.append(tr);mobile.append(makeProductCard(p));
