@@ -940,7 +940,7 @@ def _risk_assessment(data: dict[str, Any], today: str | None = None) -> list[dic
             # Only use suppliers linked to this SKU; never borrow another product's lead time.
             linked_supplier_ids = {
                 str(order.get("supplier_id")) for order in data.get("orders", [])
-                if str(order.get("sku")) == str(sku) and order.get("supplier_id")
+                if str(order.get("sku")) == str(sku) and order.get("supplier_id") and order.get("status") in ("ordered", "received")
             }
             if product.get("supplier_id"):
                 linked_supplier_ids.add(str(product["supplier_id"]))
