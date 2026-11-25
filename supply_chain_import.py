@@ -194,7 +194,8 @@ def inspect_workbook(raw: bytes, overrides: dict[str, str] | None = None) -> dic
         fields = set(best["mapping"].values())
         kind = None
         for candidate in ("demand", "orders", "movements", "products", "suppliers"):
-            if _REQUIRED[candidate].issubset(fields):
+            required = _REQUIRED[candidate]
+            if required.issubset(fields) or (candidate == "orders" and {"product_name", "supplier_name", "quantity"}.issubset(fields)):
                 kind = candidate
                 break
         if kind is None:
@@ -211,6 +212,8 @@ def inspect_workbook(raw: bytes, overrides: dict[str, str] | None = None) -> dic
             record = {"_row": excel_row}
             for idx, field in best["mapping"].items():
                 record[field] = values[idx] if idx < len(values) else ""
+            if kind == "orders" and "order_quantity" not in record and "quantity" in record:
+                record["order_quantity"] = record["quantity"]
             if any(str(v or "").strip() for k, v in record.items() if k != "_row"):
                 records.append(record)
         unknown_nonempty = [u for u in best["unknown"] if any(
@@ -342,7 +345,8 @@ def apply_import(data: dict[str, Any], validated: dict[str, Any]) -> dict[str, A
         norm = _norm(name)
         return next((s for s in suppliers.values() if _norm(s.get("name")) == norm), None)
 
-    for row in validated.get("valid", []):
+    priority = {"products": 0, "suppliers": 1, "demand": 2, "orders": 3, "movements": 4}
+    for row in sorted(validated.get("valid", []), key=lambda item: priority.get(item["kind"], 9)):
         kind = row["kind"]
         if kind == "products":
             existing = find_product(row["product_name"])
