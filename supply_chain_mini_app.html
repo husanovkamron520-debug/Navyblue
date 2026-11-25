@@ -35,6 +35,8 @@
     <button class="active" data-view="dashboard">Dashboard</button>
     <button data-view="inventory">Ombor</button>
     <button data-view="analytics">Analytics</button>
+    <button data-view="procurement">Xarid</button>
+    <button data-view="logistics">Logistika</button>
   </nav>
   <main>
     <section id="dashboard-view">
@@ -67,6 +69,16 @@
         <div class="card"><div class="chart-title">Economic Order Quantity (EOQ)</div><div class="chart-sub">√(2 × D × S / H); saqlash xarajati taxmin qilingan bo‘lsa belgilanadi</div><div class="table-wrap" style="display:block;margin-top:12px"><table class="table" style="min-width:440px"><thead><tr><th>Mahsulot</th><th>EOQ</th><th>Buyurtma/yil</th><th>Izoh</th></tr></thead><tbody id="eoq-table"></tbody></table></div></div>
         <div class="card"><div class="chart-title">Qayta to‘ldirish tavsiyasi</div><div class="chart-sub">Ochiq buyurtmalar hisobga olinadi; tavsiyalar avtomatik buyurtma bermaydi</div><div id="replenishment-list" class="alert-list"></div></div>
       </div>
+    </section>
+    <section id="procurement-view" hidden>
+      <div class="section-head"><div><h2>Xarid va yetkazib beruvchilar</h2><p>Buyurtmalar holati va ta’minotchi ko‘rsatkichlari</p></div><button class="retry" id="procurement-refresh">Yangilash</button></div>
+      <div class="card"><div class="chart-title">Xarid buyurtmalari</div><div class="table-wrap" style="display:block;margin-top:12px"><table class="table"><thead><tr><th>Buyurtma</th><th>Mahsulot</th><th>Yetkazib beruvchi</th><th>Miqdor</th><th>Sana</th><th>Holat</th></tr></thead><tbody id="orders-table"></tbody></table></div><div class="mobile-list" id="orders-mobile"></div></div>
+      <div class="card" style="margin-top:12px"><div class="chart-title">Yetkazib beruvchilar</div><div id="suppliers-list" class="alert-list"></div></div>
+    </section>
+    <section id="logistics-view" hidden>
+      <div class="section-head"><div><h2>Transport va jo‘natmalar</h2><p>Rejalashtirilgan va faol yuk harakatlari</p></div><button class="retry" id="logistics-refresh">Yangilash</button></div>
+      <div class="card"><div class="chart-title">Jo‘natmalar</div><div class="table-wrap" style="display:block;margin-top:12px"><table class="table"><thead><tr><th>Jo‘natma</th><th>Mahsulot</th><th>Manzil</th><th>Transport</th><th>Masofa</th><th>Holat</th></tr></thead><tbody id="shipments-table"></tbody></table></div><div class="mobile-list" id="shipments-mobile"></div></div>
+      <div class="card" style="margin-top:12px"><div class="chart-title">Transport parki</div><div id="vehicles-list" class="alert-list"></div></div>
     </section>
     <div class="notice" id="notice" hidden><strong id="notice-title">Telegram orqali oching</strong><span id="notice-text">Mini App bot ichida ishlaydi.</span><div style="margin-top:12px"><button class="retry" id="retry" hidden>Qayta urinish</button></div></div>
   </main>
@@ -178,6 +190,30 @@
     });
     if(!replenishment.items.length)rl.append(el("div","muted","Mahsulotlar topilmadi."));
   }
+  async function loadProcurement() {
+    const [orders,suppliers]=await Promise.all([api("/sc-api/v1/procurement/orders?page_size=50"),api("/sc-api/v1/procurement/suppliers")]);
+    const table=$("orders-table");table.replaceChildren();const mobile=$("orders-mobile");mobile.replaceChildren();
+    orders.items.forEach(o=>{
+      const tr=el("tr","");[o.id,o.product_name,o.supplier_name,fmt(o.quantity,1),o.expected_date||"—",o.status].forEach(v=>tr.append(el("td","",v)));table.append(tr);
+      const card=el("article","product-card");card.append(el("div","name",o.product_name),el("div","muted",o.id+" · "+o.supplier_name),el("div","product-meta","Miqdor "+fmt(o.quantity,1)+" · "+(o.expected_date||"—")+" · "+o.status));mobile.append(card);
+    });
+    if(!orders.items.length){const tr=el("tr","");tr.append(el("td","muted","Buyurtmalar topilmadi"));table.append(tr);}
+    const list=$("suppliers-list");list.replaceChildren();
+    suppliers.items.forEach(s=>{const row=el("div","alert");row.append(el("strong","",s.name),el("span","pill",fmt(s.lead_time_days,0)+" kun · "+fmt(s.rating,1)+"/5"));list.append(row);});
+    if(!suppliers.items.length)list.append(el("div","muted","Yetkazib beruvchilar topilmadi."));
+  }
+  async function loadLogistics() {
+    const [shipments,vehicles]=await Promise.all([api("/sc-api/v1/logistics/shipments?page_size=50"),api("/sc-api/v1/logistics/vehicles")]);
+    const table=$("shipments-table");table.replaceChildren();const mobile=$("shipments-mobile");mobile.replaceChildren();
+    shipments.items.forEach(s=>{
+      const tr=el("tr","");[s.id,s.product_name,s.destination,s.vehicle_name||"—",fmt(s.distance_km,1)+" km",s.status].forEach(v=>tr.append(el("td","",v)));table.append(tr);
+      const card=el("article","product-card");card.append(el("div","name",s.product_name+" · "+s.id),el("div","muted",s.destination),el("div","product-meta",(s.vehicle_name||"Transport yo‘q")+" · "+fmt(s.distance_km,1)+" km · "+s.status));mobile.append(card);
+    });
+    if(!shipments.items.length){const tr=el("tr","");tr.append(el("td","muted","Jo‘natmalar topilmadi"));table.append(tr);}
+    const list=$("vehicles-list");list.replaceChildren();
+    vehicles.items.forEach(v=>{const row=el("div","alert");row.append(el("strong","",v.name),el("span","pill",fmt(v.capacity,0)+" sig‘im · "+fmt(v.cost_per_km,0)+"/km"));list.append(row);});
+    if(!vehicles.items.length)list.append(el("div","muted","Transport vositalari topilmadi."));
+  }
   async function refreshAll() {
     try { hideNotice(); $("connection").textContent="Yangilanmoqda"; await loadDashboard(); if(currentView==="inventory")await loadInventory(); $("connection").textContent="Ulangan"; }
     catch(err){ $("connection").textContent="Xatolik"; showNotice("Ma’lumot yuklanmadi",err.message,true); }
@@ -187,10 +223,14 @@
     document.querySelectorAll(".nav button").forEach(b=>b.classList.toggle("active",b.dataset.view===view));
     if(view==="inventory")loadInventory().catch(e=>showNotice("Ombor yuklanmadi",e.message,true));
     if(view==="analytics")loadAnalytics().catch(e=>showNotice("Analytics yuklanmadi",e.message,true));
+    if(view==="procurement")loadProcurement().catch(e=>showNotice("Xarid yuklanmadi",e.message,true));
+    if(view==="logistics")loadLogistics().catch(e=>showNotice("Logistika yuklanmadi",e.message,true));
   }
   document.querySelectorAll(".nav button").forEach(b=>b.addEventListener("click",()=>switchView(b.dataset.view)));
   $("refresh").addEventListener("click",refreshAll);$("inventory-refresh").addEventListener("click",()=>loadInventory().catch(e=>showNotice("Xatolik",e.message,true)));
   $("analytics-refresh").addEventListener("click",()=>loadAnalytics().catch(e=>showNotice("Xatolik",e.message,true)));
+  $("procurement-refresh").addEventListener("click",()=>loadProcurement().catch(e=>showNotice("Xatolik",e.message,true)));
+  $("logistics-refresh").addEventListener("click",()=>loadLogistics().catch(e=>showNotice("Xatolik",e.message,true)));
   $("prev").addEventListener("click",()=>{if(page>1){page--;loadInventory().catch(e=>showNotice("Xatolik",e.message,true));}});
   $("next").addEventListener("click",()=>{if(page<totalPages){page++;loadInventory().catch(e=>showNotice("Xatolik",e.message,true));}});
   ["search","status","sort"].forEach(id=>$(id).addEventListener(id==="search"?"input":"change",()=>{page=1;clearTimeout(searchTimer);searchTimer=setTimeout(()=>loadInventory().catch(e=>showNotice("Xatolik",e.message,true)),id==="search"?250:0);}));
