@@ -108,8 +108,8 @@
   async function loadDashboard() {
     const result=await api("/sc-api/v1/dashboard"); const k=result.kpis;
     setKpis(k);renderAlerts(k);
-    const all=Math.max(1,(k.product_count||0));const low=Math.min(all,k.low_stock_count||0);const good=Math.max(0,all-low);
-    $("low-bar").style.width=(low/all*100)+"%";$("good-bar").style.width=(good/all*100)+"%";
+    const all=Math.max(0,(k.product_count||0));const low=Math.min(all,k.low_stock_count||0);const good=Math.max(0,all-low);
+    $("low-bar").style.width=(all?low/all*100:0)+"%";$("good-bar").style.width=(all?good/all*100:0)+"%";
     $("low-legend").textContent=fmt(low);$("good-legend").textContent=fmt(good);
   }
   function makeProductCard(p) {
