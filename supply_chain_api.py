@@ -371,13 +371,19 @@ def get_inventory_detail(snapshot: dict, sku: str) -> dict:
     product = products.get(sku)
     if not isinstance(product, dict):
         return _envelope({"item": None}, int(data.get("version") or 1))
-    movements = [m for m in data.get("movements", []) if isinstance(m, dict) and str(m.get("sku")) == str(sku)]
-    movements.sort(key=lambda m: str(m.get("created_at") or ""), reverse=True)
-    demand = [r for r in data.get("demand_history", []) if isinstance(r, dict) and str(r.get("sku")) == str(sku)]
-    demand.sort(key=lambda r: str(r.get("month") or ""), reverse=True)
+    raw_movements = [m for m in data.get("movements", []) if isinstance(m, dict) and str(m.get("sku")) == str(sku)]
+    raw_movements.sort(key=lambda m: str(m.get("created_at") or ""), reverse=True)
+    movements = [{"type": str(m.get("type") or ""), "quantity": _number(m.get("quantity")),
+                  "note": str(m.get("note") or "")[:240], "created_at": m.get("created_at"),
+                  "shipment_id": m.get("shipment_id"), "order_id": m.get("order_id")}
+                 for m in raw_movements[:20]]
+    raw_demand = [r for r in data.get("demand_history", []) if isinstance(r, dict) and str(r.get("sku")) == str(sku)]
+    raw_demand.sort(key=lambda r: str(r.get("month") or ""), reverse=True)
+    demand = [{"month": str(r.get("month") or ""), "quantity": _number(r.get("quantity")),
+               "created_at": r.get("created_at")} for r in raw_demand[:12]]
     return _envelope({"item": _product_row(str(sku), product),
-                      "recent_movements": movements[:20],
-                      "demand_history": demand[:12]}, int(data.get("version") or 1))
+                      "recent_movements": movements,
+                      "demand_history": demand}, int(data.get("version") or 1))
 
 def _number(value):
     try:
