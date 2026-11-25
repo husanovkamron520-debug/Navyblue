@@ -15,4 +15,4 @@ jobs:
         with:
           python-version: "3.12"
       - name: Compile bot entry points
-        run: python -m py_compile bot.py supply_chain.py
+        run: python -m py_compile bot.py supply_chain.py supply_chain_import.py
