@@ -31,7 +31,7 @@ _CANONICAL = {
     "supplier_name": {"yetkazib beruvchi", "ta'minotchi", "taminotchi", "supplier", "supplier name", "vendor", "поставщик"},
     "contact": {"aloqa", "telefon", "tel", "email", "contact", "phone", "контакт", "телефон"},
     "lead_time_days": {"yetkazish muddati", "yetkazib berish muddati", "lead time", "delivery days", "muddat kun", "срок поставки"},
-    "rating": {"reyting", "baho", "rating", "score", "рейтинr"},
+    "rating": {"reyting", "baho", "rating", "score", "рейтинг"},
     "month": {"oy", "davr", "month", "period", "sana", "date", "месяц", "период"},
     "demand_quantity": {"talab", "sotuv", "sotuv miqdori", "realizatsiya", "sales", "demand", "sales qty", "продажи"},
     "order_id": {"buyurtma id", "order id", "order", "zakaz raqami"},
@@ -195,7 +195,7 @@ def inspect_workbook(raw: bytes, overrides: dict[str, str] | None = None) -> dic
         kind = None
         for candidate in ("demand", "orders", "movements", "products", "suppliers"):
             required = _REQUIRED[candidate]
-            if required.issubset(fields) or (candidate == "orders" and {"product_name", "supplier_name", "quantity"}.issubset(fields)):
+            if required.issubset(fields) or (candidate == "orders" and {"product_name", "supplier_name", "quantity"}.issubset(fields)) or (candidate == "demand" and {"product_name", "month", "quantity"}.issubset(fields)) or (candidate == "suppliers" and {"product_name", "lead_time_days"}.issubset(fields)):
                 kind = candidate
                 break
         if kind is None:
@@ -214,6 +214,10 @@ def inspect_workbook(raw: bytes, overrides: dict[str, str] | None = None) -> dic
                 record[field] = values[idx] if idx < len(values) else ""
             if kind == "orders" and "order_quantity" not in record and "quantity" in record:
                 record["order_quantity"] = record["quantity"]
+            if kind == "demand" and "demand_quantity" not in record and "quantity" in record:
+                record["demand_quantity"] = record["quantity"]
+            if kind == "suppliers" and "supplier_name" not in record and "product_name" in record:
+                record["supplier_name"] = record["product_name"]
             if any(str(v or "").strip() for k, v in record.items() if k != "_row"):
                 records.append(record)
         unknown_nonempty = [u for u in best["unknown"] if any(
