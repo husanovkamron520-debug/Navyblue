@@ -783,18 +783,13 @@ def _forecast_text(data: dict[str, Any]) -> str:
         records.sort(key=lambda r: str(r.get("month", "")))
         records = records[-6:]
         source = "Tarixiy ma’lumot"
-        if records:
-            values = [float(r.get("quantity", 0) or 0) for r in records]
-            weights = list(range(1, len(values) + 1))
-            forecast = sum(v * w for v, w in zip(values, weights)) / sum(weights)
-            months_label = ", ".join(str(r.get("month")) for r in records)
-        else:
-            annual = float(product.get("annual_demand", 0) or 0)
-            if annual <= 0 or not math.isfinite(annual):
-                continue
-            forecast = annual / 12
-            months_label = "Tarix kiritilmagan"
-            source = "Yillik talab / 12 (taxmin)"
+        if len(records) < 3:
+            lines.append(f"**{product.get('name', sku)}** — prognoz berilmadi: kamida 3 oylik tarix kerak, hozir {len(records)} oy mavjud.")
+            continue
+        values = [float(r.get("quantity", 0) or 0) for r in records]
+        weights = list(range(1, len(values) + 1))
+        forecast = sum(v * w for v, w in zip(values, weights)) / sum(weights)
+        months_label = ", ".join(str(r.get("month")) for r in records)
         stock = float(product.get("quantity", 0) or 0)
         reorder = float(product.get("reorder_point", 0) or 0)
         daily = forecast / 30 if forecast > 0 else 0
@@ -892,12 +887,13 @@ def _risk_assessment(data: dict[str, Any], today: str | None = None) -> list[dic
                 (r for r in history if r.get("sku") == sku),
                 key=lambda r: str(r.get("month", ""))
             )[-6:]
-            if records:
+            if len(records) >= 3:
                 vals = [float(r.get("quantity", 0) or 0) for r in records]
                 forecast = sum(v * w for v, w in zip(vals, range(1, len(vals) + 1))) / sum(range(1, len(vals) + 1))
+                daily = forecast / 30 if forecast > 0 else 0
             else:
-                forecast = annual / 12 if annual > 0 else 0
-            daily = forecast / 30 if forecast > 0 else annual / 365 if annual > 0 else 0
+                forecast = 0
+                daily = 0  # insufficient monthly history: do not invent a consumption rate
             cover = stock / daily if daily > 0 else float("inf")
             supplier_leads = [float(s.get("lead_time_days", 0) or 0) for s in suppliers.values()]
             lead = min((x for x in supplier_leads if math.isfinite(x) and x >= 0), default=0)
