@@ -73,7 +73,7 @@ class SupplyChainImportTests(unittest.TestCase):
         self.assertEqual(len(mapped["sheets"][0]["records"]), 1)
 
     def test_fully_unrecognized_headers_are_asked_not_silently_skipped(self):
-        raw = make_xlsx([["Nomenklatura", "Count"], ["Paxta", "15"]])
+        raw = make_xlsx([["Xomashyo tavsifi", "Count"], ["Paxta", "15"]])
         preview = supply_chain_import.inspect_workbook(raw)
         self.assertEqual({q["column"] for q in preview["questions"]}, {"A", "B"})
         mapped = supply_chain_import.inspect_workbook(raw, {"A": "product_name", "B": "quantity"})
