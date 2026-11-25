@@ -87,9 +87,9 @@ class SupplyChainCalculationRegressionTests(unittest.TestCase):
             "C": {"name": "C item", "annual_demand": 5, "unit_cost": 10},
         }
         text = supply_chain._abc_text(data)
-        self.assertIn("A guruhi — 1 ta | 80.0% qiymat", text)
-        self.assertIn("B guruhi — 1 ta | 15.0% qiymat", text)
-        self.assertIn("C guruhi — 1 ta | 5.0% qiymat", text)
+        self.assertIn("**A guruhi** — 1 ta | 80.0% qiymat", text)
+        self.assertIn("**B guruhi** — 1 ta | 15.0% qiymat", text)
+        self.assertIn("**C guruhi** — 1 ta | 5.0% qiymat", text)
 
     def test_vehicle_selection_uses_lowest_cost_then_eta(self):
         data = empty_data()
