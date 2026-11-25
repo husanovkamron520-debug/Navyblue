@@ -1549,6 +1549,7 @@ def _home_keyboard() -> InlineKeyboardMarkup:
         [_btn("📥 Kirim", "in"), _btn("📤 Chiqim", "out")],
         [_btn("📊 Hisobotlar", "reports"), _btn("🛒 Xarid", "buy")],
         [_btn("🚛 Transport", "transport"), _btn("🧪 Simulyatsiya", "sim")],
+        [_btn("📥 Excel qabul qilish", "excel_upload")],
         [_btn("🤖 AI maslahatchi", "ai")],
     ])
 
@@ -1737,7 +1738,11 @@ async def _callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         _save(data)
         await _edit(q, message + "\n\n" + _orders_text(data), _orders_keyboard(data))
     elif action == "home":
+        context.user_data.pop("_sc_wait", None)
         await _edit(q, _HOME_TEXT, _home_keyboard())
+    elif action == "excel_upload":
+        context.user_data["_sc_wait"] = {"action": "excel_upload", "parent": "home", "started": datetime.now().timestamp()}
+        await _edit(q, "📥 **EXCEL QABUL QILISH**\n\n.xlsx faylni shu chatga yuboring. Faylni o'qiy olmasam, sababini ko'rsataman va sizdan uning mazmuni hamda ustunlari haqida so'rayman.\n\nImportdan oldin barcha ma'lumotlar ko'rib chiqiladi; tasdiqlamaguningizcha omborga yozilmaydi.", _back_keyboard("home"))
     elif action in _MENU_TITLES:
         await _edit(q, _MENU_TITLES[action], _menu_keyboard(action))
     elif action in _simple_views():
@@ -1797,7 +1802,12 @@ def _excel_mapping_from_text(raw: str, current: dict[str, Any] | None = None) ->
     import copy
     result = copy.deepcopy(current or {})
     allowed = set(supply_chain_import._CANONICAL)
-    matches = list(re.finditer(r"(?:(?P<sheet>[^,;!\n]+)!)?(?P<column>[A-Za-z]{1,3})\s*=\s*(?P<field>[^,;\n]+)", raw))
+    matches = list(re.finditer(
+        r"(?:(?P<sheet>[^,;!\n]+)!)?(?P<column>[A-Za-z]{1,3})"
+        r"(?:\s*(?:=|:|[-–])\s*|\s+(?:ustuni|ustunida|ustun|da)\s+|\s+)"
+        r"(?P<field>[^,;\n]+)",
+        raw, re.IGNORECASE,
+    ))
     for match in matches:
         sheet = (match.group("sheet") or "").strip()
         column = match.group("column").upper()
@@ -1820,8 +1830,13 @@ async def _excel_finish_import(message, context, raw_file: bytes, overrides: dic
     try:
         preview = supply_chain_import.inspect_workbook(raw_file, overrides or {})
     except Exception as exc:
-        context.user_data.pop("_sc_wait", None)
-        await _reply(message, "⚠️ Excel faylini o'qib bo'lmadi: " + _friendly_error(exc))
+        context.user_data["_sc_wait"] = {"action": "excel_upload", "parent": "home", "started": datetime.now().timestamp()}
+        context.user_data["_sc_excel_read_error"] = str(exc)[:300]
+        await _reply(message,
+            "⚠️ Faylni ocholmadim: " + _friendly_error(exc) +
+            "\n\nBu fayl haqiqiy Excel Workbook (.xlsx) bo'lmasligi yoki buzilgan bo'lishi mumkin. "
+            "Qaysi dasturdan olinganini va ichida qanday ma'lumot borligini yozing. "
+            "Keyin Excel Workbook (.xlsx) qilib qayta saqlab yuboring.")
         return
 
     context.user_data["_sc_excel_preview"] = preview
@@ -1837,20 +1852,23 @@ async def _excel_finish_import(message, context, raw_file: bytes, overrides: dic
         if len(questions) > 24:
             lines.append(f"… yana {len(questions) - 24} ta ustun. Ularni ham keyingi xabarda so'rayman.")
         context.user_data["_sc_wait"] = {"action": "excel_map", "parent": "home", "started": datetime.now().timestamp()}
-        await _reply(message, "\\n".join(lines))
+        await _reply(message, "\n".join(lines))
         return
 
     validated = supply_chain_import.validate_records(preview)
     context.user_data["_sc_excel_validated"] = validated
     if not validated.get("valid"):
-        context.user_data.pop("_sc_wait", None)
-        lines = ["⚠️ **Import qilish uchun mos yozuv topilmadi.**", "",
+        context.user_data["_sc_wait"] = {"action": "excel_clarify", "parent": "home", "started": datetime.now().timestamp()}
+        lines = ["⚠️ **Fayl o'qildi, lekin ma'lumot turini aniqlay olmadim.**", "",
                  f"Tekshirilgan varaqlar: {len(preview.get('sheets', []))}",
+                 f"Topilgan qatorlar: {preview.get('record_count', 0)}",
                  f"Xatolar: {validated.get('error_count', 0)}"]
         for err in validated.get("errors", [])[:12]:
             lines.append(f"• {err.get('sheet', '?')}!{err.get('row', '?')}: {err.get('message', '')}")
-        lines += ["", "Bu fayl logistika dataset bo'lsa, uning ustunlari ombor mahsuloti/yetkazib beruvchi/import formatiga mos kelmasligi mumkin."]
-        await _reply(message, "\\n".join(lines))
+        lines += ["", "Bu fayl nimaga mo'ljallangan? Qaysi varaqlar va ustunlar nimani bildiradi?",
+                  "Ustunlarni harflari bilan tushuntiring. Masalan: A=mahsulot nomi, B=miqdor, C=narx. "
+                  "Kerak bo'lmagan ustun: D=ignore. Tushuntiring — qayta tekshiraman."]
+        await _reply(message, "\n".join(lines))
         return
 
     counts = {}
@@ -1868,15 +1886,25 @@ async def _excel_finish_import(message, context, raw_file: bytes, overrides: dic
     lines += ["", "Ma'lumotlar hozircha saqlanmadi.",
               "Import qilish uchun TASDIQLAYMAN deb yozing. Bekor qilish uchun BEKOR deb yozing."]
     context.user_data["_sc_wait"] = {"action": "excel_confirm", "parent": "home", "started": datetime.now().timestamp()}
-    await _reply(message, "\\n".join(lines))
+    await _reply(message, "\n".join(lines))
 
 
 async def _handle_excel_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not _allowed(update) or not update.message or not update.message.document:
         return
     document = update.message.document
+    filename = str(document.file_name or "").strip()
+    if not filename.casefold().endswith(".xlsx"):
+        context.user_data["_sc_wait"] = {"action": "excel_upload", "parent": "home", "started": datetime.now().timestamp()}
+        await update.message.reply_text(
+            f"⚠️ «{filename or 'Nomsiz fayl'}» .xlsx formatida emas. Hozircha .xlsx fayllarni qabul qilaman. "
+            "Excel'da Fayl → Boshqa nom bilan saqlash → Excel Workbook (.xlsx) ni tanlang va qayta yuboring. "
+            "Bu fayl nimadan iboratligini ham yozishingiz mumkin."
+        )
+        return
     if document.file_size and document.file_size > 12 * 1024 * 1024:
-        await update.message.reply_text("Excel fayli 12 MB dan katta. Kichikroq .xlsx fayl yuboring.")
+        context.user_data["_sc_wait"] = {"action": "excel_upload", "parent": "home", "started": datetime.now().timestamp()}
+        await update.message.reply_text("⚠️ Excel fayli 12 MB dan katta. Kichikroq .xlsx fayl yuboring yoki ortiqcha varaqlarni olib tashlang.")
         return
     try:
         remote = await document.get_file()
@@ -1884,10 +1912,15 @@ async def _handle_excel_document(update: Update, context: ContextTypes.DEFAULT_T
         context.user_data["_sc_excel_raw"] = raw_file
         context.user_data["_sc_excel_overrides"] = {}
         context.user_data.pop("_sc_excel_validated", None)
+        context.user_data.pop("_sc_excel_read_error", None)
         await _excel_finish_import(update.message, context, raw_file, {})
     except Exception as exc:
-        context.user_data.pop("_sc_wait", None)
-        await update.message.reply_text("⚠️ Excel faylini yuklab/o'qib bo'lmadi: " + _friendly_error(exc))
+        context.user_data["_sc_wait"] = {"action": "excel_upload", "parent": "home", "started": datetime.now().timestamp()}
+        await update.message.reply_text(
+            "⚠️ Faylni yuklab yoki o'qib bo'lmadi: " + _friendly_error(exc) +
+            "\nFaylni Excel Workbook (.xlsx) ko'rinishida qayta saqlab yuboring. "
+            "Agar bu boshqa turdagi jadval bo'lsa, nima ma'lumot borligini tushuntiring."
+        )
 
 
 async def _text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
@@ -1925,6 +1958,33 @@ async def _text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
             await status.edit_text("⏱ Gemini 42 soniyada javob bermadi. Keyinroq urinib ko'ring.", reply_markup=_home_keyboard())
         except Exception as exc:
             await status.edit_text("⚠️ AI tahlili bajarilmadi.\n" + str(exc)[:500], reply_markup=_home_keyboard())
+        return True
+    if action == "excel_upload":
+        if raw:
+            context.user_data["_sc_excel_user_note"] = raw[:1000]
+            await update.message.reply_text(
+                "Tushundim. Izohingizni saqladim. Endi faylni Excel Workbook (.xlsx) formatida qayta yuboring. "
+                "Fayl ochilgach, ustunlarni shu izoh asosida aniqlashtiramiz."
+            )
+        else:
+            await update.message.reply_text("Excel faylini yuboring (.xlsx formatida). Agar xato chiqsa, sababini ko'rsatib, tushuntirishingizni so'rayman.")
+        return True
+    if action == "excel_clarify":
+        raw_file = context.user_data.get("_sc_excel_raw")
+        if not raw_file:
+            context.user_data["_sc_wait"] = {"action": "excel_upload", "parent": "home", "started": datetime.now().timestamp()}
+            await update.message.reply_text("Oldingi fayl sessiyada topilmadi. Iltimos, .xlsx faylni qayta yuboring.")
+            return True
+        overrides = _excel_mapping_from_text(raw, context.user_data.get("_sc_excel_overrides", {}))
+        if not overrides:
+            await update.message.reply_text(
+                "Ustunlarni harflari bilan yozing. Masalan: "
+                "A=mahsulot nomi, B=miqdor, C=narx. Kerak bo'lmagan ustun: D=ignore. "
+                "Varaq bo'lsa: Sheet1!A=mahsulot nomi."
+            )
+            return True
+        context.user_data["_sc_excel_overrides"] = overrides
+        await _excel_finish_import(update.message, context, raw_file, overrides)
         return True
     if action == "excel_map":
         raw_file = context.user_data.get("_sc_excel_raw")
@@ -1972,7 +2032,7 @@ async def _text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
             if result.get(key):
                 lines.append(f"• {label}: {result[key]} ta")
         lines.append(f"Xatolar/o'tkazilganlar: {len(result.get('errors', []))}")
-        await _reply(update.message, "\\n".join(lines), _home_keyboard())
+        await _reply(update.message, "\n".join(lines), _home_keyboard())
         return True
     handler = _APPLY.get(str(action))
     if handler is None:
@@ -2006,7 +2066,7 @@ def install(app: Application, load_json: Callable[[str, Any], Any], save_json: C
     _AI_MODEL = (ai_model or "gemini-3.5-flash-lite").strip()
     app.add_handler(CommandHandler("supply", open_supply))
     app.add_handler(CallbackQueryHandler(_callback, pattern=r"^sc:"))
-    app.add_handler(MessageHandler(filters.ChatType.PRIVATE & filters.Document.FileExtension("xlsx"), _handle_excel_document))
+    app.add_handler(MessageHandler(filters.ChatType.PRIVATE & filters.Document.ALL, _handle_excel_document))
 
 
 def on_text_handler():
