@@ -1,6 +1,7 @@
 name: Supply Chain regression tests
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - docs/supply-chain-mini-app-blueprint
