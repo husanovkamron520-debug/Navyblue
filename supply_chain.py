@@ -1595,6 +1595,7 @@ _PROMPTS = {
             "• saqlash 4000 — 1 kg/dona mahsulotni 1 yil saqlash xarajati (so'm/birlik/yil). Butun omborning oylik ijarasini yozmang.\n"
             "• Kod (SKU) o'zi qo'yiladi.\n• Mavjud mahsulotni yangilash: Paxta ipi narx 30000\n"
             "• Ko'p mahsulotni ketma-ket yuboravering."),
+    "in": ("📥 **KIRIM**\n\nOddiy gap bilan yozing:\n`50 kg paxta keldi`\n`paxta ipi 120 kirim`\n\n"
            "Ketma-ket yuboravering. «ketdi» deb yozsangiz chiqim bo'ladi."),
     "out": ("📤 **CHIQIM**\n\nOddiy gap bilan yozing:\n`200 kg paxta ketdi`\n`paxta ipi 5 ishlatildi`\n\n"
             "Ketma-ket yuboravering."),
