@@ -114,6 +114,64 @@ class ReadOnlyApiServiceTests(unittest.TestCase):
         self.assertFalse(limiter.allow("one", now=101))
         self.assertTrue(limiter.allow("two", now=101))
 
+    def test_demand_analytics_weighted_forecast_and_minimum_history(self):
+        self.snapshot["demand_history"] = [
+            {"sku": "SKU-1", "month": "2026-01", "quantity": 10},
+            {"sku": "SKU-1", "month": "2026-02", "quantity": 20},
+            {"sku": "SKU-1", "month": "2026-03", "quantity": 30},
+            {"sku": "SKU-2", "month": "2026-03", "quantity": 12},
+        ]
+        result = api.build_demand_analytics(self.snapshot)["data"]["items"]
+        first = next(x for x in result if x["sku"] == "SKU-1")
+        second = next(x for x in result if x["sku"] == "SKU-2")
+        self.assertEqual(first["forecast_next_month"], 23.3333)
+        self.assertEqual(first["forecast_status"], "available")
+        self.assertEqual(second["forecast_status"], "insufficient_history")
+        self.assertIsNone(second["forecast_next_month"])
+
+    def test_abc_uses_annual_demand_times_unit_cost_midpoint_bands(self):
+        self.snapshot["products"] = {
+            "A": {"name": "A", "annual_demand": 80, "unit_cost": 10},
+            "B": {"name": "B", "annual_demand": 15, "unit_cost": 10},
+            "C": {"name": "C", "annual_demand": 5, "unit_cost": 10},
+        }
+        result = api.build_abc_analysis(self.snapshot)["data"]
+        self.assertEqual([x["category"] for x in result["items"]], ["A", "B", "C"])
+        self.assertEqual(result["groups"]["A"]["share_percent"], 80.0)
+
+    def test_eoq_preserves_twenty_percent_holding_cost_fallback(self):
+        self.snapshot["products"] = {
+            "A": {"name": "A", "annual_demand": 100, "order_cost": 25, "unit_cost": 10},
+        }
+        result = api.build_eoq_analysis(self.snapshot)["data"]["items"][0]
+        self.assertEqual(result["holding_cost_used"], 2.0)
+        self.assertTrue(result["holding_cost_assumed"])
+        self.assertAlmostEqual(result["eoq"], (2500) ** 0.5)
+
+    def test_replenishment_subtracts_open_order_quantity(self):
+        self.snapshot["demand_history"] = [
+            {"sku": "SKU-1", "month": "2026-01", "quantity": 10},
+            {"sku": "SKU-1", "month": "2026-02", "quantity": 20},
+            {"sku": "SKU-1", "month": "2026-03", "quantity": 30},
+        ]
+        self.snapshot["orders"] = [{"sku": "SKU-1", "quantity": 5, "status": "ordered"}]
+        result = api.build_replenishment(self.snapshot)["data"]["items"]
+        first = next(x for x in result if x["sku"] == "SKU-1")
+        self.assertEqual(first["open_order_quantity"], 5)
+        self.assertEqual(first["suggested_order_quantity"], 23.33)
+
+    def test_inventory_detail_is_read_only_and_scoped_to_sku(self):
+        self.snapshot["movements"] = [
+            {"sku": "SKU-1", "type": "in", "quantity": 5, "created_at": "2026-01-01"},
+            {"sku": "SKU-2", "type": "out", "quantity": 9, "created_at": "2026-01-02"},
+        ]
+        import copy
+        before = copy.deepcopy(self.snapshot)
+        result = api.get_inventory_detail(self.snapshot, "SKU-1")["data"]
+        self.assertEqual(len(result["recent_movements"]), 1)
+        self.assertEqual(result["recent_movements"][0]["sku"], "SKU-1")
+        self.assertEqual(self.snapshot, before)
+
 
 if __name__ == "__main__":
     unittest.main()
