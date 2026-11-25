@@ -169,7 +169,8 @@ class ReadOnlyApiServiceTests(unittest.TestCase):
         before = copy.deepcopy(self.snapshot)
         result = api.get_inventory_detail(self.snapshot, "SKU-1")["data"]
         self.assertEqual(len(result["recent_movements"]), 1)
-        self.assertEqual(result["recent_movements"][0]["sku"], "SKU-1")
+        self.assertEqual(result["recent_movements"][0]["type"], "in")
+        self.assertNotIn("secret", result["recent_movements"][0])
         self.assertEqual(self.snapshot, before)
 
     def test_procurement_lists_do_not_expose_supplier_contact(self):
