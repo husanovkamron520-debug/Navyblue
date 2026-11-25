@@ -1921,14 +1921,29 @@ async def role_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     elif query.data == "role_student":
-        # Bir foydalanuvchi ham ustoz, ham shogird bo'lishi mumkin; tanlangan rolni saqlaymiz.
+        # Avvaldan ro'yxatdan o'tgan shogird qayta kod kiritmaydi.
+        existing_student = students.get(user_id) or {}
+        existing_student_code = str(existing_student.get("teacher_code") or "")
+        if existing_student_code in teachers:
+            existing_code = _registered_teacher_code(chat_id, teachers)
+            if existing_code:
+                teachers[existing_code]["active_role"] = "student"
+                save_teachers(teachers)
+            await query.edit_message_text("👨‍🎓 Shogird rejimi tanlandi.")
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text="Ta'lim bo'limi — Shogird.",
+                reply_markup=student_menu(chat_id),
+            )
+            return
+        # Bir foydalanuvchi ham ustoz, ham shogird bo'lishi mumkin.
         existing_code = _registered_teacher_code(chat_id, teachers)
         if existing_code:
             teachers[existing_code]["active_role"] = "student"
             save_teachers(teachers)
         context.user_data["awaiting_teacher_code"] = True
         await query.edit_message_text(
-            "👨‍🎓 Talaba rejimi tanlandi.\n\n"
+            "👨‍🎓 Shogird rejimi tanlandi.\n\n"
             "O'qituvchingiz bergan kodni yuboring (masalan: T_1234):"
         )
 
@@ -12023,15 +12038,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         cid = int(update.effective_chat.id)
         if text == BTN_EDU:
             MENU_OPEN.add(cid)
-            student = students.get(user_id) or {}
-            if teacher_code:
-                kb = teacher_menu(cid)
-                await update.message.reply_text("👨‍🏫 Ustoz bo'limi ochildi.", reply_markup=kb)
-            elif student.get("teacher_code") in teachers:
-                kb = student_menu(cid)
-                await update.message.reply_text("👨‍🎓 Shogird bo'limi ochildi.", reply_markup=kb)
-            else:
-                await show_role_picker(update.message)
+            await show_role_picker(update.message)
         else:
             MENU_OPEN.discard(cid)
             await update.message.reply_text("Asosiy menyu:", reply_markup=collapsed_menu(cid))
