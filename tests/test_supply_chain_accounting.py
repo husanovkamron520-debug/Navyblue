@@ -25,6 +25,15 @@ import supply_chain
 
 
 class SupplyChainAccountingTests(unittest.TestCase):
+    def test_telegram_excel_import_handlers_and_sheet_mapping_are_wired(self):
+        self.assertTrue(callable(supply_chain._handle_excel_document))
+        self.assertTrue(callable(supply_chain._excel_finish_import))
+        mapped = supply_chain._excel_mapping_from_text(
+            "OrderList!J=product_name, OrderList!M=quantity, FreightRates!A=ignore"
+        )
+        self.assertEqual(mapped["OrderList"], {"J": "product_name", "M": "quantity"})
+        self.assertEqual(mapped["FreightRates"], {"A": "ignore"})
+
     def test_purchase_receipt_recalculates_avco(self):
         data = {
             "products": {
