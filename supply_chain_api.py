@@ -280,6 +280,91 @@ def build_replenishment(snapshot: dict) -> dict:
                      int(data.get("version") or 1))
 
 
+
+def _page_items(items: list[dict], page: int = 1, page_size: int = 10) -> dict:
+    page = max(1, min(int(page), 1_000_000))
+    page_size = max(1, min(int(page_size), 100))
+    total = len(items)
+    start = (page - 1) * page_size
+    return {"items": items[start:start + page_size],
+            "pagination": {"page": page, "page_size": page_size, "total": total,
+                           "pages": (total + page_size - 1) // page_size}}
+
+
+def list_purchase_orders(snapshot: dict, status: str = "all", page: int = 1, page_size: int = 10) -> dict:
+    data = copy.deepcopy(snapshot) if isinstance(snapshot, dict) else {}
+    suppliers = data.get("suppliers") if isinstance(data.get("suppliers"), dict) else {}
+    products = data.get("products") if isinstance(data.get("products"), dict) else {}
+    orders = data.get("orders") if isinstance(data.get("orders"), list) else []
+    rows = []
+    for order in orders:
+        if not isinstance(order, dict) or (status != "all" and order.get("status") != status):
+            continue
+        supplier = suppliers.get(str(order.get("supplier_id")), {})
+        product = products.get(str(order.get("sku")), {})
+        rows.append({"id": str(order.get("id") or ""), "sku": str(order.get("sku") or ""),
+                     "product_name": str(product.get("name") or order.get("sku") or ""),
+                     "supplier_name": str(supplier.get("name") or ""),
+                     "quantity": _number(order.get("quantity")), "unit_price": _number(order.get("unit_price")),
+                     "expected_date": order.get("expected_date"), "status": str(order.get("status") or ""),
+                     "created_at": order.get("created_at")})
+    rows.sort(key=lambda r: str(r.get("created_at") or ""), reverse=True)
+    return _envelope(_page_items(rows, page, page_size), int(data.get("version") or 1))
+
+
+def list_suppliers(snapshot: dict) -> dict:
+    data = copy.deepcopy(snapshot) if isinstance(snapshot, dict) else {}
+    suppliers = data.get("suppliers") if isinstance(data.get("suppliers"), dict) else {}
+    rows = []
+    for sid, supplier in suppliers.items():
+        if not isinstance(supplier, dict):
+            continue
+        rows.append({"id": str(sid), "name": str(supplier.get("name") or sid),
+                     "lead_time_days": _number(supplier.get("lead_time_days")),
+                     "rating": _number(supplier.get("rating"))})
+    rows.sort(key=lambda r: r["name"].casefold())
+    return _envelope({"items": rows}, int(data.get("version") or 1))
+
+
+def list_shipments(snapshot: dict, status: str = "all", page: int = 1, page_size: int = 10) -> dict:
+    data = copy.deepcopy(snapshot) if isinstance(snapshot, dict) else {}
+    products = data.get("products") if isinstance(data.get("products"), dict) else {}
+    vehicles = data.get("vehicles") if isinstance(data.get("vehicles"), list) else []
+    vehicle_map = {str(v.get("id")): v for v in vehicles if isinstance(v, dict)}
+    shipments = data.get("shipments") if isinstance(data.get("shipments"), list) else []
+    rows = []
+    for shipment in shipments:
+        if not isinstance(shipment, dict) or (status != "all" and shipment.get("status") != status):
+            continue
+        product = products.get(str(shipment.get("sku")), {})
+        vehicle = vehicle_map.get(str(shipment.get("vehicle_id")), {})
+        rows.append({"id": str(shipment.get("id") or ""), "sku": str(shipment.get("sku") or ""),
+                     "product_name": str(product.get("name") or shipment.get("sku") or ""),
+                     "quantity": _number(shipment.get("quantity")), "destination": str(shipment.get("destination") or ""),
+                     "distance_km": _number(shipment.get("distance_km")),
+                     "vehicle_name": str(vehicle.get("name") or ""),
+                     "estimated_hours": _number(shipment.get("estimated_hours")),
+                     "estimated_cost": _number(shipment.get("estimated_cost")),
+                     "status": str(shipment.get("status") or ""),
+                     "created_at": shipment.get("created_at")})
+    rows.sort(key=lambda r: str(r.get("created_at") or ""), reverse=True)
+    return _envelope(_page_items(rows, page, page_size), int(data.get("version") or 1))
+
+
+def list_vehicles(snapshot: dict) -> dict:
+    data = copy.deepcopy(snapshot) if isinstance(snapshot, dict) else {}
+    vehicles = data.get("vehicles") if isinstance(data.get("vehicles"), list) else []
+    rows = []
+    for vehicle in vehicles:
+        if not isinstance(vehicle, dict):
+            continue
+        rows.append({"id": str(vehicle.get("id") or ""), "name": str(vehicle.get("name") or ""),
+                     "capacity": _number(vehicle.get("capacity")),
+                     "cost_per_km": _number(vehicle.get("cost_per_km")),
+                     "speed_kmh": _number(vehicle.get("speed_kmh"))})
+    rows.sort(key=lambda r: r["name"].casefold())
+    return _envelope({"items": rows}, int(data.get("version") or 1))
+
 def get_inventory_detail(snapshot: dict, sku: str) -> dict:
     data = copy.deepcopy(snapshot) if isinstance(snapshot, dict) else {}
     products = data.get("products") if isinstance(data.get("products"), dict) else {}
