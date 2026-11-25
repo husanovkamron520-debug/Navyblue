@@ -89,6 +89,7 @@ logger = logging.getLogger(__name__)
 # Supply Chain Mini App: process-local owner sessions and startup readiness gate.
 _SC_STORAGE_READY = threading.Event()
 _SC_SESSIONS = sc_api.SessionStore()
+_SC_SESSION_LIMITER = sc_api.RateLimiter(max_requests=8, window_seconds=60)
 # httpx so'rov URL'larida bot tokeni chiqib qolmasligi uchun
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
@@ -1113,6 +1114,9 @@ def run_health_server():
         def _sc_api_post(self, parsed):
             if parsed.path != "/sc-api/v1/session":
                 self._sc_error("method_not_allowed", "Bu endpoint faqat sessiya yaratish uchun.", 405)
+                return
+            if not _SC_SESSION_LIMITER.allow("session"):
+                self._sc_error("rate_limited", "Juda ko'p urinish. Birozdan keyin qayta urinib ko'ring.", 429)
                 return
             if not _SC_STORAGE_READY.is_set():
                 self._sc_error("not_ready", "Ma'lumotlar bazasi hali tayyor emas.", 503)
