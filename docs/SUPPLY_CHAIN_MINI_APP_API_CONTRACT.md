@@ -11,7 +11,7 @@ Status: isolated-branch implementation. The read-only API primitives and first H
 - On startup, `init_storage()` preloads this key into a process cache.
 - `load_json()` returns a deep copy of cached data.
 - `save_json()` replaces the cached deep copy and queues a background write to Supabase. Without Supabase environment configuration, the fallback is a local JSON file.
-- The bot has a custom `ThreadingHTTPServer` in `run_health_server()`. The isolated branch now adds `/sc-api/v1/health`, `/sc-api/v1/session`, `/sc-api/v1/bootstrap`, `/sc-api/v1/dashboard` and `/sc-api/v1/inventory` routes alongside existing routes.
+- The bot has a custom `ThreadingHTTPServer` in `run_health_server()`. The isolated branch now adds `/supply-chain` for the static Mini App shell and `/sc-api/v1/health`, `/sc-api/v1/session`, `/sc-api/v1/bootstrap`, `/sc-api/v1/dashboard` and `/sc-api/v1/inventory` routes alongside existing routes.
 - The HTTP server thread starts before storage initialization finishes. `_SC_STORAGE_READY` is set only after `init_storage_with_retry()` returns; business endpoints return HTTP 503 until then.
 
 ### Current access control
@@ -108,6 +108,8 @@ Base path: `/sc-api/v1`
 All routes require a validated Telegram Web App session and owner authorization, except a minimal health/readiness route that returns no business data.
 
 ### Implemented on the isolated branch
+- `GET /supply-chain` — serves the mobile-first, read-only Dashboard/Inventory Mini App shell from the existing HTTP server.
+- The Supply Chain Telegram menu shows a `WebAppInfo` launch button when `RENDER_EXTERNAL_URL` is configured with an HTTPS URL.
 - `GET /sc-api/v1/health` — public readiness response with no business data; returns HTTP 503 while storage is starting.
 - `POST /sc-api/v1/session` — validates Telegram Web App `initData` HMAC, enforces the configured owner ID, rejects stale/future auth dates and duplicate fields, then issues a 30-minute process-local bearer session. Session creation is limited to 8 attempts per 60-second process-wide window.
 - `GET /sc-api/v1/bootstrap` — supported sections and metric definitions.
@@ -116,6 +118,7 @@ All routes require a validated Telegram Web App session and owner authorization,
 - Authenticated responses set `Cache-Control: no-store`; JSON responses set `X-Content-Type-Options: nosniff`. No permissive CORS is configured.
 - Session credentials are in-memory, expire after 30 minutes and are cleared automatically on process restart.
 - The current session rate limiter is process-local and global to the app instance; it is a basic abuse-control layer, not a distributed limiter or a substitute for edge/network controls.
+- The current frontend is a read-only preview: it authenticates with Telegram `initData`, renders dashboard KPIs and stock status, and provides searchable/filterable/paginated inventory. No browser-side mutation is implemented.
 
 ### Planned read-only endpoints
 - `GET /sc-api/v1/inventory/{sku}` — product detail, movement history, demand history, supplier links and replenishment inputs.
