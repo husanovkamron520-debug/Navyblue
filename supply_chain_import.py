@@ -189,7 +189,17 @@ def inspect_workbook(raw: bytes, overrides: dict[str, str] | None = None) -> dic
             score = len(mapped)
             if best is None or score > best["score"]:
                 best = {"pos": pos, "excel_row": excel_row, "values": values, "mapping": mapped, "unknown": unknown, "score": score}
-        if not best or best["score"] == 0:
+        if not best:
+            continue
+        unknown_nonempty = []
+        for item in best["unknown"]:
+            col_idx = _column_index(item["column"])
+            if any(col_idx < len(row) and str(row[col_idx] or "").strip() for _, row in rows[best["pos"] + 1:]):
+                unknown_nonempty.append(item)
+                questions.append({"sheet": sheet["name"], **item})
+        if best["score"] == 0:
+            if not unknown_nonempty:
+                errors.append({"sheet": sheet["name"], "row": best["excel_row"], "message": "Ustunlardan birortasi tanilmadi; mos ustunlarni ko‘rsatish kerak."})
             continue
         fields = set(best["mapping"].values())
         kind = None
@@ -220,14 +230,7 @@ def inspect_workbook(raw: bytes, overrides: dict[str, str] | None = None) -> dic
                 record["supplier_name"] = record["product_name"]
             if any(str(v or "").strip() for k, v in record.items() if k != "_row"):
                 records.append(record)
-        unknown_nonempty = [u for u in best["unknown"] if any(
-            idx < len(row) and str(row[idx] or "").strip()
-            for _, row in rows[best["pos"] + 1:]
-            for idx, _header in enumerate(best["values"]) if _excel_col(idx) == u["column"]
-        )]
-        if unknown_nonempty:
-            for item in unknown_nonempty:
-                questions.append({"sheet": sheet["name"], **item})
+
         sheets_out.append({
             "name": sheet["name"], "kind": kind, "header_row": best["excel_row"],
             "columns": { _excel_col(i): f for i, f in best["mapping"].items() },
