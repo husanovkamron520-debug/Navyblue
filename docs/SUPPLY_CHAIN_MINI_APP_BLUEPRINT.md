@@ -194,6 +194,28 @@ Phase 3 — Analytics:
 - charts and tables driven by the canonical calculation layer;
 - demand/forecast, EOQ, ABC, reorder and risk views.
 
+Current isolated-branch implementation update (2026-11-25):
+
+The read-only Mini App now has a static mobile-first shell with Dashboard, Inventory, Analytics, Procurement and Logistics views. The existing Telegram HTTP server serves the shell at `/supply-chain`; the Supply Chain Telegram menu adds a Web App launch button when `RENDER_EXTERNAL_URL` is HTTPS.
+
+Implemented read-only service/API coverage:
+- Inventory list and SKU detail with allow-listed product, movement and demand-history fields.
+- Demand forecast using the existing up-to-six-month weighted moving average and three-month minimum.
+- ABC classification using annual demand × unit cost and the existing midpoint 80/15/5 bands.
+- EOQ using the existing 20%-of-unit-cost holding-cost fallback.
+- Replenishment suggestions accounting for known open ordered quantities.
+- Purchase-order, supplier, shipment and vehicle read views. Supplier contact details are not exposed.
+- Mobile UI views for forecast, ABC, EOQ, replenishment, orders/suppliers and shipments/fleet.
+
+Still not implemented:
+- Excel Workspace upload/preview/apply in the Mini App (existing Telegram Excel import remains separate).
+- Reports/export UI and downloadable report workflows.
+- Browser-side write operations and confirmation flows for receipts, dispatches, movements or order transitions.
+- End-to-end runtime testing against a deployed HTTPS Render instance.
+- Complete production hardening and durable write semantics.
+
+All new Mini App business endpoints remain read-only. No new database schema or production deployment is part of this branch.
+
 Phase 4 — Excel Workspace:
 - staged import, mapping, validation, preview and explicit apply flow.
 
