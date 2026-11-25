@@ -1797,7 +1797,7 @@ def _excel_mapping_from_text(raw: str, current: dict[str, Any] | None = None) ->
     import copy
     result = copy.deepcopy(current or {})
     allowed = set(supply_chain_import._CANONICAL)
-    matches = list(re.finditer(r"(?:(?P<sheet>[^,;!\\n]+)!)?(?P<column>[A-Za-z]{1,3})\\s*=\\s*(?P<field>[^,;\\n]+)", raw))
+    matches = list(re.finditer(r"(?:(?P<sheet>[^,;!\n]+)!)?(?P<column>[A-Za-z]{1,3})\s*=\s*(?P<field>[^,;\n]+)", raw))
     for match in matches:
         sheet = (match.group("sheet") or "").strip()
         column = match.group("column").upper()
