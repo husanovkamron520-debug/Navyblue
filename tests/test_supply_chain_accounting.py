@@ -1,4 +1,25 @@
+import sys
+import types
 import unittest
+
+# Supply Chain calculations are pure Python; stub Telegram's runtime-only types
+# so these accounting tests do not need the bot framework installed.
+telegram = types.ModuleType("telegram")
+telegram.InlineKeyboardButton = object
+telegram.InlineKeyboardMarkup = object
+telegram.Update = object
+constants = types.ModuleType("telegram.constants")
+constants.ChatType = type("ChatType", (), {"PRIVATE": "private"})
+ext = types.ModuleType("telegram.ext")
+ext.Application = object
+ext.CallbackQueryHandler = object
+ext.CommandHandler = object
+ext.ContextTypes = type("ContextTypes", (), {"DEFAULT_TYPE": object})
+ext.MessageHandler = object
+ext.filters = object()
+sys.modules.setdefault("telegram", telegram)
+sys.modules.setdefault("telegram.constants", constants)
+sys.modules.setdefault("telegram.ext", ext)
 
 import supply_chain
 
