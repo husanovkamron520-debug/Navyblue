@@ -24,7 +24,7 @@ from xml.sax.saxutils import escape as xml_escape
 from datetime import datetime, timezone, date, timedelta
 from typing import Any, Callable
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, WebAppInfo
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ChatType
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
 
@@ -1555,6 +1555,7 @@ def _home_keyboard() -> InlineKeyboardMarkup:
     ]
     base_url = (os.environ.get("RENDER_EXTERNAL_URL") or "").strip().rstrip("/")
     if base_url.startswith("https://"):
+        from telegram import WebAppInfo
         rows.insert(0, [InlineKeyboardButton(
             "📱 Supply Chain Mini App",
             web_app=WebAppInfo(url=base_url + "/supply-chain"),
