@@ -1079,7 +1079,13 @@ def run_health_server():
                 ready = _SC_STORAGE_READY.is_set()
                 self._sc_json({"status": "ready" if ready else "starting"}, 200 if ready else 503)
                 return
-            if parsed.path not in {"/sc-api/v1/bootstrap", "/sc-api/v1/dashboard", "/sc-api/v1/inventory"}:
+            allowed_paths = {
+                "/sc-api/v1/bootstrap", "/sc-api/v1/dashboard", "/sc-api/v1/inventory",
+                "/sc-api/v1/analytics/demand", "/sc-api/v1/analytics/abc",
+                "/sc-api/v1/analytics/eoq", "/sc-api/v1/analytics/replenishment",
+            }
+            inventory_detail = parsed.path.startswith("/sc-api/v1/inventory/")
+            if parsed.path not in allowed_paths and not inventory_detail:
                 self._sc_error("not_found", "API endpoint topilmadi.", 404)
                 return
             if not _SC_STORAGE_READY.is_set():
@@ -1095,7 +1101,7 @@ def run_health_server():
                 result = sc_api.build_bootstrap(snapshot)
             elif parsed.path == "/sc-api/v1/dashboard":
                 result = sc_api.build_dashboard(snapshot)
-            else:
+            elif parsed.path == "/sc-api/v1/inventory":
                 def _int_arg(key, default):
                     try:
                         return int((query.get(key) or [str(default)])[0])
@@ -1109,6 +1115,20 @@ def run_health_server():
                     page=_int_arg("page", 1),
                     page_size=_int_arg("page_size", 10),
                 )
+            elif inventory_detail:
+                sku = parsed.path[len("/sc-api/v1/inventory/"):].strip("/")
+                result = sc_api.get_inventory_detail(snapshot, sku)
+                if result["data"]["item"] is None:
+                    self._sc_error("not_found", "Mahsulot topilmadi.", 404)
+                    return
+            elif parsed.path == "/sc-api/v1/analytics/demand":
+                result = sc_api.build_demand_analytics(snapshot, (query.get("sku") or [""])[0])
+            elif parsed.path == "/sc-api/v1/analytics/abc":
+                result = sc_api.build_abc_analysis(snapshot)
+            elif parsed.path == "/sc-api/v1/analytics/eoq":
+                result = sc_api.build_eoq_analysis(snapshot)
+            else:
+                result = sc_api.build_replenishment(snapshot)
             self._sc_json(result)
 
         def _sc_api_post(self, parsed):
