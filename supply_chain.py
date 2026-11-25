@@ -1912,6 +1912,7 @@ async def _handle_excel_document(update: Update, context: ContextTypes.DEFAULT_T
         context.user_data["_sc_excel_raw"] = raw_file
         context.user_data["_sc_excel_overrides"] = {}
         context.user_data.pop("_sc_excel_validated", None)
+        context.user_data.pop("_sc_excel_read_error", None)
         await _excel_finish_import(update.message, context, raw_file, {})
     except Exception as exc:
         context.user_data["_sc_wait"] = {"action": "excel_upload", "parent": "home", "started": datetime.now().timestamp()}
