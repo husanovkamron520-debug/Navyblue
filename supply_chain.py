@@ -11,6 +11,7 @@ Ma'lumot fayli formati o'zgarmagan: eski supply_chain_data.json bilan to'liq mos
 from __future__ import annotations
 
 import threading
+import supply_chain_import
 import uuid
 import math
 import asyncio
@@ -24,7 +25,7 @@ from typing import Any, Callable
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ChatType
-from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes
+from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
 
 DATA_FILE = "supply_chain_data.json"
 _LOCK = threading.RLock()
@@ -1744,6 +1745,20 @@ async def _text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
         except Exception as exc:
             await status.edit_text("⚠️ AI tahlili bajarilmadi.\n" + str(exc)[:500], reply_markup=_home_keyboard())
         return True
+    if action == "excel_map":
+        raw_file = context.user_data.get("_sc_excel_raw")
+        if not raw_file:
+            context.user_data.pop("_sc_wait", None)
+            await update.message.reply_text("Excel fayli sessiyada topilmadi. Faylni qayta yuboring.")
+            return True
+        overrides = _excel_mapping_from_text(raw, context.user_data.get("_sc_excel_overrides", {}))
+        if not overrides or overrides == context.user_data.get("_sc_excel_overrides", {}):
+            await update.message.reply_text("Ustun mosligini tushunmadim. Masalan: C=quantity, D=unit_cost yoki E=ignore deb yozing.")
+            return True
+        context.user_data["_sc_excel_overrides"] = overrides
+        await _excel_finish_import(update.message, context, raw_file, overrides)
+        return True
+
     handler = _APPLY.get(str(action))
     if handler is None:
         return False
@@ -1776,6 +1791,7 @@ def install(app: Application, load_json: Callable[[str, Any], Any], save_json: C
     _AI_MODEL = (ai_model or "gemini-3.5-flash-lite").strip()
     app.add_handler(CommandHandler("supply", open_supply))
     app.add_handler(CallbackQueryHandler(_callback, pattern=r"^sc:"))
+    app.add_handler(MessageHandler(filters.ChatType.PRIVATE & filters.Document.FileExtension("xlsx"), _handle_excel_document))
 
 
 def on_text_handler():
