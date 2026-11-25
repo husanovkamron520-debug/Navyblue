@@ -1081,9 +1081,7 @@ def _ai_snapshot(data: dict[str, Any]) -> dict[str, Any]:
     for sku, p in list(data.get("products", {}).items())[:60]:
         products.append({
             "sku": sku, "name": str(p.get("name", ""))[:100],
-            "quantity": safe_number(p.get("quantity")), "unit": str(p.get("unit", "dona"))[:20],
-            "reorder_point": safe_number(p.get("reorder_point")),
-            "unit_cost": safe_number(p.get("unit_cost")), "annual_demand": safe_number(p.get("annual_demand")),
+            "unit": str(p.get("unit", "dona"))[:20],
         })
     suppliers = []
     for sid, v in list(data.get("suppliers", {}).items())[:40]:
@@ -1113,7 +1111,8 @@ def _ai_snapshot(data: dict[str, Any]) -> dict[str, Any]:
         },
         "products": products, "suppliers": suppliers, "orders": orders,
         "vehicles": vehicles, "shipments": shipments,
-        "demand_history_recent": data.get("demand_history", [])[-60:],
+        "demand_history_record_count": len(data.get("demand_history", [])),
+        "computed_reports": {"abc": _abc_text(data), "eoq": _eoq_text(data), "forecast": _forecast_text(data), "risk": _risk_text(data)},
         "computed_metrics": _computed_metrics(data),
         "production_scenarios": scenario_results,
         "risk_assessment": risks[:50],
