@@ -343,6 +343,7 @@ def apply_import(data: dict[str, Any], validated: dict[str, Any]) -> dict[str, A
     products = data.setdefault("products", {})
     suppliers = data.setdefault("suppliers", {})
     result = {"products": 0, "suppliers": 0, "demand": 0, "orders": 0, "movements": 0, "errors": validated.get("errors", [])}
+    has_product_snapshot = any(row.get("kind") == "products" for row in validated.get("valid", []))
 
     def find_product(name: str):
         norm = _norm(name)
@@ -364,6 +365,9 @@ def apply_import(data: dict[str, Any], validated: dict[str, Any]) -> dict[str, A
                     if row.get(f, 0) != 0:
                         existing[f] = row[f]
             else:
+                if sku in products:
+                    result["errors"].append({"sheet": row["sheet"], "row": row["source_row"], "message": f"SKU {sku} boshqa mahsulotda band; mavjud yozuv ustidan yozilmadi."})
+                    continue
                 products[sku] = {"sku": sku, "name": row["product_name"], "quantity": row["quantity"], "unit": row["unit"],
                     "unit_cost": row.get("unit_cost", 0), "reorder_point": row.get("reorder_point", 0),
                     "annual_demand": row.get("annual_demand", 0), "order_cost": row.get("order_cost", 0),
@@ -408,9 +412,11 @@ def apply_import(data: dict[str, Any], validated: dict[str, Any]) -> dict[str, A
             if row["direction"] == "out" and float(product.get("quantity", 0)) < qty:
                 result["errors"].append({"sheet": row["sheet"], "row": row["source_row"], "message": "Chiqim uchun omborda yetarli qoldiq yo'q."})
                 continue
-            product["quantity"] = float(product.get("quantity", 0)) + (qty if row["direction"] == "in" else -qty)
-            product["updated_at"] = now
+            if not has_product_snapshot:
+                product["quantity"] = float(product.get("quantity", 0)) + (qty if row["direction"] == "in" else -qty)
+                product["updated_at"] = now
+            note = "Excel import (history; stock snapshot unchanged)" if has_product_snapshot else "Excel import"
             data.setdefault("movements", []).append({"id": uuid.uuid4().hex[:12], "sku": product["sku"], "type": row["direction"],
-                "quantity": qty, "note": "Excel import", "created_at": now})
+                "quantity": qty, "note": note, "created_at": now})
             result["movements"] += 1
     return result
