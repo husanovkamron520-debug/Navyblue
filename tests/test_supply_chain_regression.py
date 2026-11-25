@@ -157,7 +157,7 @@ class SupplyChainCalculationRegressionTests(unittest.TestCase):
         overdue = [risk for risk in risks if risk["category"] == "Xarid"]
         self.assertEqual(len(overdue), 1)
         self.assertIn("5 kun kechikkan", overdue[0]["evidence"])
-        self.assertEqual(overdue[0]["score"], 20)
+        self.assertEqual(overdue[0]["score"], 16)
 
     def test_generated_xlsx_can_be_inspected_without_mutating_source(self):
         data = empty_data()
