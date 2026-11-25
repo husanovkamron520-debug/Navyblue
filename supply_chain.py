@@ -10,6 +10,7 @@ Ma'lumot fayli formati o'zgarmagan: eski supply_chain_data.json bilan to'liq mos
 """
 from __future__ import annotations
 
+import os
 import threading
 import supply_chain_import
 import uuid
@@ -23,7 +24,7 @@ from xml.sax.saxutils import escape as xml_escape
 from datetime import datetime, timezone, date, timedelta
 from typing import Any, Callable
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, WebAppInfo
 from telegram.constants import ChatType
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
 
@@ -1544,14 +1545,21 @@ def _btn(label: str, cb: str) -> InlineKeyboardButton:
 
 
 def _home_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup([
+    rows = [
         [_btn("📦 Ombor", "inventory"), _btn("➕ Mahsulot", "add")],
         [_btn("📥 Kirim", "in"), _btn("📤 Chiqim", "out")],
         [_btn("📊 Hisobotlar", "reports"), _btn("🛒 Xarid", "buy")],
         [_btn("🚛 Transport", "transport"), _btn("🧪 Simulyatsiya", "sim")],
         [_btn("📥 Excel qabul qilish", "excel_upload")],
         [_btn("🤖 AI maslahatchi", "ai")],
-    ])
+    ]
+    base_url = (os.environ.get("RENDER_EXTERNAL_URL") or "").strip().rstrip("/")
+    if base_url.startswith("https://"):
+        rows.insert(0, [InlineKeyboardButton(
+            "📱 Supply Chain Mini App",
+            web_app=WebAppInfo(url=base_url + "/supply-chain"),
+        )])
+    return InlineKeyboardMarkup(rows)
 
 
 def _menu_keyboard(kind: str) -> InlineKeyboardMarkup:
