@@ -109,15 +109,15 @@ All routes require a validated Telegram Web App session and owner authorization,
 
 ### Implemented on the isolated branch
 - `GET /sc-api/v1/health` — public readiness response with no business data; returns HTTP 503 while storage is starting.
-- `POST /sc-api/v1/session` — validates Telegram Web App `initData` HMAC, enforces the configured owner ID, rejects stale/future auth dates and duplicate fields, then issues a 30-minute process-local bearer session.
+- `POST /sc-api/v1/session` — validates Telegram Web App `initData` HMAC, enforces the configured owner ID, rejects stale/future auth dates and duplicate fields, then issues a 30-minute process-local bearer session. Session creation is limited to 8 attempts per 60-second process-wide window.
 - `GET /sc-api/v1/bootstrap` — supported sections and metric definitions.
 - `GET /sc-api/v1/dashboard` — product, inventory value, low-stock, open-order and active-shipment KPIs.
 - `GET /sc-api/v1/inventory?search=&status=&sort=&page=&page_size=` — paginated, allow-listed product rows.
 - Authenticated responses set `Cache-Control: no-store`; JSON responses set `X-Content-Type-Options: nosniff`. No permissive CORS is configured.
 - Session credentials are in-memory, expire after 30 minutes and are cleared automatically on process restart.
+- The current session rate limiter is process-local and global to the app instance; it is a basic abuse-control layer, not a distributed limiter or a substitute for edge/network controls.
 
 ### Planned read-only endpoints
-- `GET /sc-api/v1/inventory/{sku}` — product detail, movement history, demand history, supplier links and replenishment inputs.
 - `GET /sc-api/v1/inventory/{sku}` — product detail, movement history, demand history, supplier links and replenishment inputs.
 - `GET /sc-api/v1/analytics/demand?sku=&months=&horizon=` — actual and forecast points plus method/coverage metadata.
 - `GET /sc-api/v1/analytics/abc` — ranked product contribution, cumulative percentage and class.
