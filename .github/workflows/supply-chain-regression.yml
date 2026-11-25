@@ -10,6 +10,8 @@ on:
       - main
     paths:
       - "supply_chain.py"
+      - "supply_chain_api.py"
+      - "bot.py"
       - "supply_chain_import.py"
       - "tests/**"
       - ".github/workflows/supply-chain-regression.yml"
