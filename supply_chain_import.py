@@ -43,7 +43,7 @@ _CANONICAL = {
 _ALIAS_TO_FIELD = {}
 for _field, _aliases in _CANONICAL.items():
     for _alias in _aliases:
-        _ALIAS_TO_FIELD[re.sub(r"[^a-z0-9]+", "", _alias.casefold())] = _field
+        _ALIAS_TO_FIELD[re.sub(r"[^a-z0-9а-я]+", "", _alias.casefold().replace("ё", "е"))] = _field
 
 _REQUIRED = {
     "products": {"product_name", "quantity"},
@@ -157,7 +157,9 @@ def _header_map(values: list[Any], overrides: dict[str, str] | None = None) -> t
             continue
         letter = _excel_col(idx)
         forced = overrides.get(letter) or overrides.get(label)
-        field = forced if forced in _CANONICAL else _ALIAS_TO_FIELD.get(_norm(label))
+        if forced and str(forced).casefold() in {"ignore", "skip", "kerak emas"}:
+            continue
+        field = forced if forced in _CANONICAL else _ALIAS_TO_FIELD.get(_norm(forced)) if forced else _ALIAS_TO_FIELD.get(_norm(label))
         if field:
             mapping[idx] = field
         else:
