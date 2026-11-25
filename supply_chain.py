@@ -1792,6 +1792,104 @@ def _friendly_error(exc: Exception) -> str:
     return "Tushunolmadim. Misol bilan solishtirib qayta yozing."
 
 
+def _excel_mapping_from_text(raw: str, current: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Parse owner-confirmed Excel column mappings such as OrderList!J=product_name."""
+    import copy
+    result = copy.deepcopy(current or {})
+    allowed = set(supply_chain_import._CANONICAL)
+    matches = list(re.finditer(r"(?:(?P<sheet>[^,;!\\n]+)!)?(?P<column>[A-Za-z]{1,3})\\s*=\\s*(?P<field>[^,;\\n]+)", raw))
+    for match in matches:
+        sheet = (match.group("sheet") or "").strip()
+        column = match.group("column").upper()
+        field_text = match.group("field").strip().casefold()
+        if field_text in {"ignore", "skip", "kerak emas", "o'tkazib yubor", "otkazib yubor"}:
+            field = "ignore"
+        else:
+            field = field_text if field_text in allowed else supply_chain_import._ALIAS_TO_FIELD.get(supply_chain_import._norm(field_text))
+            if not field:
+                continue
+        if sheet:
+            result.setdefault(sheet, {})[column] = field
+        else:
+            result[column] = field
+    return result
+
+
+async def _excel_finish_import(message, context, raw_file: bytes, overrides: dict[str, Any] | None = None) -> None:
+    """Inspect, clarify, validate, and ask for explicit confirmation before importing."""
+    try:
+        preview = supply_chain_import.inspect_workbook(raw_file, overrides or {})
+    except Exception as exc:
+        context.user_data.pop("_sc_wait", None)
+        await _reply(message, "⚠️ Excel faylini o'qib bo'lmadi: " + _friendly_error(exc))
+        return
+
+    context.user_data["_sc_excel_preview"] = preview
+    if preview.get("questions"):
+        questions = preview["questions"]
+        lines = ["📎 **Excel ustunlarini aniqlashtirish kerak**", "",
+                 "Har bir ustun uchun mos maydonni yozing yoki 'ignore' deb belgilang.",
+                 "Format: Varaq!Ustun=maydon.", "",
+                 "Misol: OrderList!J=product_name, OrderList!M=quantity",
+                 "Yoki: FreightRates!A=ignore", "", "Aniqlashtirilmagan ustunlar:"]
+        for item in questions[:24]:
+            lines.append(f"• {item['sheet']}!{item['column']} — {item['header']}")
+        if len(questions) > 24:
+            lines.append(f"… yana {len(questions) - 24} ta ustun. Ularni ham keyingi xabarda so'rayman.")
+        context.user_data["_sc_wait"] = {"action": "excel_map", "parent": "home", "started": datetime.now().timestamp()}
+        await _reply(message, "\\n".join(lines))
+        return
+
+    validated = supply_chain_import.validate_records(preview)
+    context.user_data["_sc_excel_validated"] = validated
+    if not validated.get("valid"):
+        context.user_data.pop("_sc_wait", None)
+        lines = ["⚠️ **Import qilish uchun mos yozuv topilmadi.**", "",
+                 f"Tekshirilgan varaqlar: {len(preview.get('sheets', []))}",
+                 f"Xatolar: {validated.get('error_count', 0)}"]
+        for err in validated.get("errors", [])[:12]:
+            lines.append(f"• {err.get('sheet', '?')}!{err.get('row', '?')}: {err.get('message', '')}")
+        lines += ["", "Bu fayl logistika dataset bo'lsa, uning ustunlari ombor mahsuloti/yetkazib beruvchi/import formatiga mos kelmasligi mumkin."]
+        await _reply(message, "\\n".join(lines))
+        return
+
+    counts = {}
+    for row in validated["valid"]:
+        counts[row["kind"]] = counts.get(row["kind"], 0) + 1
+    labels = {"products": "Mahsulot", "suppliers": "Yetkazib beruvchi", "demand": "Talab tarixi",
+              "orders": "Xarid buyurtmasi", "movements": "Ombor harakati"}
+    lines = ["📋 **Excel import ko'rib chiqish**", "",
+             f"Importga tayyor yozuvlar: **{validated['valid_count']} ta**"]
+    for kind, count in counts.items():
+        lines.append(f"• {labels.get(kind, kind)}: {count}")
+    lines.append(f"Import qilinmaydigan/xatoli qatorlar: {validated.get('error_count', 0)}")
+    for err in validated.get("errors", [])[:8]:
+        lines.append(f"• {err.get('sheet', '?')}!{err.get('row', '?')}: {err.get('message', '')}")
+    lines += ["", "Ma'lumotlar hozircha saqlanmadi.",
+              "Import qilish uchun TASDIQLAYMAN deb yozing. Bekor qilish uchun BEKOR deb yozing."]
+    context.user_data["_sc_wait"] = {"action": "excel_confirm", "parent": "home", "started": datetime.now().timestamp()}
+    await _reply(message, "\\n".join(lines))
+
+
+async def _handle_excel_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not _allowed(update) or not update.message or not update.message.document:
+        return
+    document = update.message.document
+    if document.file_size and document.file_size > 12 * 1024 * 1024:
+        await update.message.reply_text("Excel fayli 12 MB dan katta. Kichikroq .xlsx fayl yuboring.")
+        return
+    try:
+        remote = await document.get_file()
+        raw_file = bytes(await remote.download_as_bytearray())
+        context.user_data["_sc_excel_raw"] = raw_file
+        context.user_data["_sc_excel_overrides"] = {}
+        context.user_data.pop("_sc_excel_validated", None)
+        await _excel_finish_import(update.message, context, raw_file, {})
+    except Exception as exc:
+        context.user_data.pop("_sc_wait", None)
+        await update.message.reply_text("⚠️ Excel faylini yuklab/o'qib bo'lmadi: " + _friendly_error(exc))
+
+
 async def _text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     """Kutilayotgan Supply Chain matnini qayta ishlaydi. Qayta ishlangan bo'lsa True qaytaradi."""
     if not update.message or not context.user_data.get("_sc_wait"):
@@ -1842,6 +1940,40 @@ async def _text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
         await _excel_finish_import(update.message, context, raw_file, overrides)
         return True
 
+    if action == "excel_confirm":
+        if raw.casefold() in {"bekor", "cancel", "yo'q", "yoq"}:
+            for key in ("_sc_excel_raw", "_sc_excel_overrides", "_sc_excel_preview", "_sc_excel_validated", "_sc_wait"):
+                context.user_data.pop(key, None)
+            await update.message.reply_text("Excel import bekor qilindi. Hech qanday ma'lumot saqlanmadi.")
+            return True
+        if raw.casefold() not in {"tasdiqlayman", "tasdiq", "ha", "import"}:
+            await update.message.reply_text("Importni tasdiqlash uchun TASDIQLAYMAN yoki bekor qilish uchun BEKOR deb yozing.")
+            return True
+        validated = context.user_data.pop("_sc_excel_validated", None)
+        if not validated:
+            context.user_data.pop("_sc_wait", None)
+            await update.message.reply_text("Import tasdiqlash ma'lumoti topilmadi. Excel faylni qayta yuboring.")
+            return True
+        import copy
+        try:
+            with _LOCK:
+                data = copy.deepcopy(_data())
+                result = supply_chain_import.apply_import(data, validated)
+                _save(data)
+        except Exception as exc:
+            context.user_data.pop("_sc_wait", None)
+            await update.message.reply_text("⚠️ Import saqlanmadi: " + _friendly_error(exc))
+            return True
+        for key in ("_sc_excel_raw", "_sc_excel_overrides", "_sc_excel_preview", "_sc_wait"):
+            context.user_data.pop(key, None)
+        lines = ["✅ **Excel import yakunlandi**"]
+        for key, label in (("products", "Mahsulot"), ("suppliers", "Yetkazib beruvchi"), ("demand", "Talab tarixi"),
+                           ("orders", "Xarid buyurtmasi"), ("movements", "Ombor harakati")):
+            if result.get(key):
+                lines.append(f"• {label}: {result[key]} ta")
+        lines.append(f"Xatolar/o'tkazilganlar: {len(result.get('errors', []))}")
+        await _reply(update.message, "\\n".join(lines), _home_keyboard())
+        return True
     handler = _APPLY.get(str(action))
     if handler is None:
         return False
