@@ -1152,6 +1152,11 @@ def run_health_server():
                 if u.path.startswith("/sc-api/v1/"):
                     self._sc_api_get(u)
                     return
+                if u.path in ("/supply-chain", "/supply-chain/"):
+                    app_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                            "supply_chain_mini_app.html")
+                    with open(app_path, "rb") as app_file:
+                        body, ctype = app_file.read(), "text/html; charset=utf-8"
                 if u.path == "/museum" or u.path.startswith("/museum/"):
                     museum.http_get(self, u)
                     return
