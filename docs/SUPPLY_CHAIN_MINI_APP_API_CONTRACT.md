@@ -1,6 +1,6 @@
 # Supply Chain Mini App — Current Data Map and API Contract
 
-Status: implementation planning only. This document records the current code shape and proposes a safe read-first API. It does not authorize production code changes, schema changes, or deployment.
+Status: isolated-branch implementation. The read-only API primitives and first HTTP routes are implemented on `docs/supply-chain-mini-app-blueprint`; they are not merged or deployed. This document records verified behavior and the remaining scope. No Supabase schema changes or write endpoints are included.
 
 ## 1. Verified current implementation
 
@@ -11,8 +11,8 @@ Status: implementation planning only. This document records the current code sha
 - On startup, `init_storage()` preloads this key into a process cache.
 - `load_json()` returns a deep copy of cached data.
 - `save_json()` replaces the cached deep copy and queues a background write to Supabase. Without Supabase environment configuration, the fallback is a local JSON file.
-- The bot has a custom `ThreadingHTTPServer` in `run_health_server()`. Existing routes include health response, `/museum`, `/task`, `/cw` and `/cwdata`; POST is currently delegated to the museum module. There is no Supply Chain API route in the inspected handler.
-- The HTTP server thread starts before storage initialization finishes. Any future Supply Chain API must return a controlled not-ready response until storage initialization is complete.
+- The bot has a custom `ThreadingHTTPServer` in `run_health_server()`. The isolated branch now adds `/sc-api/v1/health`, `/sc-api/v1/session`, `/sc-api/v1/bootstrap`, `/sc-api/v1/dashboard` and `/sc-api/v1/inventory` routes alongside existing routes.
+- The HTTP server thread starts before storage initialization finishes. `_SC_STORAGE_READY` is set only after `init_storage_with_retry()` returns; business endpoints return HTTP 503 until then.
 
 ### Current access control
 - The Telegram Supply Chain module currently permits only the configured owner in a private Telegram chat.
@@ -101,21 +101,23 @@ These are observed fields, not a guarantee that every historical record contains
 - Risk assessment and scenario simulation are deterministic code paths. They should be exposed as service outputs, not re-created in JavaScript.
 - Missing data is sometimes converted to numeric zero by existing helper functions. API/UI must distinguish “unknown / missing” from a genuine zero where possible; do not silently change calculation outputs during the first release.
 
-## 4. Proposed same-origin API
+## 4. Same-origin API — implemented subset and planned remainder
 
 Base path: `/sc-api/v1`
 
 All routes require a validated Telegram Web App session and owner authorization, except a minimal health/readiness route that returns no business data.
 
-### Session and readiness
-- `GET /sc-api/v1/health` — returns `{ "status": "ready" | "starting" }`; no business data.
-- `POST /sc-api/v1/session` — accepts Telegram `initData`; server validates the Telegram signature and `auth_date`, checks the configured owner ID, and returns a short-lived session credential.
-- Session credentials must expire, be revocable on restart if practical, and never be placed in URLs or logs.
+### Implemented on the isolated branch
+- `GET /sc-api/v1/health` — public readiness response with no business data; returns HTTP 503 while storage is starting.
+- `POST /sc-api/v1/session` — validates Telegram Web App `initData` HMAC, enforces the configured owner ID, rejects stale/future auth dates and duplicate fields, then issues a 30-minute process-local bearer session.
+- `GET /sc-api/v1/bootstrap` — supported sections and metric definitions.
+- `GET /sc-api/v1/dashboard` — product, inventory value, low-stock, open-order and active-shipment KPIs.
+- `GET /sc-api/v1/inventory?search=&status=&sort=&page=&page_size=` — paginated, allow-listed product rows.
+- Authenticated responses set `Cache-Control: no-store`; JSON responses set `X-Content-Type-Options: nosniff`. No permissive CORS is configured.
+- Session credentials are in-memory, expire after 30 minutes and are cleared automatically on process restart.
 
-### Read-only first release
-- `GET /sc-api/v1/bootstrap` — company label/context, supported sections, data timestamp/version, available filters and metric definitions.
-- `GET /sc-api/v1/dashboard` — KPI values, alert counts, coverage flags and compact chart series.
-- `GET /sc-api/v1/inventory?search=&status=&abc=&sort=&page=&page_size=` — paginated product rows and total count.
+### Planned read-only endpoints
+- `GET /sc-api/v1/inventory/{sku}` — product detail, movement history, demand history, supplier links and replenishment inputs.
 - `GET /sc-api/v1/inventory/{sku}` — product detail, movement history, demand history, supplier links and replenishment inputs.
 - `GET /sc-api/v1/analytics/demand?sku=&months=&horizon=` — actual and forecast points plus method/coverage metadata.
 - `GET /sc-api/v1/analytics/abc` — ranked product contribution, cumulative percentage and class.
