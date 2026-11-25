@@ -34,6 +34,7 @@
   <nav class="nav" aria-label="Asosiy bo‘limlar">
     <button class="active" data-view="dashboard">Dashboard</button>
     <button data-view="inventory">Ombor</button>
+    <button data-view="analytics">Analytics</button>
   </nav>
   <main>
     <section id="dashboard-view">
@@ -55,6 +56,17 @@
       <div class="table-wrap"><table class="table"><thead><tr><th>SKU / Mahsulot</th><th>Miqdor</th><th>Qayta buyurtma</th><th>Birlik qiymati</th><th>Holat</th></tr></thead><tbody id="inventory-table"></tbody></table></div>
       <div class="mobile-list" id="inventory-mobile"></div>
       <div class="pager"><span id="page-info">—</span><div><button id="prev">Oldingi</button> <button id="next">Keyingi</button></div></div>
+    </section>
+    <section id="analytics-view" hidden>
+      <div class="section-head"><div><h2>Talab va zaxira tahlili</h2><p>Amaldagi Supply Chain hisoblash qoidalari asosida</p></div><button class="retry" id="analytics-refresh">Yangilash</button></div>
+      <div class="two">
+        <div class="card"><div class="chart-title">Talab prognozi</div><div class="chart-sub">Oxirgi 6 oygacha bo‘lgan tarixdan og‘irlikli o‘rtacha; kamida 3 oy kerak</div><div class="table-wrap" style="display:block;margin-top:12px"><table class="table" style="min-width:480px"><thead><tr><th>Mahsulot</th><th>Tarix</th><th>Prognoz / oy</th><th>Zaxira qoplashi</th></tr></thead><tbody id="forecast-table"></tbody></table></div><div class="muted" id="forecast-note" style="margin-top:10px;font-size:12px"></div></div>
+        <div class="card"><div class="chart-title">ABC Pareto tasnifi</div><div class="chart-sub">Yillik talab × birlik narxi, 80% / 15% / 5% midpoint usuli</div><div id="abc-summary" class="alert-list"></div><div id="abc-bars" style="display:grid;gap:10px;margin-top:16px"></div></div>
+      </div>
+      <div class="two">
+        <div class="card"><div class="chart-title">Economic Order Quantity (EOQ)</div><div class="chart-sub">√(2 × D × S / H); saqlash xarajati taxmin qilingan bo‘lsa belgilanadi</div><div class="table-wrap" style="display:block;margin-top:12px"><table class="table" style="min-width:440px"><thead><tr><th>Mahsulot</th><th>EOQ</th><th>Buyurtma/yil</th><th>Izoh</th></tr></thead><tbody id="eoq-table"></tbody></table></div></div>
+        <div class="card"><div class="chart-title">Qayta to‘ldirish tavsiyasi</div><div class="chart-sub">Ochiq buyurtmalar hisobga olinadi; tavsiyalar avtomatik buyurtma bermaydi</div><div id="replenishment-list" class="alert-list"></div></div>
+      </div>
     </section>
     <div class="notice" id="notice" hidden><strong id="notice-title">Telegram orqali oching</strong><span id="notice-text">Mini App bot ichida ishlaydi.</span><div style="margin-top:12px"><button class="retry" id="retry" hidden>Qayta urinish</button></div></div>
   </main>
@@ -133,6 +145,39 @@
       [p.sku+" · "+p.name,fmt(p.quantity,1)+" "+(p.unit||""),fmt(p.reorder_point,1),money(p.unit_cost),status].forEach((v,i)=>{const td=el("td",i===0?"sku":i===4?"stock "+(status==="Kam"?"low":"ok"):"",v);tr.append(td);});table.append(tr);mobile.append(makeProductCard(p));
     });
   }
+  async function loadAnalytics() {
+    const [demand,abc,eoq,replenishment]=await Promise.all([
+      api("/sc-api/v1/analytics/demand"),api("/sc-api/v1/analytics/abc"),
+      api("/sc-api/v1/analytics/eoq"),api("/sc-api/v1/analytics/replenishment")
+    ]);
+    const ft=$("forecast-table");ft.replaceChildren();
+    let available=0;
+    demand.items.forEach(item=>{
+      const tr=el("tr","");const values=[item.name+" · "+item.sku,item.history_months+" oy",item.forecast_next_month==null?"Tarix yetarli emas":fmt(item.forecast_next_month,2)+" "+item.unit,item.days_of_stock_cover==null?"—":fmt(item.days_of_stock_cover,1)+" kun"];
+      values.forEach((v,i)=>tr.append(el("td",i===0?"sku":"",v)));ft.append(tr);
+      if(item.forecast_status==="available")available++;
+    });
+    if(!demand.items.length)ft.append(el("tr","")).lastChild?.append(el("td","muted","Mahsulot yo‘q"));
+    $("forecast-note").textContent=available+" ta mahsulotda prognoz hisoblandi; qolganlarida kamida 3 oylik tarix kerak.";
+    const summary=$("abc-summary");summary.replaceChildren();
+    ["A","B","C"].forEach(key=>{
+      const g=abc.groups[key],item=el("div","alert");item.append(el("strong","",key+" guruhi · "+g.product_count+" ta"),el("span","pill",fmt(g.share_percent,1)+"%"));summary.append(item);
+    });
+    const bars=$("abc-bars");bars.replaceChildren();
+    abc.items.slice(0,8).forEach(item=>{
+      const wrap=el("div","");const top=el("div","product-row");top.append(el("span","",item.name),el("strong","",item.category+" · "+fmt(item.share_percent,1)+"%"));
+      const bar=el("div","barline");bar.style.height="9px";bar.style.margin="6px 0 0";const fill=el("div","bar-good");fill.style.width=Math.min(100,item.share_percent)+"%";bar.append(fill);wrap.append(top,bar);bars.append(wrap);
+    });
+    if(!abc.items.length)bars.append(el("div","muted","ABC tahlili uchun narx va yillik talab ma’lumotlari kerak."));
+    const et=$("eoq-table");et.replaceChildren();
+    eoq.items.forEach(item=>{const tr=el("tr","");[item.name,item.eoq==null?"Ma’lumot yetarli emas":fmt(item.eoq,2),item.orders_per_year==null?"—":fmt(item.orders_per_year,2),item.holding_cost_assumed?"H saqlash xarajati 20% narxdan olindi":item.status==="available"?"Kiritilgan H":"Kiritmalar yetishmaydi"].forEach((v,i)=>tr.append(el("td",i===0?"sku":"",v)));et.append(tr);});
+    const rl=$("replenishment-list");rl.replaceChildren();
+    replenishment.items.slice(0,12).forEach(item=>{
+      const row=el("div","alert");const left=el("div","");left.append(el("strong","",item.name),el("div","muted",item.sku+" · Zaxira "+fmt(item.quantity,1)+" · Ochiq buyurtma "+fmt(item.open_order_quantity,1)));
+      const right=el("span",item.status==="low"?"pill":"pill good",item.suggested_order_quantity==null?"Prognoz yo‘q":fmt(item.suggested_order_quantity,1)+" tavsiya");row.append(left,right);rl.append(row);
+    });
+    if(!replenishment.items.length)rl.append(el("div","muted","Mahsulotlar topilmadi."));
+  }
   async function refreshAll() {
     try { hideNotice(); $("connection").textContent="Yangilanmoqda"; await loadDashboard(); if(currentView==="inventory")await loadInventory(); $("connection").textContent="Ulangan"; }
     catch(err){ $("connection").textContent="Xatolik"; showNotice("Ma’lumot yuklanmadi",err.message,true); }
@@ -141,9 +186,11 @@
     currentView=view;$("dashboard-view").hidden=view!=="dashboard";$("inventory-view").hidden=view!=="inventory";
     document.querySelectorAll(".nav button").forEach(b=>b.classList.toggle("active",b.dataset.view===view));
     if(view==="inventory")loadInventory().catch(e=>showNotice("Ombor yuklanmadi",e.message,true));
+    if(view==="analytics")loadAnalytics().catch(e=>showNotice("Analytics yuklanmadi",e.message,true));
   }
   document.querySelectorAll(".nav button").forEach(b=>b.addEventListener("click",()=>switchView(b.dataset.view)));
   $("refresh").addEventListener("click",refreshAll);$("inventory-refresh").addEventListener("click",()=>loadInventory().catch(e=>showNotice("Xatolik",e.message,true)));
+  $("analytics-refresh").addEventListener("click",()=>loadAnalytics().catch(e=>showNotice("Xatolik",e.message,true)));
   $("prev").addEventListener("click",()=>{if(page>1){page--;loadInventory().catch(e=>showNotice("Xatolik",e.message,true));}});
   $("next").addEventListener("click",()=>{if(page<totalPages){page++;loadInventory().catch(e=>showNotice("Xatolik",e.message,true));}});
   ["search","status","sort"].forEach(id=>$(id).addEventListener(id==="search"?"input":"change",()=>{page=1;clearTimeout(searchTimer);searchTimer=setTimeout(()=>loadInventory().catch(e=>showNotice("Xatolik",e.message,true)),id==="search"?250:0);}));
