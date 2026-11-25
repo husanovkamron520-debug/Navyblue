@@ -563,6 +563,39 @@ def _parse_order(data: dict[str, Any], text: str) -> str:
             "«🧾 Buyurtmalar» bo'limida uni «berish» → «qabul qilish» bilan yuriting; zaxira faqat qabul qilinganda oshadi.")
 
 
+def _receive_purchase_order(data: dict[str, Any], order: dict[str, Any]) -> str:
+    """Receive a PO and update inventory using moving weighted-average cost (AVCO)."""
+    product = data.get("products", {}).get(order.get("sku"))
+    if not product:
+        raise ValueError("Mahsulot topilmadi; zaxira o'zgartirilmadi.")
+    qty = float(order.get("quantity", 0) or 0)
+    purchase_price = float(order.get("unit_price", 0) or 0)
+    old_qty = float(product.get("quantity", 0) or 0)
+    old_cost = float(product.get("unit_cost", 0) or 0)
+    if not _finite(qty, purchase_price, old_qty, old_cost) or qty <= 0 or purchase_price <= 0 or old_qty < 0 or old_cost < 0:
+        raise ValueError("AVCO hisoblash uchun miqdor va xarid narxi musbat, mavjud zaxira qiymatlari esa manfiy bo'lmasligi kerak.")
+    if old_qty > 0 and old_cost <= 0:
+        raise ValueError("Mavjud zaxiraning tannarxi kiritilmagan. Avval mahsulotning amaldagi unit_cost qiymatini kiriting; aks holda AVCO noto'g'ri chiqadi.")
+    new_qty = old_qty + qty
+    previous_cost = old_cost
+    new_cost = ((old_qty * old_cost) + (qty * purchase_price)) / new_qty
+    product["quantity"] = new_qty
+    product["unit_cost"] = new_cost
+    product["updated_at"] = _now()
+    order["status"] = "received"
+    order["received_at"] = _now()
+    order["previous_unit_cost"] = previous_cost
+    order["received_unit_cost"] = new_cost
+    data.setdefault("movements", []).append({
+        "id": uuid.uuid4().hex[:12], "sku": order["sku"], "type": "in", "quantity": qty,
+        "unit_cost": purchase_price, "total_cost": qty * purchase_price,
+        "note": f"Xarid buyurtmasi {order.get('id', '')} qabul qilindi; AVCO yangilandi",
+        "created_at": _now(), "order_id": order.get("id"),
+    })
+    return (f"Buyurtma qabul qilindi. Omborga {qty:g} birlik qo'shildi.\n"
+            f"AVCO: {_f(previous_cost)} → {_f(new_cost)} so'm/birlik.")
+
+
 def _parse_shipment(data: dict[str, Any], text: str) -> str:
     parts = [x.strip() for x in text.split("|")]
     text = " ".join(parts) if "|" in text else text
@@ -904,8 +937,26 @@ def _risk_assessment(data: dict[str, Any], today: str | None = None) -> list[dic
                 forecast = 0
                 daily = 0  # insufficient monthly history: do not invent a consumption rate
             cover = stock / daily if daily > 0 else float("inf")
-            supplier_leads = [float(s.get("lead_time_days", 0) or 0) for s in suppliers.values()]
-            lead = min((x for x in supplier_leads if math.isfinite(x) and x >= 0), default=0)
+            # Only use suppliers linked to this SKU; never borrow another product's lead time.
+            linked_supplier_ids = {
+                str(order.get("supplier_id")) for order in data.get("orders", [])
+                if str(order.get("sku")) == str(sku) and order.get("supplier_id")
+            }
+            if product.get("supplier_id"):
+                linked_supplier_ids.add(str(product["supplier_id"]))
+            product_leads = []
+            for supplier_id in linked_supplier_ids:
+                supplier = suppliers.get(supplier_id, {})
+                try:
+                    supplier_lead = float(supplier.get("lead_time_days", 0) or 0)
+                    if math.isfinite(supplier_lead) and supplier_lead >= 0:
+                        product_leads.append(supplier_lead)
+                except (TypeError, ValueError, OverflowError):
+                    continue
+            # If a SKU has multiple known suppliers, use the longest lead time conservatively.
+            lead = max(product_leads, default=0)
+            lead_evidence = (f"mahsulotga bog'liq yetkazish muddati {lead:g} kun (eng uzoq yetkazib beruvchi)"
+                             if product_leads else "mahsulotga bog'liq yetkazib beruvchi muddati kiritilmagan; 7/14 kunlik bazaviy chegara ishlatildi")
             if stock <= reorder:
                 probability = 5
             elif daily > 0 and cover <= max(lead, 7):
@@ -919,7 +970,7 @@ def _risk_assessment(data: dict[str, Any], today: str | None = None) -> list[dic
                 cover_label = f"{cover:.1f} kun" if math.isfinite(cover) else "aniqlanmagan"
                 add("Ombor", f"{product.get('name', sku)} zaxirasi tugashi", probability, impact,
                     "Qayta buyurtma nuqtasini tekshiring, yetkazish muddatini hisobga olib xarid rejasini tuzing.",
-                    f"Zaxira {stock:g}; qayta buyurtma nuqtasi {reorder:g}; taxminiy qoplash {cover_label}.")
+                    f"Zaxira {stock:g}; qayta buyurtma nuqtasi {reorder:g}; taxminiy qoplash {cover_label}; {lead_evidence}.")
         except (TypeError, ValueError, OverflowError):
             continue
 
@@ -1435,8 +1486,8 @@ def _eoq_text(data: dict[str, Any]) -> str:
         lines += ["", "Yetishmayotganlar:"] + missing[:15]
         lines.append("\nTo'ldirish: «➕ Mahsulot» da yozing, masalan:\n`Paxta ipi yillik 12000 buyurtma 150000 narx 28000`")
     if assumed_any:
-        lines.append("\n* saqlash xarajati yozilmagani uchun narxning 20% i olindi. Aniq qiymat: `Paxta ipi saqlash 4000`")
-    lines.append("\nFormula: √(2·D·S / H). D — yillik talab, S — 1 buyurtma xarajati, H — 1 birlikni 1 yil saqlash xarajati.")
+        lines.append("\n* Saqlash xarajati kiritilmagani uchun mahsulot narxining 20% i yillik H sifatida taxmin qilindi. Aniq H ni kiriting: Paxta ipi saqlash 4000 — bu 1 kg/donani 1 yil saqlash narxi, butun ombor ijarasi emas.")
+    lines.append("\nFormula: √(2·D·S / H). D — yillik talab, S — 1 buyurtma xarajati, H — 1 dona/kg mahsulotni 1 yil saqlash xarajati (so'm/birlik/yil). Omborning umumiy oylik ijarasini H sifatida kiritmang.")
     return "\n".join(lines)
 
 
@@ -1541,8 +1592,8 @@ _PARENT = {"add": "home", "in": "home", "out": "home", "supplier_add": "buy", "o
 _PROMPTS = {
     "add": ("➕ **MAHSULOT QO'SHISH**\n\nShunchaki yozing:\n`Paxta ipi 1200 kg`\n\n"
             "Xohlasangiz hammasini birdan:\n`Paxta ipi 1200 kg minimum 300 narx 28000 yillik 12000 buyurtma 150000 saqlash 4000`\n\n"
-            "• Kod (SKU) o'zi qo'yiladi.\n• Mavjud mahsulotni yangilash: `Paxta ipi narx 30000`\n"
-            "• Ko'p mahsulotni ketma-ket yuboravering."),
+            "• saqlash 4000 — 1 kg/dona mahsulotni 1 yil saqlash xarajati (so'm/birlik/yil). Butun omborning oylik ijarasini yozmang.\n"
+            "• Kod (SKU) o'zi qo'yiladi.\n• Mavjud mahsulotni yangilash: `Paxta ipi narx 30000`\n            "• Ko'p mahsulotni ketma-ket yuboravering."),
     "in": ("📥 **KIRIM**\n\nOddiy gap bilan yozing:\n`50 kg paxta keldi`\n`paxta ipi 120 kirim`\n\n"
            "Ketma-ket yuboravering. «ketdi» deb yozsangiz chiqim bo'ladi."),
     "out": ("📤 **CHIQIM**\n\nOddiy gap bilan yozing:\n`200 kg paxta ketdi`\n`paxta ipi 5 ishlatildi`\n\n"
@@ -1671,14 +1722,11 @@ async def _callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             product = data.get("products", {}).get(order.get("sku"))
             if not product:
                 return await alert("Mahsulot topilmadi; zaxira o'zgartirilmadi")
-            qty = float(order.get("quantity", 0))
-            product["quantity"] = float(product.get("quantity", 0)) + qty
-            product["updated_at"] = _now()
-            order["status"] = "received"
-            order["received_at"] = _now()
-            data["movements"].append({"id": uuid.uuid4().hex[:12], "sku": order["sku"], "type": "in", "quantity": qty,
-                                      "note": f"Xarid buyurtmasi {order_id} qabul qilindi", "created_at": _now(), "order_id": order_id})
-            message = f"Buyurtma qabul qilindi. Omborga {qty:g} birlik qo'shildi."
+            order["id"] = order_id
+            try:
+                message = _receive_purchase_order(data, order)
+            except (TypeError, ValueError, OverflowError) as exc:
+                return await alert(str(exc))
         elif action == "ord_cancel" and status in ("draft", "ordered"):
             order["status"] = "cancelled"
             order["cancelled_at"] = _now()
