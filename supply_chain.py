@@ -1802,7 +1802,12 @@ def _excel_mapping_from_text(raw: str, current: dict[str, Any] | None = None) ->
     import copy
     result = copy.deepcopy(current or {})
     allowed = set(supply_chain_import._CANONICAL)
-    matches = list(re.finditer(r"(?:(?P<sheet>[^,;!\n]+)!)?(?P<column>[A-Za-z]{1,3})\s*=\s*(?P<field>[^,;\n]+)", raw))
+    matches = list(re.finditer(
+        r"(?:(?P<sheet>[^,;!\n]+)!)?(?P<column>[A-Za-z]{1,3})"
+        r"(?:\s*(?:=|:|[-–])\s*|\s+(?:ustuni|ustunida|ustun|da)\s+|\s+)"
+        r"(?P<field>[^,;\n]+)",
+        raw, re.IGNORECASE,
+    ))
     for match in matches:
         sheet = (match.group("sheet") or "").strip()
         column = match.group("column").upper()
@@ -1845,7 +1850,7 @@ async def _excel_finish_import(message, context, raw_file: bytes, overrides: dic
         if len(questions) > 24:
             lines.append(f"… yana {len(questions) - 24} ta ustun. Ularni ham keyingi xabarda so'rayman.")
         context.user_data["_sc_wait"] = {"action": "excel_map", "parent": "home", "started": datetime.now().timestamp()}
-        await _reply(message, "\\n".join(lines))
+        await _reply(message, "\n".join(lines))
         return
 
     validated = supply_chain_import.validate_records(preview)
@@ -1861,7 +1866,7 @@ async def _excel_finish_import(message, context, raw_file: bytes, overrides: dic
         lines += ["", "Bu fayl nimaga mo'ljallangan? Qaysi varaqlar va ustunlar nimani bildiradi?",
                   "Ustunlarni harflari bilan tushuntiring. Masalan: A=mahsulot nomi, B=miqdor, C=narx. "
                   "Kerak bo'lmagan ustun: D=ignore. Tushuntiring — qayta tekshiraman."]
-        await _reply(message, "\\n".join(lines))
+        await _reply(message, "\n".join(lines))
         return
 
     counts = {}
@@ -1879,7 +1884,7 @@ async def _excel_finish_import(message, context, raw_file: bytes, overrides: dic
     lines += ["", "Ma'lumotlar hozircha saqlanmadi.",
               "Import qilish uchun TASDIQLAYMAN deb yozing. Bekor qilish uchun BEKOR deb yozing."]
     context.user_data["_sc_wait"] = {"action": "excel_confirm", "parent": "home", "started": datetime.now().timestamp()}
-    await _reply(message, "\\n".join(lines))
+    await _reply(message, "\n".join(lines))
 
 
 async def _handle_excel_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1910,7 +1915,7 @@ async def _handle_excel_document(update: Update, context: ContextTypes.DEFAULT_T
         context.user_data["_sc_wait"] = {"action": "excel_upload", "parent": "home", "started": datetime.now().timestamp()}
         await update.message.reply_text(
             "⚠️ Faylni yuklab yoki o'qib bo'lmadi: " + _friendly_error(exc) +
-            "\\nFaylni Excel Workbook (.xlsx) ko'rinishida qayta saqlab yuboring. "
+            "\nFaylni Excel Workbook (.xlsx) ko'rinishida qayta saqlab yuboring. "
             "Agar bu boshqa turdagi jadval bo'lsa, nima ma'lumot borligini tushuntiring."
         )
 
@@ -2017,7 +2022,7 @@ async def _text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
             if result.get(key):
                 lines.append(f"• {label}: {result[key]} ta")
         lines.append(f"Xatolar/o'tkazilganlar: {len(result.get('errors', []))}")
-        await _reply(update.message, "\\n".join(lines), _home_keyboard())
+        await _reply(update.message, "\n".join(lines), _home_keyboard())
         return True
     handler = _APPLY.get(str(action))
     if handler is None:
