@@ -28,7 +28,7 @@ _CANONICAL = {
     "annual_demand": {"yillik talab", "yillik sotuv", "annual demand", "yearly sales"},
     "order_cost": {"buyurtma xarajati", "zakaz xarajati", "ordering cost", "order cost"},
     "holding_cost": {"saqlash xarajati", "holding cost", "storage cost"},
-    "supplier_name": {"yetkazib beruvchi", "ta'minotchi", "taminotchi", "supplier", "supplier name", "vendor", "поставщик"},
+    "supplier_name": {"yetkazib beruvchi", "yetkazuvchi", "ta'minotchi", "taminotchi", "supplier", "supplier name", "vendor", "поставщик"},
     "contact": {"aloqa", "telefon", "tel", "email", "contact", "phone", "контакт", "телефон"},
     "lead_time_days": {"yetkazish muddati", "yetkazib berish muddati", "lead time", "delivery days", "muddat kun", "срок поставки"},
     "rating": {"reyting", "baho", "rating", "score", "рейтинг"},
