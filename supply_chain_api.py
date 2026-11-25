@@ -127,6 +127,173 @@ class RateLimiter:
             return True
 
 
+
+def _sku_matches(raw: str, sku: str) -> bool:
+    return not raw or str(raw).casefold() == str(sku).casefold()
+
+
+def _weighted_demand(records: list[dict]) -> float | None:
+    ordered = sorted(
+        (r for r in records if isinstance(r, dict)),
+        key=lambda r: str(r.get("month", "")),
+    )[-6:]
+    if len(ordered) < 3:
+        return None
+    values = [_number(r.get("quantity")) for r in ordered]
+    if any(v is None or v < 0 for v in values):
+        return None
+    weights = list(range(1, len(values) + 1))
+    return sum(v * w for v, w in zip(values, weights)) / sum(weights)
+
+
+def build_demand_analytics(snapshot: dict, sku: str = "") -> dict:
+    data = copy.deepcopy(snapshot) if isinstance(snapshot, dict) else {}
+    products = data.get("products") if isinstance(data.get("products"), dict) else {}
+    history = data.get("demand_history") if isinstance(data.get("demand_history"), list) else []
+    items = []
+    for key, product in sorted(products.items(), key=lambda pair: str(pair[0])):
+        if not isinstance(product, dict) or not _sku_matches(sku, key):
+            continue
+        records = sorted(
+            [r for r in history if isinstance(r, dict) and str(r.get("sku")) == str(key)],
+            key=lambda r: str(r.get("month", "")),
+        )[-6:]
+        forecast = _weighted_demand(records)
+        qty = _number(product.get("quantity"))
+        reorder = _number(product.get("reorder_point"))
+        monthly = round(forecast, 4) if forecast is not None else None
+        daily = forecast / 30 if forecast is not None else None
+        cover = qty / daily if qty is not None and daily and daily > 0 else None
+        items.append({
+            "sku": str(key),
+            "name": str(product.get("name") or key),
+            "unit": str(product.get("unit") or ""),
+            "history_months": len(records),
+            "months_used": [str(r.get("month") or "") for r in records],
+            "forecast_status": "available" if forecast is not None else "insufficient_history",
+            "forecast_next_month": monthly,
+            "average_daily_demand": round(daily, 4) if daily is not None else None,
+            "days_of_stock_cover": round(cover, 2) if cover is not None else None,
+            "reorder_point": reorder,
+            "stock_quantity": qty,
+            "recommended_purchase_quantity": round(max(0.0, forecast + (reorder or 0) - (qty or 0)), 4) if forecast is not None else None,
+        })
+    return _envelope({"items": items, "method": "weighted_moving_average_last_6_months",
+                      "minimum_history_months": 3}, int(data.get("version") or 1))
+
+
+def build_abc_analysis(snapshot: dict) -> dict:
+    data = copy.deepcopy(snapshot) if isinstance(snapshot, dict) else {}
+    products = data.get("products") if isinstance(data.get("products"), dict) else {}
+    rows = []
+    for sku, product in products.items():
+        if not isinstance(product, dict):
+            continue
+        demand, cost = _number(product.get("annual_demand")), _number(product.get("unit_cost"))
+        if demand is None or cost is None or demand <= 0 or cost <= 0:
+            continue
+        rows.append({"sku": str(sku), "name": str(product.get("name") or sku),
+                     "annual_consumption_value": demand * cost})
+    rows.sort(key=lambda r: (-r["annual_consumption_value"], r["sku"]))
+    total = sum(r["annual_consumption_value"] for r in rows)
+    cumulative = 0.0
+    groups = {"A": [], "B": [], "C": []}
+    for row in rows:
+        share = row["annual_consumption_value"] / total if total else 0.0
+        midpoint = (cumulative + share / 2) * 100
+        category = "A" if midpoint <= 80 else ("B" if midpoint <= 95 else "C")
+        row.update(share_percent=round(share * 100, 2), cumulative_percent=round((cumulative + share) * 100, 2), category=category)
+        groups[category].append(row)
+        cumulative += share
+    summary = {
+        key: {"product_count": len(values),
+              "value": round(sum(x["annual_consumption_value"] for x in values), 2),
+              "share_percent": round(sum(x["annual_consumption_value"] for x in values) / total * 100, 2) if total else 0.0}
+        for key, values in groups.items()
+    }
+    return _envelope({"total_annual_consumption_value": round(total, 2),
+                      "classified_product_count": len(rows), "groups": summary, "items": rows,
+                      "method": "annual_demand_times_unit_cost_midpoint_80_15_5"},
+                     int(data.get("version") or 1))
+
+
+def build_eoq_analysis(snapshot: dict) -> dict:
+    data = copy.deepcopy(snapshot) if isinstance(snapshot, dict) else {}
+    products = data.get("products") if isinstance(data.get("products"), dict) else {}
+    items = []
+    for sku, product in sorted(products.items(), key=lambda pair: str(pair[0])):
+        if not isinstance(product, dict):
+            continue
+        demand = _number(product.get("annual_demand"))
+        order_cost = _number(product.get("order_cost"))
+        holding = _number(product.get("holding_cost"))
+        unit_cost = _number(product.get("unit_cost"))
+        assumed = holding is None or holding <= 0
+        if assumed and unit_cost is not None:
+            holding = unit_cost * 0.2
+        valid = demand is not None and order_cost is not None and holding is not None and demand > 0 and order_cost > 0 and holding > 0
+        eoq = (2 * demand * order_cost / holding) ** 0.5 if valid else None
+        items.append({"sku": str(sku), "name": str(product.get("name") or sku),
+                      "annual_demand": demand, "order_cost": order_cost,
+                      "holding_cost_used": holding, "holding_cost_assumed": assumed if valid else False,
+                      "eoq": round(eoq, 4) if eoq is not None else None,
+                      "orders_per_year": round(demand / eoq, 4) if eoq else None,
+                      "status": "available" if eoq is not None else "missing_inputs"})
+    return _envelope({"items": items, "formula": "sqrt(2*D*S/H)",
+                      "assumed_holding_cost": "20% of unit_cost when holding_cost is missing or non-positive"},
+                     int(data.get("version") or 1))
+
+
+def build_replenishment(snapshot: dict) -> dict:
+    data = copy.deepcopy(snapshot) if isinstance(snapshot, dict) else {}
+    products = data.get("products") if isinstance(data.get("products"), dict) else {}
+    history = data.get("demand_history") if isinstance(data.get("demand_history"), list) else []
+    suppliers = data.get("suppliers") if isinstance(data.get("suppliers"), dict) else {}
+    orders = data.get("orders") if isinstance(data.get("orders"), list) else []
+    items = []
+    for sku, product in products.items():
+        if not isinstance(product, dict):
+            continue
+        qty, reorder = _number(product.get("quantity")), _number(product.get("reorder_point"))
+        records = [r for r in history if isinstance(r, dict) and str(r.get("sku")) == str(sku)]
+        forecast = _weighted_demand(records)
+        linked_ids = {str(o.get("supplier_id")) for o in orders
+                      if isinstance(o, dict) and str(o.get("sku")) == str(sku) and o.get("supplier_id")
+                      and o.get("status") in {"draft", "ordered"}}
+        if product.get("supplier_id"):
+            linked_ids.add(str(product["supplier_id"]))
+        lead_times = [_number(suppliers.get(sid, {}).get("lead_time_days"))
+                      for sid in linked_ids if isinstance(suppliers.get(sid), dict)]
+        lead_times = [v for v in lead_times if v is not None and v >= 0]
+        inbound = sum((_number(o.get("quantity")) or 0) for o in orders
+                      if isinstance(o, dict) and str(o.get("sku")) == str(sku) and o.get("status") == "ordered")
+        status = "unknown"
+        if qty is not None and reorder is not None:
+            status = "low" if qty <= reorder else "healthy"
+        items.append({"sku": str(sku), "name": str(product.get("name") or sku),
+                      "quantity": qty, "reorder_point": reorder, "forecast_monthly": round(forecast, 2) if forecast is not None else None,
+                      "open_order_quantity": round(inbound, 2), "lead_time_days": max(lead_times) if lead_times else None,
+                      "suggested_order_quantity": round(max(0, (forecast or 0) + (reorder or 0) - (qty or 0) - inbound), 2) if forecast is not None else None,
+                      "status": status})
+    items.sort(key=lambda x: ({"low": 0, "unknown": 1, "healthy": 2}[x["status"]], x["name"].casefold()))
+    return _envelope({"items": items, "note": "Recommendations are read-only and require review before ordering."},
+                     int(data.get("version") or 1))
+
+
+def get_inventory_detail(snapshot: dict, sku: str) -> dict:
+    data = copy.deepcopy(snapshot) if isinstance(snapshot, dict) else {}
+    products = data.get("products") if isinstance(data.get("products"), dict) else {}
+    product = products.get(sku)
+    if not isinstance(product, dict):
+        return _envelope({"item": None}, int(data.get("version") or 1))
+    movements = [m for m in data.get("movements", []) if isinstance(m, dict) and str(m.get("sku")) == str(sku)]
+    movements.sort(key=lambda m: str(m.get("created_at") or ""), reverse=True)
+    demand = [r for r in data.get("demand_history", []) if isinstance(r, dict) and str(r.get("sku")) == str(sku)]
+    demand.sort(key=lambda r: str(r.get("month") or ""), reverse=True)
+    return _envelope({"item": _product_row(str(sku), product),
+                      "recent_movements": movements[:20],
+                      "demand_history": demand[:12]}, int(data.get("version") or 1))
+
 def _number(value):
     try:
         result = float(value)
