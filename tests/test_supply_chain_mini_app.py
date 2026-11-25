@@ -14,6 +14,7 @@ class SupplyChainMiniAppShellTests(unittest.TestCase):
         self.assertIn('name="viewport"', self.html)
         self.assertIn('data-view="dashboard"', self.html)
         self.assertIn('data-view="inventory"', self.html)
+        self.assertIn('data-view="analytics"', self.html)
         self.assertIn('id="inventory-mobile"', self.html)
 
     def test_shell_authenticates_with_telegram_init_data(self):
@@ -25,6 +26,10 @@ class SupplyChainMiniAppShellTests(unittest.TestCase):
     def test_shell_uses_only_read_only_business_endpoints(self):
         self.assertIn('"/sc-api/v1/dashboard"', self.html)
         self.assertIn('"/sc-api/v1/inventory?"', self.html)
+        self.assertIn('"/sc-api/v1/analytics/demand"', self.html)
+        self.assertIn('"/sc-api/v1/analytics/abc"', self.html)
+        self.assertIn('"/sc-api/v1/analytics/eoq"', self.html)
+        self.assertIn('"/sc-api/v1/analytics/replenishment"', self.html)
         self.assertNotIn("/sc-api/v1/imports", self.html)
         self.assertNotIn("/sc-api/v1/inventory/movements", self.html)
 
