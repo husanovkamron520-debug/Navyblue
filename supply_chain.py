@@ -694,7 +694,16 @@ def _report_tables(data: dict[str, Any]) -> dict[str, list[list[Any]]]:
             scenario_rows.append([x.get("name", ""), x.get("sku", ""), "Hisoblandi", res.get("feasible_qty", 0), res.get("remaining_stock", 0), res.get("demand_gap", 0)])
         except Exception:
             scenario_rows.append([x.get("name", ""), x.get("sku", ""), "Hisoblab bo‘lmadi", "", "", ""])
-    return {"Dashboard": summary, "Mahsulotlar": product_rows, "Yetkazuvchilar": supplier_rows, "Buyurtmalar": order_rows, "Transport": shipment_rows, "Risklar": risk_rows, "Talab tarixi": demand_rows, "Ishlab chiqarish": scenario_rows}
+    forecast_rows = [["SKU", "Mahsulot", "Qoldiq", "Birlik", "Tarix (oy)", "Prognoz holati", "Oylik talab", "Kunlik talab", "Qoplash (kun)", "Taxminiy tugash sanasi", "Tavsiya xarid"]]
+    for metric in _computed_metrics(data):
+        available = metric.get("forecast_status") == "available"
+        cover = metric.get("days_of_stock_cover") if available else None
+        stockout_date = (date.today() + timedelta(days=math.ceil(cover))).isoformat() if cover is not None else ""
+        forecast_rows.append([metric["sku"], metric["product"], metric["stock"], metric["unit"],
+            metric["history_months_available"], "Hisoblandi" if available else metric.get("reason", "Ma’lumot yetarli emas"),
+            metric.get("weighted_monthly_demand", ""), metric.get("average_daily_demand", ""), cover if cover is not None else "",
+            stockout_date, metric.get("recommended_purchase_quantity", "")])
+    return {"Dashboard": summary, "Mahsulotlar": product_rows, "Yetkazuvchilar": supplier_rows, "Buyurtmalar": order_rows, "Transport": shipment_rows, "Risklar": risk_rows, "Talab tarixi": demand_rows, "Ishlab chiqarish": scenario_rows, "Prognoz": forecast_rows}
 
 
 def _xlsx_bytes(data: dict[str, Any]) -> bytes:
@@ -1132,6 +1141,7 @@ def _computed_metrics(data: dict[str, Any]) -> list[dict[str, Any]]:
             item.update(forecast_status="available", months_used=[r.get("month") for r in records],
                         weighted_monthly_demand=round(monthly, 4), average_daily_demand=round(daily, 4),
                         days_of_stock_cover=round(cover, 2) if cover is not None else None,
+                        stockout_date=(date.today() + timedelta(days=math.ceil(cover))).isoformat() if cover is not None else None,
                         reorder_point=_safe_num(product.get("reorder_point")),
                         recommended_purchase_quantity=round(max(0.0, monthly + _safe_num(product.get("reorder_point")) - stock), 4))
         results.append(item)
