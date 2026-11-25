@@ -184,8 +184,11 @@ def inspect_workbook(raw: bytes, overrides: dict[str, str] | None = None) -> dic
     for sheet in read_workbook(raw):
         rows = sheet["rows"]
         best = None
+        sheet_overrides = {k: v for k, v in (overrides or {}).items() if not isinstance(v, dict)}
+        if isinstance((overrides or {}).get(sheet["name"]), dict):
+            sheet_overrides.update(overrides[sheet["name"]])
         for pos, (excel_row, values) in enumerate(rows[:20]):
-            mapped, unknown = _header_map(values, overrides)
+            mapped, unknown = _header_map(values, sheet_overrides)
             score = len(mapped)
             if best is None or score > best["score"]:
                 best = {"pos": pos, "excel_row": excel_row, "values": values, "mapping": mapped, "unknown": unknown, "score": score}
