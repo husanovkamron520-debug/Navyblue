@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="uz">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#10233f">
+  <title>Supply Chain — Mini App</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <style>
+    :root{color-scheme:light;--navy:#10233f;--navy2:#18395e;--ink:#182638;--muted:#718096;--line:#e4eaf1;--paper:#f4f7fb;--white:#fff;--blue:#2e6ca4;--green:#21835b;--amber:#bd7b18;--red:#bd4a4a;--radius:16px}
+    *{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif}
+    button,input,select{font:inherit}button{cursor:pointer}.shell{max-width:1120px;margin:0 auto;min-height:100dvh;padding:0 16px 32px}
+    .top{margin:0 -16px 18px;padding:18px 18px 20px;background:linear-gradient(120deg,var(--navy),var(--navy2));color:white;border-radius:0 0 22px 22px}
+    .topline{display:flex;align-items:center;justify-content:space-between;gap:12px}.brand{font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:#b8c8da;font-weight:700}.top h1{font-size:22px;margin:9px 0 3px}.sub{color:#d0dbe7;font-size:13px}.status{display:inline-flex;align-items:center;gap:7px;color:#d9e6f2;font-size:12px}.dot{width:7px;height:7px;border-radius:50%;background:#63c79b}
+    .nav{display:flex;gap:8px;margin:0 0 18px;overflow:auto;padding-bottom:3px}.nav button{white-space:nowrap;border:1px solid var(--line);background:white;color:var(--muted);border-radius:999px;padding:9px 15px;font-weight:650}.nav button.active{background:var(--navy);color:white;border-color:var(--navy)}
+    .section-head{display:flex;align-items:end;justify-content:space-between;gap:12px;margin:20px 0 12px}.section-head h2{font-size:17px;margin:0}.section-head p{margin:3px 0 0;color:var(--muted);font-size:12px}
+    .grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}.card{background:white;border:1px solid var(--line);border-radius:var(--radius);padding:15px;min-width:0}.kpi-label{font-size:12px;color:var(--muted);font-weight:600}.kpi-value{font-size:25px;letter-spacing:-.04em;font-weight:750;margin-top:8px;color:var(--navy);overflow-wrap:anywhere}.kpi-note{font-size:11px;color:var(--muted);margin-top:4px}
+    .two{display:grid;grid-template-columns:1.15fr .85fr;gap:12px;margin-top:12px}.chart-title{font-weight:700;margin-bottom:5px}.chart-sub{font-size:12px;color:var(--muted)}.barline{display:flex;height:13px;border-radius:20px;overflow:hidden;background:#edf1f5;margin:18px 0 10px}.bar-low{background:var(--amber)}.bar-good{background:#4d9a79}.legend{display:flex;gap:18px;flex-wrap:wrap;color:var(--muted);font-size:12px}.legend span{display:inline-flex;align-items:center;gap:6px}.swatch{width:8px;height:8px;border-radius:50%;display:inline-block}
+    .alert-list{display:grid;gap:9px;margin-top:13px}.alert{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 11px;background:#fff8eb;border:1px solid #f3e3c7;border-radius:11px}.alert strong{font-size:12px}.pill{font-size:11px;font-weight:700;border-radius:999px;padding:4px 8px;background:#fff0d4;color:#986014;white-space:nowrap}.pill.good{background:#e6f4ed;color:#21734f}
+    .toolbar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}.toolbar input,.toolbar select{min-width:0;border:1px solid var(--line);background:white;border-radius:11px;padding:10px 12px;color:var(--ink)}.toolbar input{flex:1}.toolbar select{min-width:120px}.table-wrap{overflow:auto;border:1px solid var(--line);border-radius:14px;background:white}.table{width:100%;border-collapse:collapse;min-width:600px}.table th{text-align:left;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.04em;background:#f8fafc;padding:12px}.table td{padding:13px 12px;border-top:1px solid #edf1f5;font-size:13px}.sku{font-weight:750;color:var(--navy)}.muted{color:var(--muted)}.stock{font-weight:700}.stock.low{color:var(--amber)}.stock.ok{color:var(--green)}.mobile-list{display:none;gap:9px}.product-card{background:white;border:1px solid var(--line);border-radius:13px;padding:13px}.product-row{display:flex;justify-content:space-between;gap:12px}.product-card .name{font-weight:700;color:var(--navy)}.product-meta{display:flex;gap:12px;flex-wrap:wrap;color:var(--muted);font-size:12px;margin-top:8px}
+    .pager{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:12px;color:var(--muted);font-size:12px}.pager button,.retry{border:1px solid var(--line);background:white;border-radius:9px;padding:8px 12px;color:var(--navy);font-weight:650}.pager button:disabled{opacity:.4;cursor:not-allowed}
+    .notice{padding:18px;background:white;border:1px solid var(--line);border-radius:14px;color:var(--muted);text-align:center}.notice strong{display:block;color:var(--navy);margin-bottom:5px}.error{color:var(--red)}.loading{opacity:.65}.footer{text-align:center;color:#93a0ae;font-size:11px;padding:24px 0 4px}
+    @media(max-width:760px){.grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.kpi-value{font-size:22px}.two{grid-template-columns:1fr}.table-wrap{display:none}.mobile-list{display:grid}.section-head{margin-top:18px}.top h1{font-size:20px}}
+    @media(min-width:761px){.shell{padding-left:22px;padding-right:22px}.top{margin-left:-22px;margin-right:-22px;padding-left:24px;padding-right:24px}.nav{margin-bottom:22px}}
+  </style>
+</head>
+<body>
+<div class="shell">
+  <header class="top">
+    <div class="topline"><div class="brand">NAVYBLUE · OPERATIONS</div><div class="status"><i class="dot"></i><span id="connection">Ulanmoqda</span></div></div>
+    <h1>Supply Chain</h1>
+    <div class="sub" id="welcome">Ombor va ta’minot zanjiri boshqaruvi</div>
+  </header>
+  <nav class="nav" aria-label="Asosiy bo‘limlar">
+    <button class="active" data-view="dashboard">Dashboard</button>
+    <button data-view="inventory">Ombor</button>
+  </nav>
+  <main>
+    <section id="dashboard-view">
+      <div class="section-head"><div><h2>Umumiy ko‘rsatkichlar</h2><p>Joriy saqlangan ma’lumotlar asosida</p></div><button class="retry" id="refresh">Yangilash</button></div>
+      <div class="grid" id="kpis">
+        <div class="card"><div class="kpi-label">Mahsulotlar</div><div class="kpi-value">—</div><div class="kpi-note">SKU soni</div></div>
+        <div class="card"><div class="kpi-label">Jami zaxira</div><div class="kpi-value">—</div><div class="kpi-note">Barcha birliklar</div></div>
+        <div class="card"><div class="kpi-label">Zaxira qiymati</div><div class="kpi-value">—</div><div class="kpi-note">Hisoblangan qiymat</div></div>
+        <div class="card"><div class="kpi-label">Kam qolgan</div><div class="kpi-value">—</div><div class="kpi-note">Qayta buyurtma chegarasida</div></div>
+      </div>
+      <div class="two">
+        <div class="card"><div class="chart-title">Zaxira holati</div><div class="chart-sub">Qayta buyurtma chegarasiga nisbatan</div><div class="barline"><div class="bar-low" id="low-bar" style="width:0%"></div><div class="bar-good" id="good-bar" style="width:0%"></div></div><div class="legend"><span><i class="swatch" style="background:#bd7b18"></i><b id="low-legend">0</b> kam zaxira</span><span><i class="swatch" style="background:#4d9a79"></i><b id="good-legend">0</b> me’yorda</span></div></div>
+        <div class="card"><div class="chart-title">Diqqat talab qiladi</div><div class="chart-sub">Ombor bo‘yicha tezkor ogohlantirish</div><div class="alert-list" id="alerts"><div class="muted">Ma’lumot yuklanmoqda…</div></div></div>
+      </div>
+    </section>
+    <section id="inventory-view" hidden>
+      <div class="section-head"><div><h2>Ombor zaxiralari</h2><p id="inventory-count">Mahsulotlar ro‘yxati</p></div><button class="retry" id="inventory-refresh">Yangilash</button></div>
+      <div class="toolbar"><input id="search" type="search" placeholder="SKU yoki mahsulot nomi…" autocomplete="off"><select id="status"><option value="all">Barcha holat</option><option value="low">Kam zaxira</option><option value="healthy">Me’yorda</option></select><select id="sort"><option value="name">Nom bo‘yicha</option><option value="quantity">Miqdor bo‘yicha</option><option value="value">Qiymat bo‘yicha</option></select></div>
+      <div class="table-wrap"><table class="table"><thead><tr><th>SKU / Mahsulot</th><th>Miqdor</th><th>Qayta buyurtma</th><th>Birlik qiymati</th><th>Holat</th></tr></thead><tbody id="inventory-table"></tbody></table></div>
+      <div class="mobile-list" id="inventory-mobile"></div>
+      <div class="pager"><span id="page-info">—</span><div><button id="prev">Oldingi</button> <button id="next">Keyingi</button></div></div>
+    </section>
+    <div class="notice" id="notice" hidden><strong id="notice-title">Telegram orqali oching</strong><span id="notice-text">Mini App bot ichida ishlaydi.</span><div style="margin-top:12px"><button class="retry" id="retry" hidden>Qayta urinish</button></div></div>
+  </main>
+  <div class="footer">Navyblue Supply Chain · Read-only preview</div>
+</div>
+<script>
+(() => {
+  const tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
+  const $ = id => document.getElementById(id);
+  let token = "", page = 1, totalPages = 1, searchTimer = null, currentView = "dashboard";
+  const fmt = (n, digits=0) => n == null || !Number.isFinite(Number(n)) ? "—" : new Intl.NumberFormat("uz-UZ",{maximumFractionDigits:digits}).format(Number(n));
+  const money = n => n == null ? "—" : fmt(n,0) + " UZS";
+  const el = (tag, cls, value) => { const node=document.createElement(tag); if(cls)node.className=cls; if(value!==undefined)node.textContent=value; return node; };
+  const showNotice = (title, message, retry=false) => { $("notice").hidden=false; $("notice-title").textContent=title; $("notice-text").textContent=message; $("retry").hidden=!retry; };
+  const hideNotice = () => { $("notice").hidden=true; };
+  async function api(path, options={}) {
+    const response = await fetch(path,{...options,headers:{...(options.headers||{}),...(token?{Authorization:"Bearer "+token}:{})},cache:"no-store"});
+    let body={}; try{body=await response.json();}catch(_){}
+    if(!response.ok) throw new Error(body.error?.message || ("HTTP "+response.status));
+    return body.data;
+  }
+  async function authenticate() {
+    if(!tg || !tg.initData){ showNotice("Telegram orqali oching","Bu sahifa xavfsiz kirish uchun bot ichidagi Mini App tugmasidan ochilishi kerak."); $("connection").textContent="Kirish talab qilinadi"; return false; }
+    tg.ready(); tg.expand();
+    if(tg.initDataUnsafe?.user?.first_name) $("welcome").textContent="Xush kelibsiz, "+tg.initDataUnsafe.user.first_name;
+    const session=await fetch("/sc-api/v1/session",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({initData:tg.initData}),cache:"no-store"});
+    const payload=await session.json();
+    if(!session.ok) throw new Error(payload.error?.message || "Kirish amalga oshmadi");
+    token=payload.data.token; $("connection").textContent="Ulangan"; return true;
+  }
+  function setKpis(k) {
+    const cards=[
+      ["Mahsulotlar",fmt(k.product_count),"SKU soni"],
+      ["Jami zaxira",fmt(k.total_units,1),"Barcha birliklar"],
+      ["Zaxira qiymati",money(k.inventory_value),"Hisoblangan qiymat"],
+      ["Kam qolgan",fmt(k.low_stock_count),"Qayta buyurtma chegarasida"]
+    ];
+    const root=$("kpis"); root.replaceChildren();
+    cards.forEach(([label,value,note])=>{const c=el("div","card");c.append(el("div","kpi-label",label),el("div","kpi-value",value),el("div","kpi-note",note));root.append(c);});
+  }
+  function renderAlerts(k) {
+    const root=$("alerts");root.replaceChildren();
+    const rows=[
+      ["Kam zaxiradagi mahsulotlar",k.low_stock_count||0],
+      ["Ochiq xarid buyurtmalari",k.open_order_count||0],
+      ["Faol jo‘natmalar",k.active_shipment_count||0],
+      ["Miqdori noma’lum SKU",k.unknown_stock_count||0]
+    ];
+    rows.forEach(([label,value])=>{const item=el("div","alert");item.append(el("strong","",label),el("span",Number(value)>0?"pill":"pill good",fmt(value)));root.append(item);});
+  }
+  async function loadDashboard() {
+    const result=await api("/sc-api/v1/dashboard"); const k=result.kpis;
+    setKpis(k);renderAlerts(k);
+    const all=Math.max(1,(k.product_count||0));const low=Math.min(all,k.low_stock_count||0);const good=Math.max(0,all-low);
+    $("low-bar").style.width=(low/all*100)+"%";$("good-bar").style.width=(good/all*100)+"%";
+    $("low-legend").textContent=fmt(low);$("good-legend").textContent=fmt(good);
+  }
+  function makeProductCard(p) {
+    const c=el("article","product-card"),row=el("div","product-row"),left=el("div","");
+    left.append(el("div","name",p.name||p.sku),el("div","muted",p.sku));
+    const qty=el("div","stock "+(p.quantity!=null&&p.reorder_point!=null&&p.quantity<=p.reorder_point?"low":"ok"),fmt(p.quantity,1)+" "+(p.unit||""));
+    row.append(left,qty);c.append(row);
+    const meta=el("div","product-meta");meta.append(el("span","","Reorder: "+fmt(p.reorder_point,1)),el("span","","Birlik: "+money(p.unit_cost)));c.append(meta);return c;
+  }
+  async function loadInventory() {
+    const qs=new URLSearchParams({page:String(page),page_size:"10",search:$("search").value,status:$("status").value,sort:$("sort").value});
+    const result=await api("/sc-api/v1/inventory?"+qs.toString()), data=result;
+    totalPages=Math.max(1,data.pagination.pages||1);$("inventory-count").textContent=fmt(data.pagination.total)+" ta mahsulot";
+    $("page-info").textContent="Sahifa "+page+" / "+totalPages+" · "+fmt(data.pagination.total)+" ta";
+    $("prev").disabled=page<=1;$("next").disabled=page>=totalPages;
+    const table=$("inventory-table");table.replaceChildren();
+    const mobile=$("inventory-mobile");mobile.replaceChildren();
+    if(!data.items.length){table.append(el("tr","")).lastChild.append(el("td","muted","Mahsulot topilmadi"));mobile.append(el("div","notice","Mahsulot topilmadi"));return;}
+    data.items.forEach(p=>{
+      const tr=el("tr","");const status=p.quantity==null||p.reorder_point==null?"Noma’lum":p.quantity<=p.reorder_point?"Kam":"Me’yorda";
+      [p.sku+" · "+p.name,fmt(p.quantity,1)+" "+(p.unit||""),fmt(p.reorder_point,1),money(p.unit_cost),status].forEach((v,i)=>{const td=el("td",i===0?"sku":i===4?"stock "+(status==="Kam"?"low":"ok"):"",v);tr.append(td);});table.append(tr);mobile.append(makeProductCard(p));
+    });
+  }
+  async function refreshAll() {
+    try { hideNotice(); $("connection").textContent="Yangilanmoqda"; await loadDashboard(); if(currentView==="inventory")await loadInventory(); $("connection").textContent="Ulangan"; }
+    catch(err){ $("connection").textContent="Xatolik"; showNotice("Ma’lumot yuklanmadi",err.message,true); }
+  }
+  function switchView(view) {
+    currentView=view;$("dashboard-view").hidden=view!=="dashboard";$("inventory-view").hidden=view!=="inventory";
+    document.querySelectorAll(".nav button").forEach(b=>b.classList.toggle("active",b.dataset.view===view));
+    if(view==="inventory")loadInventory().catch(e=>showNotice("Ombor yuklanmadi",e.message,true));
+  }
+  document.querySelectorAll(".nav button").forEach(b=>b.addEventListener("click",()=>switchView(b.dataset.view)));
+  $("refresh").addEventListener("click",refreshAll);$("inventory-refresh").addEventListener("click",()=>loadInventory().catch(e=>showNotice("Xatolik",e.message,true)));
+  $("prev").addEventListener("click",()=>{if(page>1){page--;loadInventory().catch(e=>showNotice("Xatolik",e.message,true));}});
+  $("next").addEventListener("click",()=>{if(page<totalPages){page++;loadInventory().catch(e=>showNotice("Xatolik",e.message,true));}});
+  ["search","status","sort"].forEach(id=>$(id).addEventListener(id==="search"?"input":"change",()=>{page=1;clearTimeout(searchTimer);searchTimer=setTimeout(()=>loadInventory().catch(e=>showNotice("Xatolik",e.message,true)),id==="search"?250:0);}));
+  $("retry").addEventListener("click",async()=>{try{hideNotice();if(!token)await authenticate();await refreshAll();}catch(e){showNotice("Kirish amalga oshmadi",e.message,true);}});
+  (async()=>{try{if(await authenticate())await refreshAll();}catch(e){$("connection").textContent="Xatolik";showNotice("Kirish amalga oshmadi",e.message,true);}})();
+})();
+</script>
+</body>
+</html>
