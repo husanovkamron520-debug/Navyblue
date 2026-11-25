@@ -172,6 +172,28 @@ class ReadOnlyApiServiceTests(unittest.TestCase):
         self.assertEqual(result["recent_movements"][0]["sku"], "SKU-1")
         self.assertEqual(self.snapshot, before)
 
+    def test_procurement_lists_do_not_expose_supplier_contact(self):
+        self.snapshot["orders"] = [{"id": "PO-1", "sku": "SKU-1", "supplier_id": "S-1",
+                                    "quantity": 10, "unit_price": 2, "status": "ordered",
+                                    "expected_date": "2026-12-01", "created_at": "2026-11-20"}]
+        orders = api.list_purchase_orders(self.snapshot)["data"]["items"]
+        suppliers = api.list_suppliers(self.snapshot)["data"]["items"]
+        self.assertEqual(orders[0]["supplier_name"], "Supplier")
+        self.assertNotIn("contact", suppliers[0])
+        self.assertNotIn("private", str(suppliers))
+
+    def test_logistics_lists_return_allowlisted_shipments_and_vehicles(self):
+        self.snapshot["vehicles"] = [{"id": "TR-1", "name": "Truck", "capacity": 100,
+                                      "cost_per_km": 5, "speed_kmh": 60, "secret": "x"}]
+        self.snapshot["shipments"] = [{"id": "SH-1", "sku": "SKU-1", "quantity": 4,
+                                       "destination": "Samarkand", "distance_km": 20,
+                                       "vehicle_id": "TR-1", "estimated_hours": 1,
+                                       "estimated_cost": 100, "status": "planned"}]
+        shipment = api.list_shipments(self.snapshot)["data"]["items"][0]
+        vehicle = api.list_vehicles(self.snapshot)["data"]["items"][0]
+        self.assertEqual(shipment["vehicle_name"], "Truck")
+        self.assertNotIn("secret", vehicle)
+
 
 if __name__ == "__main__":
     unittest.main()
