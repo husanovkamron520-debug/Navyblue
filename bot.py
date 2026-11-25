@@ -29,6 +29,7 @@ from difflib import SequenceMatcher
 from http.server import BaseHTTPRequestHandler, HTTPServer, ThreadingHTTPServer
 import museum
 import supply_chain
+import supply_chain_api as sc_api
 import october_plus
 import october_creative
 from ppt_media_sources import find_commons_photo
@@ -84,6 +85,10 @@ logging.basicConfig(
     level=logging.INFO,
 )
 logger = logging.getLogger(__name__)
+
+# Supply Chain Mini App: process-local owner sessions and startup readiness gate.
+_SC_STORAGE_READY = threading.Event()
+_SC_SESSIONS = sc_api.SessionStore()
 # httpx so'rov URL'larida bot tokeni chiqib qolmasligi uchun
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
@@ -1048,11 +1053,101 @@ def run_health_server():
     port = int(os.environ.get("PORT", "10000"))
 
     class Handler(BaseHTTPRequestHandler):
+        def _sc_json(self, payload, status=200):
+            raw = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Content-Length", str(len(raw)))
+            self.end_headers()
+            self.wfile.write(raw)
+
+        def _sc_error(self, code, message, status):
+            self._sc_json({"data": None, "meta": {"request_id": uuid.uuid4().hex},
+                           "error": {"code": code, "message": message}}, status)
+
+        def _sc_bearer(self):
+            header = self.headers.get("Authorization", "")
+            if not header.startswith("Bearer "):
+                return ""
+            return header[7:].strip()
+
+        def _sc_api_get(self, parsed):
+            if parsed.path == "/sc-api/v1/health":
+                ready = _SC_STORAGE_READY.is_set()
+                self._sc_json({"status": "ready" if ready else "starting"}, 200 if ready else 503)
+                return
+            if parsed.path not in {"/sc-api/v1/bootstrap", "/sc-api/v1/dashboard", "/sc-api/v1/inventory"}:
+                self._sc_error("not_found", "API endpoint topilmadi.", 404)
+                return
+            if not _SC_STORAGE_READY.is_set():
+                self._sc_error("not_ready", "Ma'lumotlar bazasi hali tayyor emas.", 503)
+                return
+            if not OWNER_CHAT_ID or not _SC_SESSIONS.authenticate(self._sc_bearer(), OWNER_CHAT_ID):
+                self._sc_error("unauthorized", "Sessiya yaroqsiz yoki muddati tugagan.", 401)
+                return
+            snapshot = load_json(supply_chain.DATA_FILE, {})
+            from urllib.parse import parse_qs
+            query = parse_qs(parsed.query)
+            if parsed.path == "/sc-api/v1/bootstrap":
+                result = sc_api.build_bootstrap(snapshot)
+            elif parsed.path == "/sc-api/v1/dashboard":
+                result = sc_api.build_dashboard(snapshot)
+            else:
+                def _int_arg(key, default):
+                    try:
+                        return int((query.get(key) or [str(default)])[0])
+                    except (TypeError, ValueError):
+                        return default
+                result = sc_api.list_inventory(
+                    snapshot,
+                    search=(query.get("search") or [""])[0],
+                    status=(query.get("status") or ["all"])[0],
+                    sort=(query.get("sort") or ["name"])[0],
+                    page=_int_arg("page", 1),
+                    page_size=_int_arg("page_size", 10),
+                )
+            self._sc_json(result)
+
+        def _sc_api_post(self, parsed):
+            if parsed.path != "/sc-api/v1/session":
+                self._sc_error("method_not_allowed", "Bu endpoint faqat sessiya yaratish uchun.", 405)
+                return
+            if not _SC_STORAGE_READY.is_set():
+                self._sc_error("not_ready", "Ma'lumotlar bazasi hali tayyor emas.", 503)
+                return
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                if length <= 0 or length > sc_api.MAX_INIT_DATA_BYTES:
+                    self._sc_error("invalid_request", "So'rov hajmi noto'g'ri.", 413)
+                    return
+                if "application/json" not in self.headers.get("Content-Type", "").lower():
+                    self._sc_error("invalid_request", "JSON format talab qilinadi.", 415)
+                    return
+                payload = json.loads(self.rfile.read(length).decode("utf-8"))
+                init_data = payload.get("initData") if isinstance(payload, dict) else None
+                user = sc_api.validate_init_data(init_data, TELEGRAM_BOT_TOKEN, OWNER_CHAT_ID)
+                token, expires_in = _SC_SESSIONS.issue(user["id"])
+                self._sc_json({"data": {"token": token, "token_type": "Bearer",
+                                        "expires_in": expires_in},
+                               "meta": {"request_id": uuid.uuid4().hex}, "error": None})
+            except sc_api.AuthError as exc:
+                self._sc_error("unauthorized", str(exc), 401)
+            except (UnicodeDecodeError, json.JSONDecodeError, AttributeError, TypeError, ValueError):
+                self._sc_error("invalid_request", "So'rov formati noto'g'ri.", 400)
+            except Exception:
+                logger.exception("Supply Chain API session endpoint failed")
+                self._sc_error("internal_error", "Ichki server xatosi.", 500)
+
         def do_GET(self):
             body, ctype, code = b"OK", "text/plain; charset=utf-8", 200
             try:
                 from urllib.parse import urlparse, parse_qs
                 u = urlparse(self.path)
+                if u.path.startswith("/sc-api/v1/"):
+                    self._sc_api_get(u)
+                    return
                 if u.path == "/museum" or u.path.startswith("/museum/"):
                     museum.http_get(self, u)
                     return
@@ -1092,6 +1187,9 @@ def run_health_server():
             try:
                 from urllib.parse import urlparse
                 u = urlparse(self.path)
+                if u.path.startswith("/sc-api/v1/"):
+                    self._sc_api_post(u)
+                    return
                 if u.path.startswith("/museum/"):
                     museum.http_post(self, u)
                     return
@@ -14257,6 +14355,7 @@ def main():
     threading.Thread(target=run_keep_alive, daemon=True).start()
 
     init_storage_with_retry()  # DB vaqtincha uzilsa, process qulamaydi va ma'lumotlar tiklanguncha qayta urinadi.
+    _SC_STORAGE_READY.set()
     threading.Thread(target=_usage_flush_loop, daemon=True).start()
     atexit.register(_usage_flush)
 
