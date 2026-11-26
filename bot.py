@@ -2075,20 +2075,23 @@ async def show_teacher_applications(update: Update, context: ContextTypes.DEFAUL
         applicant_id = info.get("chat_id")
         if not applicant_id:
             continue
+        username = str(info.get("username") or "").strip().lstrip("@")
         details = str(info.get("application_details") or "").strip()
-        body = (
-            "🆕 USTOZLIK ARIZASI\n\n"
-            f"👤 Ism: {info.get('name', 'Noma'lum')}\n"
-            f"🔗 Telegram: @{info.get('username')}" if info.get("username")
-            else f"🆕 USTOZLIK ARIZASI\n\n👤 Ism: {info.get('name', 'Noma'lumot')}"
-        )
-        body += f"\n🆔 ID: {applicant_id}\n\n"
-        body += f"📚 Ma'lumot:\n{details}" if details else "⏳ Ariza egasidan qo'shimcha ma'lumot kutilmoqda."
+        lines = [
+            "🆕 USTOZLIK ARIZASI",
+            "",
+            f"👤 Ism: {info.get('name') or 'Noma’lum'}",
+            f"🔗 Telegram: @{username}" if username else "🔗 Telegram: username yo'q",
+            f"🆔 ID: {applicant_id}",
+            "",
+            "📚 Ariza ma'lumotlari:",
+            details if details else "⏳ Qo'shimcha ma'lumot kutilmoqda.",
+        ]
         keyboard = InlineKeyboardMarkup([[
             InlineKeyboardButton("✅ Tasdiqlash", callback_data=f"teacher_approval:approve:{applicant_id}"),
             InlineKeyboardButton("❌ Rad etish", callback_data=f"teacher_approval:reject:{applicant_id}"),
         ]]) if details else None
-        await update.message.reply_text(body, reply_markup=keyboard)
+        await update.message.reply_text("\n".join(lines), reply_markup=keyboard)
 
 
 # ============================================================
