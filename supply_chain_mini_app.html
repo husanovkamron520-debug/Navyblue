@@ -406,6 +406,7 @@
       const nameLength=view.getUint16(cursor+28,true),extraLength=view.getUint16(cursor+30,true),commentLength=view.getUint16(cursor+32,true);
       const localOffset=view.getUint32(cursor+42,true);
       const next=cursor+46+nameLength+extraLength+commentLength;
+      if(compressed===0xffffffff||uncompressed===0xffffffff||localOffset===0xffffffff)throw new Error("ZIP64 ichki fayl yozuvlari qo‘llab-quvvatlanmaydi.");
       if(next>centralEnd)throw new Error("Excel arxivida noto‘g‘ri katalog yozuvi bor.");
       if(flags&1)throw new Error("Parol bilan himoyalangan Excel fayllari qo‘llab-quvvatlanmaydi.");
       if(method!==0&&method!==8)throw new Error("Excel arxivida qo‘llab-quvvatlanmaydigan siqish turi bor.");
