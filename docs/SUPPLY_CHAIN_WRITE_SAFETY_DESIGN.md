@@ -92,6 +92,21 @@ The adapter intentionally requires an injected `persist_snapshot(candidate, expe
 
 **Limitations:** the adapter is not imported by `bot.py`, is not exposed through HTTP, and cannot yet be used for inventory changes. Its lock coordinates only threads in one Python process. The current Supabase REST upsert does not satisfy the required atomic compare-and-swap contract, so no production storage callback is supplied. The prototype's tests must pass in CI before it can be considered validated.
 
+
+## 3.2 Read-only Supabase storage inspection (2026-11-26)
+
+The connected project was inspected without changing its schema or data:
+
+- `public.bot_storage` has exactly three columns: `storage_key text NOT NULL`, `data jsonb NOT NULL DEFAULT '{}'`, and `updated_at timestamptz NOT NULL DEFAULT now()`.
+- There is no dedicated revision/version column on the row.
+- The existing public function catalog contains no Supply Chain storage compare-and-swap or acknowledged-commit RPC that can safely be reused.
+- The current Supply Chain dataset's own `version` is inside the JSONB document, not a separate database column.
+
+Supabase's current JavaScript/PostgREST filter documentation confirms that filters can be applied to update requests and that JSON-column paths can be filtered (for example, `address->postcode`). This makes a conditional update against the JSONB version worth prototyping without adding a table column. It is **not yet approved or verified as the production solution**: the exact PostgREST filter for the nested document must be tested against a disposable row, and a conditional PATCH alone does not protect against the existing background upsert writer. Every writer for the `supply_chain_data` key must share one ordering protocol before this can be enabled.
+
+A database RPC using a transaction and row-level compare-and-swap remains the clearest robust option, but creating that function is a database change. No SQL, migration, function, table, or data was changed during this inspection. Any RPC implementation requires separate explicit approval.
+
+
 ## 4. Audit and idempotency record
 
 Keep the audit entry in the same JSONB document as the business change so the change and its audit record cannot be committed separately.
