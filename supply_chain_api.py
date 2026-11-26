@@ -279,15 +279,23 @@ def build_replenishment(snapshot: dict) -> dict:
         lead_times = [_number(suppliers.get(sid, {}).get("lead_time_days"))
                       for sid in linked_ids if isinstance(suppliers.get(sid), dict)]
         lead_times = [v for v in lead_times if v is not None and v >= 0]
-        inbound = sum((_number(o.get("quantity")) or 0) for o in orders
-                      if isinstance(o, dict) and str(o.get("sku")) == str(sku) and o.get("status") == "ordered")
+        matching_orders = [o for o in orders if isinstance(o, dict)
+                           and str(o.get("sku")) == str(sku)
+                           and str(o.get("status") or "").lower() in {"draft", "ordered"}]
+        draft_qty = sum((_number(o.get("quantity")) or 0) for o in matching_orders
+                        if str(o.get("status") or "").lower() == "draft")
+        inbound = sum((_number(o.get("quantity")) or 0) for o in matching_orders
+                      if str(o.get("status") or "").lower() == "ordered")
+        open_qty = draft_qty + inbound
         status = "unknown"
         if qty is not None and reorder is not None:
             status = "low" if qty <= reorder else "healthy"
         items.append({"sku": str(sku), "name": str(product.get("name") or sku),
                       "quantity": qty, "reorder_point": reorder, "forecast_monthly": round(forecast, 2) if forecast is not None else None,
-                      "open_order_quantity": round(inbound, 2), "lead_time_days": max(lead_times) if lead_times else None,
-                      "suggested_order_quantity": round(max(0, (forecast or 0) + (reorder or 0) - (qty or 0) - inbound), 2) if forecast is not None else None,
+                      "draft_order_quantity": round(draft_qty, 2), "ordered_quantity": round(inbound, 2),
+                      "inbound_quantity": round(inbound, 2), "open_order_quantity": round(open_qty, 2),
+                      "lead_time_days": max(lead_times) if lead_times else None,
+                      "suggested_order_quantity": round(max(0, (forecast or 0) + (reorder or 0) - (qty or 0) - open_qty), 2) if forecast is not None else None,
                       "status": status})
     items.sort(key=lambda x: ({"low": 0, "unknown": 1, "healthy": 2}[x["status"]], x["name"].casefold()))
     return _envelope({"items": items, "note": "Recommendations are read-only and require review before ordering."},
