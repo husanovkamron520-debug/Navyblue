@@ -1793,7 +1793,6 @@ async def _magic_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> boo
         }
         await message.reply_text(
             _magic_preview_text(proposals, "Matndan aniqlangan harakat"),
-            parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup([[
                 _btn("✅ Tasdiqlash", "magic_confirm"),
                 _btn("❌ Bekor qilish", "magic_cancel"),
