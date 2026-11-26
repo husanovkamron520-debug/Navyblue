@@ -474,6 +474,7 @@ def build_bootstrap(snapshot: dict) -> dict:
             "processed": _number(item.get("processed")),
             "created": _number(item.get("created")),
             "updated": _number(item.get("updated")),
+            "unchanged": _number(item.get("unchanged")),
             "unchanged_quantity": _number(item.get("unchanged_quantity")),
         })
     return _envelope({
