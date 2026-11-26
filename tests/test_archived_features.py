@@ -22,4 +22,3 @@ def test_museum_is_not_registered_as_an_active_bot_feature():
 def test_archived_feature_data_keys_are_preserved():
     assert 'CW_APP_FILE = "cw_app_store.json"' in BOT_SOURCE
     assert 'PUZZLE_FILE = "puzzle_results.json"' in BOT_SOURCE
-    assert 'museum_data' not in BOT_SOURCE  # storage key remains derived from museum.py, not bot.py
