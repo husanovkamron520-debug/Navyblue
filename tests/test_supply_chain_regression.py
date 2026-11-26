@@ -411,5 +411,54 @@ class SupplyChainAIContextRegressionTests(unittest.TestCase):
                 "quantity": 4, "unit": "kg", "confidence": 0.2,
             }])
 
+
+    def test_magic_document_classifies_each_row_and_preserves_valid_rows(self):
+        data = empty_data()
+        data["products"]["SUGAR"] = {
+            "sku": "SUGAR", "name": "Shakar (Xorazm)", "quantity": 2000,
+            "unit": "kg", "reorder_point": 100,
+        }
+        data["products"]["BUTTER"] = {
+            "sku": "BUTTER", "name": "Saryog' 82.5%", "quantity": 500,
+            "unit": "blok", "reorder_point": 20,
+        }
+        doc = supply_chain._magic_prepare_document(data, [
+            {"product": "Shakar (Xorazm)", "direction": "out", "quantity": 300, "unit": "kg", "confidence": 0.99},
+            {"product": "Saryog' 82.5%", "direction": "in", "quantity": 20, "unit": "blok", "confidence": 0.99},
+            {"product": "Un Premium", "direction": "in", "quantity": 800, "unit": "kg", "confidence": 0.99},
+            {"product": "Pishloq", "direction": "out", "quantity": 50, "unit": "kg", "confidence": 0.99},
+        ])
+        self.assertEqual(len(doc["matched"]), 2)
+        self.assertEqual(len(doc["new_in"]), 1)
+        self.assertEqual(len(doc["unknown_out"]), 1)
+        self.assertEqual(doc["matched"][0]["after"], 1700)
+        self.assertEqual(doc["new_in"][0]["quantity"], 800)
+        self.assertEqual(data["products"]["SUGAR"]["quantity"], 2000)
+        self.assertEqual(data["movements"], [])
+
+    def test_magic_document_blocks_low_confidence_and_insufficient_stock_without_losing_other_rows(self):
+        data = empty_data()
+        data["products"]["SUGAR"] = {
+            "sku": "SUGAR", "name": "Shakar", "quantity": 10, "unit": "kg",
+        }
+        doc = supply_chain._magic_prepare_document(data, [
+            {"product": "Shakar", "direction": "in", "quantity": 5, "unit": "kg", "confidence": 0.99},
+            {"product": "Shakar", "direction": "out", "quantity": 50, "unit": "kg", "confidence": 0.99},
+            {"product": "Un", "direction": "in", "quantity": 5, "unit": "kg", "confidence": 0.4},
+        ])
+        self.assertEqual(len(doc["matched"]), 1)
+        self.assertEqual(len(doc["blocked"]), 2)
+        self.assertEqual(data["products"]["SUGAR"]["quantity"], 10)
+
+    def test_magic_document_does_not_guess_new_product_unit(self):
+        data = empty_data()
+        doc = supply_chain._magic_prepare_document(data, [{
+            "product": "Un Premium", "direction": "in", "quantity": 800,
+            "unit": "", "confidence": 0.99,
+        }])
+        self.assertEqual(doc["new_in"], [])
+        self.assertEqual(len(doc["blocked"]), 1)
+
+
 if __name__ == "__main__":
     unittest.main()
