@@ -1625,10 +1625,13 @@ def _vision_extract_movements_sync(raw: bytes, mime: str, caption: str = "", pro
         "return that catalog item's exact name or SKU, not the shortened label. Ignore harmless differences in "
         "parentheses, packaging suffixes and spacing, but never guess between similar products. If no unique "
         "catalog item is clear, return the visible label unchanged so the system can request clarification. "
-        "Include only explicit, legible stock movements. Do not infer missing quantities, do not add totals, "
-        "do not calculate conversions, do not treat prices or invoice totals as quantities. "
-        "If direction or quantity is unclear, omit that line. Keep product names in the original language. "
-        "Confidence must reflect visual certainty; use below 0.85 when uncertain. "
+        "CRITICAL: inspect the ENTIRE document and return one movements entry for EVERY distinct product movement row "
+        "that is visible, including products absent from the inventory catalog. Never silently omit a row because "
+        "its product is unknown or its direction/quantity is uncertain. For an uncertain row, still return an entry "
+        "with the visible product label and set uncertain fields to null and confidence below 0.85. "
+        "Do not merge rows or return only catalog matches. Do not invent unreadable values. "
+        "Do not infer missing quantities, add totals, calculate conversions, or treat prices as quantities. "
+        "Keep product names in the original language. Confidence must reflect visual certainty. "
         "Inventory catalog (JSON): " + catalog_text + ". "
         "User caption/context: " + (caption or "none")[:500]
     )
@@ -1685,15 +1688,18 @@ def _magic_resolve_product(data: dict[str, Any], label: str) -> tuple[str, dict[
 def _magic_prepare_movements(data: dict[str, Any], entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
     proposals = []
     seen: set[str] = set()
-    for entry in entries:
+    for index, entry in enumerate(entries, start=1):
         if not isinstance(entry, dict):
-            continue
-        confidence = _safe_num(entry.get("confidence", 0))
-        if confidence < 0.85:
-            continue
+            raise ValueError(f"{index}-qator: hujjatdagi yozuv to‘liq o‘qilmadi. Hech narsa saqlanmadi.")
         product_name = str(entry.get("product") or "").strip()
         if not product_name:
-            continue
+            raise ValueError(f"{index}-qator: mahsulot nomi o‘qilmadi. Hech narsa saqlanmadi.")
+        confidence = _safe_num(entry.get("confidence", 0))
+        if confidence < 0.85:
+            raise ValueError(
+                f"«{product_name}» qatori noaniq o‘qildi (ishonchlilik {confidence:.0%}). "
+                "Hamma qatorlar aniq bo‘lmaguncha hech narsa saqlanmaydi."
+            )
         sku, product = _magic_resolve_product(data, product_name)
         if not sku or sku in seen:
             raise ValueError(f"{product_name}: mahsulot takrorlangan yoki SKU aniqlanmadi. Ro‘yxatni tekshiring.")
