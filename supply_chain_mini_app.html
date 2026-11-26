@@ -530,7 +530,8 @@
       t.append(thead,body);table.append(t);root.append(table);
       if(diffs.length>50)root.append(el("div","muted","Yana "+fmt(diffs.length-50)+" ta farq jadvalda ko‘rsatilmagan."));
       $("excel-import-status").textContent="Preview tayyor. Tasdiqlashdan oldin farqlarni tekshiring.";
-      $("excel-import-confirm").disabled=true;
+      const hasErrors=Number($("excel-errors").textContent.replace(/\D/g,""))>0;
+      $("excel-import-confirm").disabled=!$("excel-confirm-check").checked||rows.length===0||hasErrors;
     }catch(error){
       if(seq!==importPreviewSeq)return;
       inventoryBaseline=null;importVersion=null;
@@ -555,8 +556,13 @@
       $("excel-diff").replaceChildren(el("div","alert good","Import saqlandi va ombor yangilandi."));
       $("excel-import-confirm").disabled=true;
     }catch(error){
+      $("excel-confirm-check").checked=false;
+      $("excel-import-confirm").disabled=true;
       $("excel-import-status").textContent="Import bajarilmadi: "+error.message+" Sahifani yangilab, faylni qayta tekshiring.";
-      if(/outcome|tasdiqlanmadi/i.test(error.message))$("excel-import-status").textContent+=" Takroran import qilishdan oldin omborni tekshiring.";
+      if(/outcome|tasdiqlanmadi|Preview eskirgan/i.test(error.message)){
+        importVersion=null;inventoryBaseline=null;
+        $("excel-import-status").textContent+=" Takroran import qilishdan oldin omborni yangilab, farqlarni qayta tekshiring.";
+      }
     }finally{
       button.textContent="Importni tasdiqlash";
       button.disabled=!importRows.length;
@@ -576,6 +582,9 @@
   }
   $("excel-file").addEventListener("change",async event=>{
     const file=event.target.files?.[0];if(!file)return;
+    importRows=[];importVersion=null;inventoryBaseline=null;importPreviewSeq++;
+    $("excel-import-confirm").disabled=true;$("excel-confirm-check").checked=false;
+    $("excel-import-status").textContent="Yangi fayl tekshirilmoqda…";
     try{
       if(file.size>5*1024*1024)throw new Error("Fayl 5 MB limitdan katta.");
       csvState.fileName=file.name;csvState.workbook=null;
@@ -599,7 +608,13 @@
         $("excel-file-info").textContent=file.name+" · "+fmt(file.size/1024,1)+" KB · "+fmt(parsed.rows.length)+" qator";
         setupExcelMappings(parsed.headers);renderExcelPreview();
       }else throw new Error("Faqat CSV UTF-8 yoki Excel .xlsx fayl yuklang.");
-    }catch(err){csvState.headers=[];csvState.rows=[];csvState.workbook=null;$("excel-validation").replaceChildren(el("div","alert error",err.message));}
+    }catch(err){
+      csvState.headers=[];csvState.rows=[];csvState.workbook=null;
+      importRows=[];importVersion=null;inventoryBaseline=null;importPreviewSeq++;
+      $("excel-import-confirm").disabled=true;$("excel-confirm-check").checked=false;
+      $("excel-import-status").textContent="Fayl xatosi — import bloklandi.";
+      $("excel-validation").replaceChildren(el("div","alert error",err.message));
+    }
   });
   $("excel-reset").addEventListener("click",()=>{
     $("excel-file").value="";csvState.headers=[];csvState.rows=[];csvState.fileName="";csvState.workbook=null;$("excel-sheet").replaceChildren();$("excel-sheet").disabled=true;$("excel-sheet-wrap").hidden=true;
@@ -608,6 +623,10 @@
     ["excel-rows","excel-valid","excel-errors","excel-total"].forEach(id=>$(id).textContent="—");
     $("excel-validation").replaceChildren(el("div","muted","Fayl tanlangandan keyin natija ko‘rinadi."));
     $("excel-head").replaceChildren();$("excel-preview").replaceChildren();
+    $("excel-diff").replaceChildren(el("div","muted","Fayl yuklangandan keyin ombor bilan solishtiriladi."));
+    $("excel-import-confirm").disabled=true;$("excel-confirm-check").checked=false;
+    $("excel-import-status").textContent="Hozircha hech narsa saqlanmadi.";
+    importRows=[];inventoryBaseline=null;importVersion=null;importPreviewSeq++;
   });
   async function refreshAll() {
     try { hideNotice(); $("connection").textContent="Yangilanmoqda"; await loadDashboard(); if(currentView==="inventory")await loadInventory(); $("connection").textContent="Ulangan"; }
