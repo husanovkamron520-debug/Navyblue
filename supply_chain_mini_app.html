@@ -80,7 +80,7 @@
     </section>
     <section id="procurement-view" hidden>
       <div class="section-head"><div><h2>Xarid va yetkazib beruvchilar</h2><p>Buyurtmalar holati va ta’minotchi ko‘rsatkichlari</p></div><button class="retry" id="procurement-refresh">Yangilash</button></div>
-      <div class="card" style="margin-bottom:12px"><div class="chart-title">Xarid ehtiyoji va kutilayotgan zaxira</div><div class="chart-sub">Draft — hali tasdiqlanmagan; Ordered — yetkazib beruvchiga yuborilgan. Ikkalasi ham yangi xarid tavsiyasidan hisobga olinadi.</div><div id="procurement-replenishment" class="alert-list"></div></div>
+      <div class="card" style="margin-bottom:12px"><div class="chart-title">Xarid ehtiyoji va kutilayotgan zaxira</div><div class="chart-sub">Draft — hali tasdiqlanmagan; Ordered — yetkazib berishga yuborilgan. Xarid tavsiyasi ikkisini ham hisobga oladi. Ortiqcha zaxira indikatori esa 90 kunlik prognoz va tasdiqlangan inbound asosida hisoblanadi.</div><div id="procurement-capital-summary" class="alert-list"></div><div id="procurement-replenishment" class="alert-list"></div></div>
       <div class="card"><div class="chart-title">Xarid buyurtmalari</div><div class="table-wrap" style="display:block;margin-top:12px"><table class="table"><thead><tr><th>Buyurtma</th><th>Mahsulot</th><th>Yetkazib beruvchi</th><th>Miqdor</th><th>Sana</th><th>Holat</th></tr></thead><tbody id="orders-table"></tbody></table></div><div class="mobile-list" id="orders-mobile"></div></div>
       <div class="card" style="margin-top:12px"><div class="chart-title">Yetkazib beruvchilar</div><div id="suppliers-list" class="alert-list"></div></div>
     </section>
@@ -311,15 +311,34 @@
   }
   async function loadProcurement() {
     const [orders,suppliers,replenishment]=await Promise.all([api("/sc-api/v1/procurement/orders?page_size=50"),api("/sc-api/v1/procurement/suppliers"),api("/sc-api/v1/analytics/replenishment")]);
+    const summary=$("procurement-capital-summary");summary.replaceChildren();
+    const allItems=replenishment.items||[];
+    const reviewCount=allItems.filter(item=>item.surplus_review_status==="review").length;
+    const valuedCount=allItems.filter(item=>item.inventory_value!=null).length;
+    const missingForecast=allItems.filter(item=>item.surplus_review_status==="insufficient_data").length;
+    [["90 kunlik ortiqcha zaxira signali",fmt(reviewCount)+" mahsulot"],
+     ["Tannarxi ma’lum zaxiralar",fmt(valuedCount)+" / "+fmt(allItems.length)],
+     ["Prognoz ma’lumoti yetishmaydi",fmt(missingForecast)+" mahsulot"]].forEach(([label,value])=>{
+       const row=el("div","alert");row.append(el("strong","",label),el("span","pill",value));summary.append(row);
+    });
     const need=$("procurement-replenishment");need.replaceChildren();
-    const priority=replenishment.items.filter(item=>item.open_order_quantity>0||item.suggested_order_quantity>0||item.status==="low").slice(0,12);
+    const priority=allItems.filter(item=>item.surplus_review_status==="review"||item.open_order_quantity>0||item.suggested_order_quantity>0||item.status==="low").slice(0,20);
     priority.forEach(item=>{
       const row=el("div","alert");const left=el("div","");
-      left.append(el("strong","",item.name),el("div","muted",item.sku+" · Omborda "+fmt(item.quantity,1)+" · Draft "+fmt(item.draft_order_quantity,1)+" · Ordered "+fmt(item.ordered_quantity,1)+" · Jami ochiq "+fmt(item.open_order_quantity,1)+(item.lead_time_days==null?"":" · Lead time "+fmt(item.lead_time_days,0)+" kun")));
-      const recommendation=item.suggested_order_quantity==null?"Prognoz uchun tarix yetarli emas":fmt(item.suggested_order_quantity,1)+" "+(item.suggested_order_quantity>0?"xarid tavsiyasi":"qo‘shimcha xarid shart emas");
-      row.append(left,el("span",item.suggested_order_quantity>0?"pill":"pill good",recommendation));need.append(row);
+      const cover=item.days_of_stock_cover==null?"Qamrov: prognoz yo‘q":"Qamrov: "+fmt(item.days_of_stock_cover,0)+" kun";
+      const capital=item.inventory_value==null?"Ombordagi qiymat: tannarx yo‘q":"Ombordagi qiymat: "+fmt(item.inventory_value,2);
+      const surplus=item.indicative_surplus_quantity==null?"90 kunlik ortiqcha: hisoblanmadi":
+        item.indicative_surplus_quantity>0?"90 kunlik ortiqcha: "+fmt(item.indicative_surplus_quantity,1)+" · qiymati "+(item.indicative_surplus_value==null?"tannarx yo‘q":fmt(item.indicative_surplus_value,2)):
+        "90 kunlik mezonda ortiqcha signal yo‘q";
+      left.append(el("strong","",item.name),
+        el("div","muted",item.sku+" · Omborda "+fmt(item.quantity,1)+" · "+cover+" · "+capital),
+        el("div","muted","Draft "+fmt(item.draft_order_quantity,1)+" · Ordered "+fmt(item.ordered_quantity,1)+" · Ochiq jami "+fmt(item.open_order_quantity,1)+(item.lead_time_days==null?"":" · Lead time "+fmt(item.lead_time_days,0)+" kun")),
+        el("div","muted",surplus));
+      const recommendation=item.suggested_order_quantity==null?"Xarid prognozi uchun tarix yetarli emas":fmt(item.suggested_order_quantity,1)+" "+(item.suggested_order_quantity>0?"xarid tavsiyasi":"qo‘shimcha xarid shart emas");
+      const statusLabel=item.surplus_review_status==="review"?"Ortiqcha zaxirani ko‘rib chiqing":recommendation;
+      row.append(left,el("span",item.surplus_review_status==="review"?"pill warning":item.suggested_order_quantity>0?"pill":"pill good",statusLabel));need.append(row);
     });
-    if(!priority.length)need.append(el("div","muted","Hozircha ochiq buyurtma yoki xarid ehtiyoji aniqlanmadi."));
+    if(!priority.length)need.append(el("div","muted","Hozircha ochiq buyurtma, xarid ehtiyoji yoki 90 kunlik ortiqcha zaxira signali aniqlanmadi."));
     const table=$("orders-table");table.replaceChildren();const mobile=$("orders-mobile");mobile.replaceChildren();
     orders.items.forEach(o=>{
       const tr=el("tr","");[o.id,o.product_name,o.supplier_name,fmt(o.quantity,1),o.expected_date||"—",o.status].forEach(v=>tr.append(el("td","",v)));table.append(tr);

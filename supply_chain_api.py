@@ -259,16 +259,19 @@ def build_eoq_analysis(snapshot: dict) -> dict:
 
 
 def build_replenishment(snapshot: dict) -> dict:
+    """Read-only replenishment and indicative 90-day surplus analysis."""
     data = copy.deepcopy(snapshot) if isinstance(snapshot, dict) else {}
     products = data.get("products") if isinstance(data.get("products"), dict) else {}
     history = data.get("demand_history") if isinstance(data.get("demand_history"), list) else []
     suppliers = data.get("suppliers") if isinstance(data.get("suppliers"), dict) else {}
     orders = data.get("orders") if isinstance(data.get("orders"), list) else []
+    review_horizon_days = 90
     items = []
     for sku, product in products.items():
         if not isinstance(product, dict):
             continue
         qty, reorder = _number(product.get("quantity")), _number(product.get("reorder_point"))
+        unit_cost = _number(product.get("unit_cost"))
         records = [r for r in history if isinstance(r, dict) and str(r.get("sku")) == str(sku)]
         forecast = _weighted_demand(records)
         linked_ids = {str(o.get("supplier_id")) for o in orders
@@ -287,19 +290,49 @@ def build_replenishment(snapshot: dict) -> dict:
         inbound = sum((_number(o.get("quantity")) or 0) for o in matching_orders
                       if str(o.get("status") or "").lower() == "ordered")
         open_qty = draft_qty + inbound
+        daily = forecast / 30 if forecast is not None else None
+        cover_days = qty / daily if qty is not None and daily is not None and daily > 0 else None
+        inventory_value = qty * unit_cost if qty is not None and unit_cost is not None else None
+        # Confirmed inbound is included; draft orders remain a separate proposal.
+        committed_supply = qty + inbound if qty is not None else None
+        horizon_demand = forecast * (review_horizon_days / 30) if forecast is not None else None
+        surplus_qty = (max(0.0, committed_supply - horizon_demand)
+                       if committed_supply is not None and horizon_demand is not None else None)
+        surplus_value = surplus_qty * unit_cost if surplus_qty is not None and unit_cost is not None else None
         status = "unknown"
         if qty is not None and reorder is not None:
             status = "low" if qty <= reorder else "healthy"
-        items.append({"sku": str(sku), "name": str(product.get("name") or sku),
-                      "quantity": qty, "reorder_point": reorder, "forecast_monthly": round(forecast, 2) if forecast is not None else None,
-                      "draft_order_quantity": round(draft_qty, 2), "ordered_quantity": round(inbound, 2),
-                      "inbound_quantity": round(inbound, 2), "open_order_quantity": round(open_qty, 2),
-                      "lead_time_days": max(lead_times) if lead_times else None,
-                      "suggested_order_quantity": round(max(0, (forecast or 0) + (reorder or 0) - (qty or 0) - open_qty), 2) if forecast is not None else None,
-                      "status": status})
-    items.sort(key=lambda x: ({"low": 0, "unknown": 1, "healthy": 2}[x["status"]], x["name"].casefold()))
-    return _envelope({"items": items, "note": "Recommendations are read-only and require review before ordering."},
-                     _safe_version(data))
+        items.append({
+            "sku": str(sku), "name": str(product.get("name") or sku),
+            "quantity": qty, "reorder_point": reorder, "unit_cost": unit_cost,
+            "inventory_value": round(inventory_value, 2) if inventory_value is not None else None,
+            "forecast_monthly": round(forecast, 2) if forecast is not None else None,
+            "average_daily_demand": round(daily, 4) if daily is not None else None,
+            "days_of_stock_cover": round(cover_days, 2) if cover_days is not None else None,
+            "draft_order_quantity": round(draft_qty, 2), "ordered_quantity": round(inbound, 2),
+            "inbound_quantity": round(inbound, 2), "open_order_quantity": round(open_qty, 2),
+            "lead_time_days": max(lead_times) if lead_times else None,
+            "review_horizon_days": review_horizon_days,
+            "supply_including_confirmed_inbound": round(committed_supply, 2) if committed_supply is not None else None,
+            "demand_over_review_horizon": round(horizon_demand, 2) if horizon_demand is not None else None,
+            "indicative_surplus_quantity": round(surplus_qty, 2) if surplus_qty is not None else None,
+            "indicative_surplus_value": round(surplus_value, 2) if surplus_value is not None else None,
+            "surplus_review_status": ("review" if surplus_qty is not None and surplus_qty > 0
+                                      else "no_signal" if surplus_qty is not None else "insufficient_data"),
+            "suggested_order_quantity": round(max(0, (forecast or 0) + (reorder or 0) - (qty or 0) - open_qty), 2) if forecast is not None else None,
+            "status": status
+        })
+    items.sort(key=lambda x: (
+        0 if x["surplus_review_status"] == "review" else 1,
+        {"low": 0, "unknown": 1, "healthy": 2}[x["status"]],
+        x["name"].casefold()
+    ))
+    return _envelope({
+        "items": items,
+        "surplus_review_horizon_days": review_horizon_days,
+        "surplus_method": "on_hand_plus_confirmed_inbound_minus_weighted_forecast_over_90_days",
+        "note": "90-day surplus is an indicative review signal, not an optimal-stock decision. It requires at least 3 months of demand history; values require unit_cost. Draft orders are shown separately and excluded from committed supply."
+    }, _safe_version(data))
 
 
 
