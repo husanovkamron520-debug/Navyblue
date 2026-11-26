@@ -111,7 +111,7 @@ Base path: `/sc-api/v1`
 All routes require a validated Telegram Web App session and owner authorization, except a minimal health/readiness route that returns no business data.
 
 ### Implemented on the isolated branch
-- `GET /supply-chain` — serves the mobile-first, read-only Dashboard/Inventory Mini App shell from the existing HTTP server.
+- `GET /supply-chain` — serves the mobile-first Mini App shell with Dashboard, Inventory, Analytics, Procurement, Logistics, Excel Workspace and Reports views from the existing HTTP server.
 - The Supply Chain Telegram menu shows a `WebAppInfo` launch button when `RENDER_EXTERNAL_URL` is configured with an HTTPS URL.
 - `GET /sc-api/v1/health` — public readiness response with no business data; returns HTTP 503 while storage is starting.
 - `POST /sc-api/v1/session` — validates Telegram Web App `initData` HMAC, enforces the configured owner ID, rejects stale/future auth dates and duplicate fields, then issues a 30-minute process-local bearer session. Session creation is limited to 8 attempts per 60-second process-wide window.
@@ -183,10 +183,10 @@ Recommended boundaries:
 2. Authentication adapter: validate Telegram initData and create short-lived server-side session.
 3. Authorization: enforce configured owner identity for the first release.
 4. Supply Chain service: load a consistent snapshot, call existing calculation functions, normalize legacy records.
-5. Repository adapter: use the existing `load_json/save_json` abstraction initially; no direct browser-to-Supabase access.
+5. Repository adapter: use the existing `load_json/save_json` abstraction for Telegram business logic, with the `supply_chain_data` key routed through the acknowledged JSONB-CAS adapter; no direct browser-to-Supabase access.
 6. Presentation contract: API returns chart-ready arrays and table-ready rows; frontend handles only presentation, not business formulas.
 
-Because the current server uses `ThreadingHTTPServer` and storage writes are cached/queued, all write operations must be serialized behind one Supply Chain service lock and must operate on a fresh, consistent snapshot. Avoid read-modify-write races between Telegram callbacks and Mini App requests. Read endpoints should use a single snapshot per response. Add an explicit storage-ready gate because the HTTP thread starts before `init_storage_with_retry()` completes.
+Because the current server uses `ThreadingHTTPServer`, all Supply Chain write operations must use the shared storage-save lock and acknowledged JSONB-CAS path, and must operate on a fresh, versioned snapshot. Telegram callback/document/text handlers also share an async mutation lock. Avoid read-modify-write races between Telegram callbacks and Mini App requests. Read endpoints should use a single snapshot per response. An explicit storage-ready gate prevents business API access before `init_storage_with_retry()` completes.
 
 ## 7. Security checklist
 
