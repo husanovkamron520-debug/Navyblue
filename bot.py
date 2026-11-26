@@ -90,6 +90,7 @@ logger = logging.getLogger(__name__)
 _SC_STORAGE_READY = threading.Event()
 _SC_SESSIONS = sc_api.SessionStore()
 _SC_SESSION_LIMITER = sc_api.RateLimiter(max_requests=8, window_seconds=60)
+_SC_API_LIMITER = sc_api.RateLimiter(max_requests=120, window_seconds=60)
 # httpx so'rov URL'larida bot tokeni chiqib qolmasligi uchun
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
@@ -1075,6 +1076,9 @@ def run_health_server():
             return header[7:].strip()
 
         def _sc_api_get(self, parsed):
+            if len(self.path.encode("utf-8")) > 8192:
+                self._sc_error("request_too_large", "API so‘rov manzili juda uzun.", 414)
+                return
             if parsed.path == "/sc-api/v1/health":
                 ready = _SC_STORAGE_READY.is_set()
                 self._sc_json({"status": "ready" if ready else "starting"}, 200 if ready else 503)
@@ -1096,9 +1100,22 @@ def run_health_server():
             if not OWNER_CHAT_ID or not _SC_SESSIONS.authenticate(self._sc_bearer(), OWNER_CHAT_ID):
                 self._sc_error("unauthorized", "Sessiya yaroqsiz yoki muddati tugagan.", 401)
                 return
-            snapshot = load_json(supply_chain.DATA_FILE, {})
+            if not _SC_API_LIMITER.allow("read"):
+                self._sc_error("rate_limited", "So‘rovlar limiti tugadi. Birozdan keyin qayta urinib ko‘ring.", 429)
+                return
             from urllib.parse import parse_qs
-            query = parse_qs(parsed.query)
+            try:
+                query = parse_qs(parsed.query, max_num_fields=32, keep_blank_values=True)
+            except ValueError:
+                self._sc_error("invalid_query", "API so‘rov parametrlari noto‘g‘ri.", 400)
+                return
+            if len((query.get("search") or [""])[0]) > 120:
+                self._sc_error("invalid_query", "Qidiruv matni 120 belgidan oshmasligi kerak.", 400)
+                return
+            if len((query.get("sku") or [""])[0]) > 128:
+                self._sc_error("invalid_query", "SKU parametri juda uzun.", 400)
+                return
+            snapshot = load_json(supply_chain.DATA_FILE, {})
             def _int_arg(key, default):
                 try:
                     return int((query.get(key) or [str(default)])[0])
