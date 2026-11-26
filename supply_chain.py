@@ -13,6 +13,7 @@ from __future__ import annotations
 import os
 import threading
 import supply_chain_import
+import supply_chain_persistence as sc_persistence
 import uuid
 import math
 import asyncio
