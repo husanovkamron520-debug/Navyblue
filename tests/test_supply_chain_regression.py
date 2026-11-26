@@ -263,7 +263,7 @@ class SupplyChainAIContextRegressionTests(unittest.TestCase):
         formatted = supply_chain._format_ai_customer_answer(answer)
         self.assertIn("• Sut — 20 dona", formatted)
         self.assertNotIn("JSON", formatted)
-        self.assertIn("\\n\\nKeyingi qadam:", formatted)
+        self.assertIn("\n\nKeyingi qadam:", formatted)
 
     def test_ai_draft_orders_are_created_only_as_drafts_after_explicit_action(self):
         data = empty_data()
