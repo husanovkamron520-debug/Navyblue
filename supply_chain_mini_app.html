@@ -1,0 +1,711 @@
+<!doctype html>
+<html lang="uz">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#10233f">
+  <title>Supply Chain — Mini App</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+  <style>
+    :root{color-scheme:light;--navy:#10233f;--navy2:#18395e;--ink:#182638;--muted:#718096;--line:#e4eaf1;--paper:#f4f7fb;--white:#fff;--blue:#2e6ca4;--green:#21835b;--amber:#bd7b18;--red:#bd4a4a;--radius:16px}
+    *{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif}
+    button,input,select{font:inherit}button{cursor:pointer}.shell{max-width:1120px;margin:0 auto;min-height:100dvh;padding:0 16px 32px}
+    .top{margin:0 -16px 18px;padding:18px 18px 20px;background:linear-gradient(120deg,var(--navy),var(--navy2));color:white;border-radius:0 0 22px 22px}
+    .topline{display:flex;align-items:center;justify-content:space-between;gap:12px}.brand{font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:#b8c8da;font-weight:700}.top h1{font-size:22px;margin:9px 0 3px}.sub{color:#d0dbe7;font-size:13px}.status{display:inline-flex;align-items:center;gap:7px;color:#d9e6f2;font-size:12px}.dot{width:7px;height:7px;border-radius:50%;background:#63c79b}
+    .nav{display:flex;gap:8px;margin:0 0 18px;overflow:auto;padding-bottom:3px}.nav button{white-space:nowrap;border:1px solid var(--line);background:white;color:var(--muted);border-radius:999px;padding:9px 15px;font-weight:650}.nav button.active{background:var(--navy);color:white;border-color:var(--navy)}
+    .section-head{display:flex;align-items:end;justify-content:space-between;gap:12px;margin:20px 0 12px}.section-head h2{font-size:17px;margin:0}.section-head p{margin:3px 0 0;color:var(--muted);font-size:12px}
+    .grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}.card{background:white;border:1px solid var(--line);border-radius:var(--radius);padding:15px;min-width:0}.kpi-label{font-size:12px;color:var(--muted);font-weight:600}.kpi-value{font-size:25px;letter-spacing:-.04em;font-weight:750;margin-top:8px;color:var(--navy);overflow-wrap:anywhere}.kpi-note{font-size:11px;color:var(--muted);margin-top:4px}
+    .two{display:grid;grid-template-columns:1.15fr .85fr;gap:12px;margin-top:12px}.chart-title{font-weight:700;margin-bottom:5px}.chart-sub{font-size:12px;color:var(--muted)}.barline{display:flex;height:13px;border-radius:20px;overflow:hidden;background:#edf1f5;margin:18px 0 10px}.bar-low{background:var(--amber)}.bar-good{background:#4d9a79}.legend{display:flex;gap:18px;flex-wrap:wrap;color:var(--muted);font-size:12px}.legend span{display:inline-flex;align-items:center;gap:6px}.swatch{width:8px;height:8px;border-radius:50%;display:inline-block}
+    .alert-list{display:grid;gap:9px;margin-top:13px}.alert{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 11px;background:#fff8eb;border:1px solid #f3e3c7;border-radius:11px}.alert strong{font-size:12px}.pill{font-size:11px;font-weight:700;border-radius:999px;padding:4px 8px;background:#fff0d4;color:#986014;white-space:nowrap}.pill.good{background:#e6f4ed;color:#21734f}
+    .toolbar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}.toolbar input,.toolbar select{min-width:0;border:1px solid var(--line);background:white;border-radius:11px;padding:10px 12px;color:var(--ink)}.toolbar input{flex:1}.toolbar select{min-width:120px}.table-wrap{overflow:auto;border:1px solid var(--line);border-radius:14px;background:white}.table{width:100%;border-collapse:collapse;min-width:600px}.table th{text-align:left;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.04em;background:#f8fafc;padding:12px}.table td{padding:13px 12px;border-top:1px solid #edf1f5;font-size:13px}.sku{font-weight:750;color:var(--navy)}.muted{color:var(--muted)}.stock{font-weight:700}.stock.low{color:var(--amber)}.stock.ok{color:var(--green)}.mobile-list{display:none;gap:9px}.product-card{background:white;border:1px solid var(--line);border-radius:13px;padding:13px}.product-row{display:flex;justify-content:space-between;gap:12px}.product-card .name{font-weight:700;color:var(--navy)}.product-meta{display:flex;gap:12px;flex-wrap:wrap;color:var(--muted);font-size:12px;margin-top:8px}
+    .pager{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:12px;color:var(--muted);font-size:12px}.pager button,.retry{border:1px solid var(--line);background:white;border-radius:9px;padding:8px 12px;color:var(--navy);font-weight:650}.pager button:disabled{opacity:.4;cursor:not-allowed}
+    .detail-panel{margin-top:14px}.detail-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px;margin:12px 0}.detail-stat{padding:11px;background:#f7f9fc;border:1px solid var(--line);border-radius:11px}.detail-stat strong{display:block;color:var(--navy);font-size:16px;margin-top:4px}.detail-section{margin-top:16px}.detail-section h3{font-size:13px;margin:0 0 8px}.clickable-row{cursor:pointer}.clickable-row:hover{background:#f7f9fc}.product-card[role=button]{cursor:pointer}.product-card[role=button]:focus-visible,.clickable-row:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+    @media(max-width:760px){.detail-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+    .notice{padding:18px;background:white;border:1px solid var(--line);border-radius:14px;color:var(--muted);text-align:center}.notice strong{display:block;color:var(--navy);margin-bottom:5px}.error{color:var(--red)}.loading{opacity:.65}.footer{text-align:center;color:#93a0ae;font-size:11px;padding:24px 0 4px}
+    @media(max-width:760px){.grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.kpi-value{font-size:22px}.two{grid-template-columns:1fr}.table-wrap{display:none}.mobile-list{display:grid}.section-head{margin-top:18px}.top h1{font-size:20px}}
+    @media(min-width:761px){.shell{padding-left:22px;padding-right:22px}.top{margin-left:-22px;margin-right:-22px;padding-left:24px;padding-right:24px}.nav{margin-bottom:22px}}
+    #print-area{display:none}
+    @media print{body{background:#fff!important;color:#111!important}.shell{display:none!important}#print-area{display:block!important;position:absolute;inset:0;width:100%;padding:20px;font:12px/1.4 Arial,sans-serif;color:#111}#print-area h1{font-size:20px;margin:0 0 4px}#print-area .print-meta{color:#555;margin-bottom:18px}#print-area table{width:100%;border-collapse:collapse}#print-area th,#print-area td{border:1px solid #cbd5e1;padding:7px;text-align:left;overflow-wrap:anywhere}#print-area th{background:#eef2f7!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}#print-area tr{break-inside:avoid}}
+  </style>
+</head>
+<body>
+<div class="shell">
+  <header class="top">
+    <div class="topline"><div class="brand">NAVYBLUE · OPERATIONS</div><div class="status"><i class="dot"></i><span id="connection">Ulanmoqda</span></div></div>
+    <h1>Supply Chain</h1>
+    <div class="sub" id="welcome">Ombor va ta’minot zanjiri boshqaruvi</div>
+  </header>
+  <nav class="nav" aria-label="Asosiy bo‘limlar">
+    <button class="active" data-view="dashboard">Dashboard</button>
+    <button data-view="inventory">Ombor</button>
+    <button data-view="analytics">Analytics</button>
+    <button data-view="procurement">Xarid</button>
+    <button data-view="logistics">Logistika</button>
+    <button data-view="excel">Excel Workspace</button>
+    <button data-view="reports">Hisobotlar</button>
+  </nav>
+  <main>
+    <section id="dashboard-view">
+      <div class="section-head"><div><h2>Umumiy ko‘rsatkichlar</h2><p>Joriy saqlangan ma’lumotlar asosida</p></div><button class="retry" id="refresh">Yangilash</button></div>
+      <div class="grid" id="kpis">
+        <div class="card"><div class="kpi-label">Mahsulotlar</div><div class="kpi-value">—</div><div class="kpi-note">SKU soni</div></div>
+        <div class="card"><div class="kpi-label">Jami zaxira</div><div class="kpi-value">—</div><div class="kpi-note">Barcha birliklar</div></div>
+        <div class="card"><div class="kpi-label">Zaxira qiymati</div><div class="kpi-value">—</div><div class="kpi-note">Hisoblangan qiymat</div></div>
+        <div class="card"><div class="kpi-label">Kam qolgan</div><div class="kpi-value">—</div><div class="kpi-note">Qayta buyurtma chegarasida</div></div>
+      </div>
+      <div class="two">
+        <div class="card"><div class="chart-title">Zaxira holati</div><div class="chart-sub">Qayta buyurtma chegarasiga nisbatan</div><div class="barline"><div class="bar-low" id="low-bar" style="width:0%"></div><div class="bar-good" id="good-bar" style="width:0%"></div></div><div class="legend"><span><i class="swatch" style="background:#bd7b18"></i><b id="low-legend">0</b> kam zaxira</span><span><i class="swatch" style="background:#4d9a79"></i><b id="good-legend">0</b> me’yorda</span></div></div>
+        <div class="card"><div class="chart-title">Diqqat talab qiladi</div><div class="chart-sub">Ombor bo‘yicha tezkor ogohlantirish</div><div class="alert-list" id="alerts"><div class="muted">Ma’lumot yuklanmoqda…</div></div></div>
+      </div>
+    </section>
+    <section id="inventory-view" hidden>
+      <div class="section-head"><div><h2>Ombor zaxiralari</h2><p id="inventory-count">Mahsulotlar ro‘yxati</p></div><button class="retry" id="inventory-refresh">Yangilash</button></div>
+      <div class="toolbar"><input id="search" type="search" placeholder="SKU yoki mahsulot nomi…" autocomplete="off"><select id="status"><option value="all">Barcha holat</option><option value="low">Kam zaxira</option><option value="healthy">Me’yorda</option></select><select id="sort"><option value="name">Nom bo‘yicha</option><option value="quantity">Miqdor bo‘yicha</option><option value="value">Qiymat bo‘yicha</option></select></div>
+      <div class="table-wrap"><table class="table"><thead><tr><th>SKU / Mahsulot</th><th>Miqdor</th><th>Qayta buyurtma</th><th>Birlik qiymati</th><th>Holat</th></tr></thead><tbody id="inventory-table"></tbody></table></div>
+      <div class="mobile-list" id="inventory-mobile"></div>
+      <div class="pager"><span id="page-info">—</span><div><button id="prev">Oldingi</button> <button id="next">Keyingi</button></div></div>
+      <div class="card detail-panel" id="inventory-detail" hidden aria-live="polite"><div class="section-head" style="margin-top:0"><div><h2 id="detail-name">Mahsulot tafsilotlari</h2><p id="detail-sku"></p></div><button class="retry" id="detail-close" type="button">Yopish</button></div><div class="detail-grid" id="detail-stats"></div><div class="detail-section"><h3>So‘nggi kirim-chiqimlar</h3><div class="table-wrap" style="display:block"><table class="table" style="min-width:460px"><thead><tr><th>Amal</th><th>Miqdor</th><th>Sana</th><th>Izoh</th></tr></thead><tbody id="detail-movements"></tbody></table></div></div><div class="detail-section"><h3>Talab tarixi</h3><div class="table-wrap" style="display:block"><table class="table" style="min-width:360px"><thead><tr><th>Oy</th><th>Talab miqdori</th></tr></thead><tbody id="detail-demand"></tbody></table></div></div><div class="muted" id="detail-updated" style="font-size:11px;margin-top:12px"></div></div>
+    </section>
+    <section id="analytics-view" hidden>
+      <div class="section-head"><div><h2>Talab va zaxira tahlili</h2><p>Amaldagi Supply Chain hisoblash qoidalari asosida</p></div><button class="retry" id="analytics-refresh">Yangilash</button></div>
+      <div class="two">
+        <div class="card"><div class="chart-title">Talab prognozi</div><div class="chart-sub">Oxirgi 6 oygacha bo‘lgan tarixdan og‘irlikli o‘rtacha; kamida 3 oy kerak</div><div class="table-wrap" style="display:block;margin-top:12px"><table class="table" style="min-width:480px"><thead><tr><th>Mahsulot</th><th>Tarix</th><th>Prognoz / oy</th><th>Zaxira qoplashi</th></tr></thead><tbody id="forecast-table"></tbody></table></div><div class="muted" id="forecast-note" style="margin-top:10px;font-size:12px"></div></div>
+        <div class="card"><div class="chart-title">ABC Pareto tasnifi</div><div class="chart-sub">Yillik talab × birlik narxi, 80% / 15% / 5% midpoint usuli</div><div id="abc-summary" class="alert-list"></div><div id="abc-bars" style="display:grid;gap:10px;margin-top:16px"></div></div>
+      </div>
+      <div class="two">
+        <div class="card"><div class="chart-title">Economic Order Quantity (EOQ)</div><div class="chart-sub">√(2 × D × S / H); saqlash xarajati taxmin qilingan bo‘lsa belgilanadi</div><div class="table-wrap" style="display:block;margin-top:12px"><table class="table" style="min-width:440px"><thead><tr><th>Mahsulot</th><th>EOQ</th><th>Buyurtma/yil</th><th>Izoh</th></tr></thead><tbody id="eoq-table"></tbody></table></div></div>
+        <div class="card"><div class="chart-title">Qayta to‘ldirish tavsiyasi</div><div class="chart-sub">Ochiq buyurtmalar hisobga olinadi; tavsiyalar avtomatik buyurtma bermaydi</div><div id="replenishment-list" class="alert-list"></div></div>
+      </div>
+    </section>
+    <section id="procurement-view" hidden>
+      <div class="section-head"><div><h2>Xarid va yetkazib beruvchilar</h2><p>Buyurtmalar holati va ta’minotchi ko‘rsatkichlari</p></div><button class="retry" id="procurement-refresh">Yangilash</button></div>
+      <div class="card"><div class="chart-title">Xarid buyurtmalari</div><div class="table-wrap" style="display:block;margin-top:12px"><table class="table"><thead><tr><th>Buyurtma</th><th>Mahsulot</th><th>Yetkazib beruvchi</th><th>Miqdor</th><th>Sana</th><th>Holat</th></tr></thead><tbody id="orders-table"></tbody></table></div><div class="mobile-list" id="orders-mobile"></div></div>
+      <div class="card" style="margin-top:12px"><div class="chart-title">Yetkazib beruvchilar</div><div id="suppliers-list" class="alert-list"></div></div>
+    </section>
+    <section id="excel-view" hidden>
+      <div class="section-head"><div><h2>Excel Workspace</h2><p>Faylni tekshirish, farqlarni ko‘rish va tasdiqlangan import</p></div><button class="retry" id="excel-reset">Tozalash</button></div>
+      <div class="card">
+        <div class="chart-title">1. Excel yoki CSV faylni yuklang</div>
+        <div class="chart-sub">CSV UTF-8 va Excel .xlsx fayllar brauzerda tekshiriladi. Saqlash faqat alohida tasdiqdan keyin bajariladi.</div>
+        <div class="toolbar" style="margin-top:14px"><input id="excel-file" type="file" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"></div>
+        <div id="excel-file-info" class="muted" style="font-size:12px">Maksimal hajm: 5 MB · Maksimal qator: 10 000</div>
+        <label class="kpi-label" id="excel-sheet-wrap" hidden style="display:block;margin-top:12px">Ish varag‘i<select id="excel-sheet" style="display:block;width:100%;margin-top:5px" disabled></select></label>
+      </div>
+      <div class="card" style="margin-top:12px">
+        <div class="chart-title">2. Ustunlarni moslang</div>
+        <div class="chart-sub">Majburiy: SKU, mahsulot nomi va miqdor. Birlik, birlik narxi va reorder point ixtiyoriy.</div>
+        <div class="grid" style="grid-template-columns:repeat(2,minmax(0,1fr));margin-top:12px">
+          <label class="kpi-label">SKU<select id="map-sku" disabled></select></label>
+          <label class="kpi-label">Mahsulot nomi<select id="map-name" disabled></select></label>
+          <label class="kpi-label">Miqdor<select id="map-quantity" disabled></select></label>
+          <label class="kpi-label">Birlik<select id="map-unit" disabled></select></label>
+          <label class="kpi-label">Birlik narxi<select id="map-cost" disabled></select></label>
+          <label class="kpi-label">Reorder point<select id="map-reorder" disabled></select></label>
+        </div>
+      </div>
+      <div class="grid" id="excel-kpis" style="margin-top:12px">
+        <div class="card"><div class="kpi-label">Qatorlar</div><div class="kpi-value" id="excel-rows">—</div></div>
+        <div class="card"><div class="kpi-label">Yaroqli</div><div class="kpi-value" id="excel-valid">—</div></div>
+        <div class="card"><div class="kpi-label">Xatolar</div><div class="kpi-value" id="excel-errors">—</div></div>
+        <div class="card"><div class="kpi-label">Jami miqdor</div><div class="kpi-value" id="excel-total">—</div></div>
+      </div>
+      <div class="card" style="margin-top:12px">
+        <div class="chart-title">3. Tekshiruv natijasi</div>
+        <div id="excel-validation" class="alert-list"><div class="muted">Fayl tanlangandan keyin natija ko‘rinadi.</div></div>
+        <div class="table-wrap" style="display:block;margin-top:12px"><table class="table" style="min-width:620px"><thead id="excel-head"></thead><tbody id="excel-preview"></tbody></table></div>
+      </div>
+      <div class="card" style="margin-top:12px">
+        <div class="chart-title">So‘nggi importlar</div>
+        <div id="excel-history" class="alert-list"><div class="muted">Import tarixi yuklanmoqda…</div></div>
+      </div>
+      <div class="card" style="margin-top:12px">
+        <div class="chart-title">4. Ombor bilan farq va tasdiqlash</div>
+        <div class="chart-sub">Import mavjud mahsulot miqdorini Excel’dagi qiymatga moslaydi; yangi SKU qo‘shadi. Ixtiyoriy narx yoki reorder ustuni bo‘sh bo‘lsa, saqlangan qiymat o‘zgarmaydi. Har bir miqdor farqi kirim/chiqim tarixiga yoziladi.</div>
+        <div id="excel-diff" class="alert-list" style="margin-top:12px"><div class="muted">Avval faylni yuklang va ustunlarni moslang.</div></div>
+        <label style="display:flex;gap:9px;align-items:flex-start;margin-top:14px"><input id="excel-confirm-check" type="checkbox" style="margin-top:3px"><span>Yuqoridagi farqlarni tekshirdim. Ombor ma’lumotlarini shu fayl asosida yangilashga roziman.</span></label>
+        <button class="retry" id="excel-import-confirm" disabled style="margin-top:12px;width:100%">Importni tasdiqlash</button>
+        <div id="excel-import-status" class="muted" style="font-size:12px;margin-top:10px">Hozircha hech narsa saqlanmadi.</div>
+      </div>
+    </section>
+    <section id="reports-view" hidden>
+      <div class="section-head"><div><h2>Hisobotlar va eksport</h2><p>Joriy ma’lumotlardan CSV yoki Excel hisobotlar yaratish</p></div><button class="retry" id="reports-refresh">Yangilash</button></div>
+      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr))">
+        <div class="card"><div class="chart-title">Ombor hisoboti</div><div class="chart-sub">Barcha SKU, miqdor, qayta buyurtma chegarasi va birlik narxi</div><div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap"><button class="retry" id="export-inventory" style="flex:1">CSV</button><button class="retry" id="export-inventory-xlsx" style="flex:1">Excel</button><button class="retry" id="export-inventory-pdf" style="flex:1">PDF</button></div></div>
+        <div class="card"><div class="chart-title">Xarid hisoboti</div><div class="chart-sub">Xarid buyurtmalari, yetkazib beruvchi, miqdor va holat</div><div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap"><button class="retry" id="export-orders" style="flex:1">CSV</button><button class="retry" id="export-orders-xlsx" style="flex:1">Excel</button><button class="retry" id="export-orders-pdf" style="flex:1">PDF</button></div></div>
+        <div class="card"><div class="chart-title">Logistika hisoboti</div><div class="chart-sub">Jo‘natmalar, manzil, transport, masofa va holat</div><div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap"><button class="retry" id="export-shipments" style="flex:1">CSV</button><button class="retry" id="export-shipments-xlsx" style="flex:1">Excel</button><button class="retry" id="export-shipments-pdf" style="flex:1">PDF</button></div></div>
+      </div>
+      <div class="card" style="margin-top:12px"><div class="chart-title">Eksport holati</div><div id="report-status" class="muted" style="margin-top:8px">Hisobot yaratish uchun yuqoridagi tugmalardan foydalaning.</div><div class="muted" style="font-size:12px;margin-top:10px">Hisobotlar brauzerda yaratiladi. Ma’lumotlar serverga qayta yozilmaydi; eksport faqat o‘qish amalidir.</div></div>
+    </section>
+    <section id="logistics-view" hidden>
+      <div class="section-head"><div><h2>Transport va jo‘natmalar</h2><p>Rejalashtirilgan va faol yuk harakatlari</p></div><button class="retry" id="logistics-refresh">Yangilash</button></div>
+      <div class="card"><div class="chart-title">Jo‘natmalar</div><div class="table-wrap" style="display:block;margin-top:12px"><table class="table"><thead><tr><th>Jo‘natma</th><th>Mahsulot</th><th>Manzil</th><th>Transport</th><th>Masofa</th><th>Holat</th></tr></thead><tbody id="shipments-table"></tbody></table></div><div class="mobile-list" id="shipments-mobile"></div></div>
+      <div class="card" style="margin-top:12px"><div class="chart-title">Transport parki</div><div id="vehicles-list" class="alert-list"></div></div>
+    </section>
+    <div class="notice" id="notice" hidden><strong id="notice-title">Telegram orqali oching</strong><span id="notice-text">Mini App bot ichida ishlaydi.</span><div style="margin-top:12px"><button class="retry" id="retry" hidden>Qayta urinish</button></div></div>
+  </main>
+  <div class="footer">Navyblue Supply Chain · Owner Mini App</div>
+</div>
+<section id="print-area" hidden aria-hidden="true"><h1 id="print-title">Supply Chain report</h1><div class="print-meta" id="print-meta"></div><table><thead id="print-head"></thead><tbody id="print-body"></tbody></table></section>
+<script>
+(() => {
+  const tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
+  const $ = id => document.getElementById(id);
+  let token = "", page = 1, totalPages = 1, searchTimer = null, currentView = "dashboard";
+  let inventoryBaseline = null, importVersion = null, importRows = [], importPreviewSeq = 0;
+  const fmt = (n, digits=0) => n == null || !Number.isFinite(Number(n)) ? "—" : new Intl.NumberFormat("uz-UZ",{maximumFractionDigits:digits}).format(Number(n));
+  const money = n => n == null ? "—" : fmt(n,0) + " UZS";
+  const el = (tag, cls, value) => { const node=document.createElement(tag); if(cls)node.className=cls; if(value!==undefined)node.textContent=value; return node; };
+  const showNotice = (title, message, retry=false) => { $("notice").hidden=false; $("notice-title").textContent=title; $("notice-text").textContent=message; $("retry").hidden=!retry; };
+  const hideNotice = () => { $("notice").hidden=true; };
+  async function api(path, options={}) {
+    const response = await fetch(path,{...options,headers:{...(options.headers||{}),...(token?{Authorization:"Bearer "+token}:{})},cache:"no-store"});
+    let body={}; try{body=await response.json();}catch(_){}
+    if(!response.ok) throw new Error(body.error?.message || ("HTTP "+response.status));
+    return body.data;
+  }
+  async function authenticate() {
+    if(!tg || !tg.initData){ showNotice("Telegram orqali oching","Bu sahifa xavfsiz kirish uchun bot ichidagi Mini App tugmasidan ochilishi kerak."); $("connection").textContent="Kirish talab qilinadi"; return false; }
+    tg.ready(); tg.expand();
+    if(tg.initDataUnsafe?.user?.first_name) $("welcome").textContent="Xush kelibsiz, "+tg.initDataUnsafe.user.first_name;
+    const session=await fetch("/sc-api/v1/session",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({initData:tg.initData}),cache:"no-store"});
+    const payload=await session.json();
+    if(!session.ok) throw new Error(payload.error?.message || "Kirish amalga oshmadi");
+    token=payload.data.token; $("connection").textContent="Ulangan"; return true;
+  }
+  function setKpis(k) {
+    const cards=[
+      ["Mahsulotlar",fmt(k.product_count),"SKU soni"],
+      ["Jami zaxira",fmt(k.total_units,1),"Barcha birliklar"],
+      ["Zaxira qiymati",money(k.inventory_value),"Hisoblangan qiymat"],
+      ["Kam qolgan",fmt(k.low_stock_count),"Qayta buyurtma chegarasida"]
+    ];
+    const root=$("kpis"); root.replaceChildren();
+    cards.forEach(([label,value,note])=>{const c=el("div","card");c.append(el("div","kpi-label",label),el("div","kpi-value",value),el("div","kpi-note",note));root.append(c);});
+  }
+  function renderAlerts(k) {
+    const root=$("alerts");root.replaceChildren();
+    const rows=[
+      ["Kam zaxiradagi mahsulotlar",k.low_stock_count||0],
+      ["Ochiq xarid buyurtmalari",k.open_order_count||0],
+      ["Faol jo‘natmalar",k.active_shipment_count||0],
+      ["Miqdori noma’lum SKU",k.unknown_stock_count||0]
+    ];
+    rows.forEach(([label,value])=>{const item=el("div","alert");item.append(el("strong","",label),el("span",Number(value)>0?"pill":"pill good",fmt(value)));root.append(item);});
+  }
+  async function loadDashboard() {
+    const result=await api("/sc-api/v1/dashboard"); const k=result.kpis;
+    setKpis(k);renderAlerts(k);
+    const all=Math.max(0,(k.product_count||0));const low=Math.min(all,k.low_stock_count||0);const good=Math.max(0,all-low);
+    $("low-bar").style.width=(all?low/all*100:0)+"%";$("good-bar").style.width=(all?good/all*100:0)+"%";
+    $("low-legend").textContent=fmt(low);$("good-legend").textContent=fmt(good);
+  }
+  function makeProductCard(p) {
+    const c=el("article","product-card"),row=el("div","product-row"),left=el("div","");
+    left.append(el("div","name",p.name||p.sku),el("div","muted",p.sku));
+    const qty=el("div","stock "+(p.quantity!=null&&p.reorder_point!=null&&p.quantity<=p.reorder_point?"low":"ok"),fmt(p.quantity,1)+" "+(p.unit||""));
+    row.append(left,qty);c.append(row);
+    const meta=el("div","product-meta");meta.append(el("span","","Reorder: "+fmt(p.reorder_point,1)),el("span","","Birlik: "+money(p.unit_cost)));c.append(meta);c.setAttribute("role","button");c.tabIndex=0;c.setAttribute("aria-label",(p.name||p.sku)+" tafsilotlarini ochish");c.addEventListener("click",()=>openInventoryDetail(p.sku));c.addEventListener("keydown",event=>{if(event.key==="Enter"||event.key===" "){event.preventDefault();openInventoryDetail(p.sku);}});return c;
+  }
+  async function openInventoryDetail(sku){
+    const panel=$("inventory-detail");panel.hidden=false;
+    $("detail-name").textContent="Yuklanmoqda…";$("detail-sku").textContent=sku;
+    $("detail-stats").replaceChildren();$("detail-movements").replaceChildren();$("detail-demand").replaceChildren();
+    panel.scrollIntoView({behavior:"smooth",block:"start"});
+    try{
+      const data=await api("/sc-api/v1/inventory/"+encodeURIComponent(sku));
+      const item=data.item;
+      if(!item)throw new Error("Mahsulot topilmadi yoki o‘chirilgan.");
+      $("detail-name").textContent=item.name||item.sku;$("detail-sku").textContent=item.sku;
+      [["Joriy zaxira",fmt(item.quantity,2)+" "+(item.unit||"")],["Reorder point",fmt(item.reorder_point,2)],["Birlik narxi",money(item.unit_cost)],["Yillik talab",fmt(item.annual_demand,2)]].forEach(([label,value])=>{const box=el("div","detail-stat");box.append(el("span","kpi-label",label),el("strong","",value));$("detail-stats").append(box);});
+      const movements=$("detail-movements");
+      if(!data.recent_movements.length){const tr=el("tr","");tr.append(el("td","muted","Hozircha kirim-chiqim tarixi yo‘q"));movements.append(tr);}
+      data.recent_movements.forEach(m=>{const tr=el("tr","");[m.type==="in"?"Kirim":m.type==="out"?"Chiqim":"Boshqa",fmt(m.quantity,2),m.created_at||"—",m.note||"—"].forEach(v=>tr.append(el("td","",v)));movements.append(tr);});
+      const demand=$("detail-demand");
+      if(!data.demand_history.length){const tr=el("tr","");tr.append(el("td","muted","Talab tarixi kiritilmagan"));demand.append(tr);}
+      data.demand_history.forEach(d=>{const tr=el("tr","");[d.month||"—",fmt(d.quantity,2)].forEach(v=>tr.append(el("td","",v)));demand.append(tr);});
+      $("detail-updated").textContent=item.updated_at?"Oxirgi yangilanish: "+item.updated_at:"";
+    }catch(error){$("detail-name").textContent="Tafsilotlar yuklanmadi";const tr=el("tr","");tr.append(el("td","error",error.message));$("detail-movements").append(tr);}
+  }
+  async function loadInventory() {
+    const qs=new URLSearchParams({page:String(page),page_size:"10",search:$("search").value,status:$("status").value,sort:$("sort").value});
+    const result=await api("/sc-api/v1/inventory?"+qs.toString()), data=result;
+    totalPages=Math.max(1,data.pagination.pages||1);$("inventory-count").textContent=fmt(data.pagination.total)+" ta mahsulot";
+    $("page-info").textContent="Sahifa "+page+" / "+totalPages+" · "+fmt(data.pagination.total)+" ta";
+    $("prev").disabled=page<=1;$("next").disabled=page>=totalPages;
+    const table=$("inventory-table");table.replaceChildren();
+    const mobile=$("inventory-mobile");mobile.replaceChildren();
+    if(!data.items.length){const tr=el("tr","");tr.append(el("td","muted","Mahsulot topilmadi"));table.append(tr);mobile.append(el("div","notice","Mahsulot topilmadi"));return;}
+    data.items.forEach(p=>{
+      const tr=el("tr","");const status=p.quantity==null||p.reorder_point==null?"Noma’lum":p.quantity<=p.reorder_point?"Kam":"Me’yorda";
+      [p.sku+" · "+p.name,fmt(p.quantity,1)+" "+(p.unit||""),fmt(p.reorder_point,1),money(p.unit_cost),status].forEach((v,i)=>{const td=el("td",i===0?"sku":i===4?"stock "+(status==="Kam"?"low":"ok"):"",v);if(i===0){td.tabIndex=0;td.setAttribute("role","button");td.setAttribute("aria-label",p.sku+" tafsilotlarini ochish");td.addEventListener("click",()=>openInventoryDetail(p.sku));td.addEventListener("keydown",event=>{if(event.key==="Enter"||event.key===" "){event.preventDefault();openInventoryDetail(p.sku);}});}tr.append(td);});tr.classList.add("clickable-row");table.append(tr);mobile.append(makeProductCard(p));
+    });
+  }
+  async function loadAnalytics() {
+    const [demand,abc,eoq,replenishment]=await Promise.all([
+      api("/sc-api/v1/analytics/demand"),api("/sc-api/v1/analytics/abc"),
+      api("/sc-api/v1/analytics/eoq"),api("/sc-api/v1/analytics/replenishment")
+    ]);
+    const ft=$("forecast-table");ft.replaceChildren();
+    let available=0;
+    demand.items.forEach(item=>{
+      const tr=el("tr","");const values=[item.name+" · "+item.sku,item.history_months+" oy",item.forecast_next_month==null?"Tarix yetarli emas":fmt(item.forecast_next_month,2)+" "+item.unit,item.days_of_stock_cover==null?"—":fmt(item.days_of_stock_cover,1)+" kun"];
+      values.forEach((v,i)=>tr.append(el("td",i===0?"sku":"",v)));ft.append(tr);
+      if(item.forecast_status==="available")available++;
+    });
+    if(!demand.items.length){const tr=el("tr","");tr.append(el("td","muted","Mahsulot yo‘q"));ft.append(tr);}
+    $("forecast-note").textContent=available+" ta mahsulotda prognoz hisoblandi; qolganlarida kamida 3 oylik tarix kerak.";
+    const summary=$("abc-summary");summary.replaceChildren();
+    ["A","B","C"].forEach(key=>{
+      const g=abc.groups[key],item=el("div","alert");item.append(el("strong","",key+" guruhi · "+g.product_count+" ta"),el("span","pill",fmt(g.share_percent,1)+"%"));summary.append(item);
+    });
+    const bars=$("abc-bars");bars.replaceChildren();
+    abc.items.slice(0,8).forEach(item=>{
+      const wrap=el("div","");const top=el("div","product-row");top.append(el("span","",item.name),el("strong","",item.category+" · "+fmt(item.share_percent,1)+"%"));
+      const bar=el("div","barline");bar.style.height="9px";bar.style.margin="6px 0 0";const fill=el("div","bar-good");fill.style.width=Math.min(100,item.share_percent)+"%";bar.append(fill);wrap.append(top,bar);bars.append(wrap);
+    });
+    if(!abc.items.length)bars.append(el("div","muted","ABC tahlili uchun narx va yillik talab ma’lumotlari kerak."));
+    const et=$("eoq-table");et.replaceChildren();
+    eoq.items.forEach(item=>{const tr=el("tr","");[item.name,item.eoq==null?"Ma’lumot yetarli emas":fmt(item.eoq,2),item.orders_per_year==null?"—":fmt(item.orders_per_year,2),item.holding_cost_assumed?"H saqlash xarajati 20% narxdan olindi":item.status==="available"?"Kiritilgan H":"Kiritmalar yetishmaydi"].forEach((v,i)=>tr.append(el("td",i===0?"sku":"",v)));et.append(tr);});
+    const rl=$("replenishment-list");rl.replaceChildren();
+    replenishment.items.slice(0,12).forEach(item=>{
+      const row=el("div","alert");const left=el("div","");left.append(el("strong","",item.name),el("div","muted",item.sku+" · Zaxira "+fmt(item.quantity,1)+" · Ochiq buyurtma "+fmt(item.open_order_quantity,1)));
+      const right=el("span",item.status==="low"?"pill":"pill good",item.suggested_order_quantity==null?"Prognoz yo‘q":fmt(item.suggested_order_quantity,1)+" tavsiya");row.append(left,right);rl.append(row);
+    });
+    if(!replenishment.items.length)rl.append(el("div","muted","Mahsulotlar topilmadi."));
+  }
+  async function loadProcurement() {
+    const [orders,suppliers]=await Promise.all([api("/sc-api/v1/procurement/orders?page_size=50"),api("/sc-api/v1/procurement/suppliers")]);
+    const table=$("orders-table");table.replaceChildren();const mobile=$("orders-mobile");mobile.replaceChildren();
+    orders.items.forEach(o=>{
+      const tr=el("tr","");[o.id,o.product_name,o.supplier_name,fmt(o.quantity,1),o.expected_date||"—",o.status].forEach(v=>tr.append(el("td","",v)));table.append(tr);
+      const card=el("article","product-card");card.append(el("div","name",o.product_name),el("div","muted",o.id+" · "+o.supplier_name),el("div","product-meta","Miqdor "+fmt(o.quantity,1)+" · "+(o.expected_date||"—")+" · "+o.status));mobile.append(card);
+    });
+    if(!orders.items.length){const tr=el("tr","");tr.append(el("td","muted","Buyurtmalar topilmadi"));table.append(tr);}
+    const list=$("suppliers-list");list.replaceChildren();
+    suppliers.items.forEach(s=>{const row=el("div","alert");row.append(el("strong","",s.name),el("span","pill",fmt(s.lead_time_days,0)+" kun · "+fmt(s.rating,1)+"/5"));list.append(row);});
+    if(!suppliers.items.length)list.append(el("div","muted","Yetkazib beruvchilar topilmadi."));
+  }
+  async function loadLogistics() {
+    const [shipments,vehicles]=await Promise.all([api("/sc-api/v1/logistics/shipments?page_size=50"),api("/sc-api/v1/logistics/vehicles")]);
+    const table=$("shipments-table");table.replaceChildren();const mobile=$("shipments-mobile");mobile.replaceChildren();
+    shipments.items.forEach(s=>{
+      const tr=el("tr","");[s.id,s.product_name,s.destination,s.vehicle_name||"—",fmt(s.distance_km,1)+" km",s.status].forEach(v=>tr.append(el("td","",v)));table.append(tr);
+      const card=el("article","product-card");card.append(el("div","name",s.product_name+" · "+s.id),el("div","muted",s.destination),el("div","product-meta",(s.vehicle_name||"Transport yo‘q")+" · "+fmt(s.distance_km,1)+" km · "+s.status));mobile.append(card);
+    });
+    if(!shipments.items.length){const tr=el("tr","");tr.append(el("td","muted","Jo‘natmalar topilmadi"));table.append(tr);}
+    const list=$("vehicles-list");list.replaceChildren();
+    vehicles.items.forEach(v=>{const row=el("div","alert");row.append(el("strong","",v.name),el("span","pill",fmt(v.capacity,0)+" sig‘im · "+fmt(v.cost_per_km,0)+"/km"));list.append(row);});
+    if(!vehicles.items.length)list.append(el("div","muted","Transport vositalari topilmadi."));
+  }
+  async function fetchAllPages(path){
+    const first=await api(path+(path.includes("?")?"&":"?")+"page=1&page_size=100");
+    const items=[...(first.items||[])];const pages=Number(first.pagination?.pages||1);
+    for(let p=2;p<=pages;p++){const next=await api(path+(path.includes("?")?"&":"?")+"page="+p+"&page_size=100");items.push(...(next.items||[]));}
+    return items;
+  }
+  function csvCell(value){let s=value==null?"":String(value);const first=s.trimStart()[0];if(["=","+","@","-"].includes(first))s="\'"+s;return '"' + s.replace(/"/g,'""') + '"';}
+  function downloadCSV(filename,headers,rows){
+    const csv=String.fromCharCode(65279)+[headers,...rows].map(row=>row.map(csvCell).join(",")).join(String.fromCharCode(13,10));
+    const url=URL.createObjectURL(new Blob([csv],{type:"text/csv;charset=utf-8"}));
+    const link=document.createElement("a");link.href=url;link.download=filename;document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
+    $("report-status").textContent=filename+" · "+fmt(rows.length)+" qator eksport qilindi.";
+  }
+  async function printReport(kind){
+    $("report-status").textContent="PDF uchun hisobot tayyorlanmoqda…";
+    try{
+      let title,headers,rows,path;
+      if(kind==="inventory"){
+        title="Ombor hisoboti";path="/sc-api/v1/inventory";
+        headers=["SKU","Mahsulot","Miqdor","Birlik","Reorder point","Birlik narxi"];
+        rows=(await fetchAllPages(path)).map(x=>[x.sku,x.name,x.quantity,x.unit,x.reorder_point,x.unit_cost]);
+      }else if(kind==="orders"){
+        title="Xarid buyurtmalari hisoboti";path="/sc-api/v1/procurement/orders";
+        headers=["Buyurtma ID","Mahsulot","Yetkazib beruvchi","Miqdor","Kutilgan sana","Holat"];
+        rows=(await fetchAllPages(path)).map(x=>[x.id,x.product_name,x.supplier_name,x.quantity,x.expected_date,x.status]);
+      }else{
+        title="Logistika jo‘natmalari hisoboti";path="/sc-api/v1/logistics/shipments";
+        headers=["Jo‘natma ID","Mahsulot","Miqdor","Manzil","Transport","Masofa km","Taxminiy xarajat","Holat"];
+        rows=(await fetchAllPages(path)).map(x=>[x.id,x.product_name,x.quantity,x.destination,x.vehicle_name,x.distance_km,x.estimated_cost,x.status]);
+      }
+      if(rows.length>5000)throw new Error("PDF chop etish 5 000 qator bilan cheklangan. To‘liq ma’lumot uchun CSV yoki Excel eksportidan foydalaning.");
+      $("print-title").textContent=title;
+      $("print-meta").textContent="Yaratilgan: "+new Date().toLocaleString("uz-UZ")+" · Qatorlar: "+fmt(rows.length);
+      const head=$("print-head");head.replaceChildren();const tr=el("tr","");
+      headers.forEach(value=>tr.append(el("th","",value)));head.append(tr);
+      const body=$("print-body");body.replaceChildren();
+      rows.forEach(row=>{const line=el("tr","");row.forEach(value=>line.append(el("td","",value==null?"—":String(value))));body.append(line);});
+      $("print-area").hidden=false;
+      $("report-status").textContent="Chop etish oynasi ochiladi. Qurilmada “Save as PDF / PDF sifatida saqlash”ni tanlang.";
+      window.print();
+    }catch(error){$("report-status").textContent="PDF tayyorlanmadi: "+error.message;}
+  }
+  function downloadXLSX(filename,headers,rows){
+    if(!window.XLSX)throw new Error("Excel eksport kutubxonasi yuklanmagan.");
+    const workbook=XLSX.utils.book_new();
+    const sheet=XLSX.utils.aoa_to_sheet([headers,...rows]);
+    XLSX.utils.book_append_sheet(workbook,sheet,"Report");
+    XLSX.writeFile(workbook,filename);
+    $("report-status").textContent=filename+" · "+fmt(rows.length)+" qator Excel formatida eksport qilindi.";
+  }
+  async function exportReport(kind,format="csv"){
+    $("report-status").textContent="Ma’lumotlar tayyorlanmoqda…";
+    try{
+      let filename,headers,rows,path;
+      if(kind==="inventory"){
+        path="/sc-api/v1/inventory";filename="supply-chain-inventory";headers=["SKU","Mahsulot","Miqdor","Birlik","Reorder point","Birlik narxi"];
+        const items=await fetchAllPages(path);rows=items.map(x=>[x.sku,x.name,x.quantity,x.unit,x.reorder_point,x.unit_cost]);
+      }else if(kind==="orders"){
+        path="/sc-api/v1/procurement/orders";filename="supply-chain-purchase-orders";headers=["Buyurtma ID","Mahsulot","Yetkazib beruvchi","Miqdor","Kutilgan sana","Holat"];
+        const items=await fetchAllPages(path);rows=items.map(x=>[x.id,x.product_name,x.supplier_name,x.quantity,x.expected_date,x.status]);
+      }else{
+        path="/sc-api/v1/logistics/shipments";filename="supply-chain-shipments";headers=["Jo‘natma ID","Mahsulot","Miqdor","Manzil","Transport","Masofa km","Taxminiy xarajat","Holat"];
+        const items=await fetchAllPages(path);rows=items.map(x=>[x.id,x.product_name,x.quantity,x.destination,x.vehicle_name,x.distance_km,x.estimated_cost,x.status]);
+      }
+      if(format==="xlsx")downloadXLSX(filename+".xlsx",headers,rows);
+      else downloadCSV(filename+".csv",headers,rows);
+    }catch(err){$("report-status").textContent="Eksport bajarilmadi: "+err.message;}
+  }
+  const csvState={headers:[],rows:[],fileName:"",workbook:null};
+  const mapAliases={
+    sku:["sku","product sku","item code","код","артикул"],
+    name:["name","product","product name","item name","mahsulot","nomi"],
+    quantity:["quantity","qty","stock","on hand","miqdor","остаток"],
+    unit:["unit","uom","unit of measure","measure","birlik","единица"],
+    cost:["unit cost","unit_cost","cost","price","narx","birlik narxi"],
+    reorder:["reorder point","reorder_point","rop","min stock","qayta buyurtma"]
+  };
+  function parseCSV(text){
+    const rows=[];let row=[],cell="",quoted=false;
+    for(let i=0;i<text.length;i++){
+      const ch=text[i],next=text[i+1];
+      if(ch==='"'&&quoted&&next==='"'){cell+='"';i++;}
+      else if(ch==='"'){quoted=!quoted;}
+      else if(ch===","&&!quoted){row.push(cell);cell="";}
+      else if((ch==="\n"||ch==="\r")&&!quoted){if(ch==="\r"&&next==="\n")i++;row.push(cell);if(row.some(v=>v.trim()))rows.push(row);row=[];cell="";}
+      else cell+=ch;
+    }
+    if(quoted)throw new Error("CSV formatida yopilmagan qo‘shtirnoq bor.");
+    row.push(cell);if(row.some(v=>v.trim()))rows.push(row);
+    if(rows.length<2)throw new Error("Sarlavha va kamida bitta ma’lumot qatori kerak.");
+    if(rows.length>10001)throw new Error("Faylda 10 000 qatordan ko‘p ma’lumot bor.");
+    const headers=rows[0].map((v,i)=>(i===0?v.replace(/^\uFEFF/,""):v).trim()||("Column "+(i+1)));
+    if(headers.length>100)throw new Error("CSV faylda 100 tadan ko‘p ustun bor; faylni qisqartiring.");
+    return {headers,rows:rows.slice(1).map(r=>headers.map((_,i)=>(r[i]||"").trim()))};
+  }
+  function inspectXlsxArchive(bytes){
+    const view=new DataView(bytes);
+    const minimumEocd=22,maximumComment=65535;
+    const searchStart=Math.max(0,bytes.byteLength-minimumEocd-maximumComment);
+    let eocd=-1;
+    for(let offset=bytes.byteLength-minimumEocd;offset>=searchStart;offset--){
+      if(view.getUint32(offset,true)!==0x06054b50)continue;
+      const commentLength=view.getUint16(offset+20,true);
+      if(offset+minimumEocd+commentLength===bytes.byteLength){eocd=offset;break;}
+    }
+    if(eocd<0)throw new Error("Excel fayli to‘g‘ri ZIP/XLSX arxiv emas.");
+    const disk=view.getUint16(eocd+4,true),centralDisk=view.getUint16(eocd+6,true);
+    const diskEntries=view.getUint16(eocd+8,true),entryCount=view.getUint16(eocd+10,true);
+    const centralSize=view.getUint32(eocd+12,true),centralOffset=view.getUint32(eocd+16,true);
+    if(disk!==0||centralDisk!==0||diskEntries!==entryCount)throw new Error("Ko‘p qismli Excel arxivlari qo‘llab-quvvatlanmaydi.");
+    if(entryCount===0xffff||centralSize===0xffffffff||centralOffset===0xffffffff)throw new Error("ZIP64 Excel arxivi qo‘llab-quvvatlanmaydi.");
+    if(entryCount>2000)throw new Error("Excel arxivida juda ko‘p ichki fayl bor.");
+    const centralEnd=centralOffset+centralSize;
+    if(centralEnd>eocd||centralEnd>bytes.byteLength)throw new Error("Excel arxivining markaziy katalogi noto‘g‘ri.");
+    let cursor=centralOffset,totalUncompressed=0;
+    for(let index=0;index<entryCount;index++){
+      if(cursor+46>centralEnd||view.getUint32(cursor,true)!==0x02014b50)throw new Error("Excel arxivining ichki tuzilishi noto‘g‘ri.");
+      const flags=view.getUint16(cursor+8,true),method=view.getUint16(cursor+10,true);
+      const compressed=view.getUint32(cursor+20,true),uncompressed=view.getUint32(cursor+24,true);
+      const nameLength=view.getUint16(cursor+28,true),extraLength=view.getUint16(cursor+30,true),commentLength=view.getUint16(cursor+32,true);
+      const localOffset=view.getUint32(cursor+42,true);
+      const next=cursor+46+nameLength+extraLength+commentLength;
+      if(compressed===0xffffffff||uncompressed===0xffffffff||localOffset===0xffffffff)throw new Error("ZIP64 ichki fayl yozuvlari qo‘llab-quvvatlanmaydi.");
+      if(next>centralEnd)throw new Error("Excel arxivida noto‘g‘ri katalog yozuvi bor.");
+      if(flags&1)throw new Error("Parol bilan himoyalangan Excel fayllari qo‘llab-quvvatlanmaydi.");
+      if(method!==0&&method!==8)throw new Error("Excel arxivida qo‘llab-quvvatlanmaydigan siqish turi bor.");
+      if(uncompressed>20*1024*1024)throw new Error("Excel faylining ichki qismi 20 MB limitdan katta.");
+      totalUncompressed+=uncompressed;
+      if(totalUncompressed>40*1024*1024)throw new Error("Excel faylining ochilgan umumiy hajmi 40 MB limitdan katta.");
+      if(localOffset+30>centralOffset||view.getUint32(localOffset,true)!==0x04034b50)throw new Error("Excel arxivida noto‘g‘ri fayl sarlavhasi bor.");
+      const localName=view.getUint16(localOffset+26,true),localExtra=view.getUint16(localOffset+28,true);
+      const dataStart=localOffset+30+localName+localExtra;
+      if(dataStart+compressed>centralOffset)throw new Error("Excel arxivida fayl chegarasi noto‘g‘ri.");
+      cursor=next;
+    }
+    return {entries:entryCount,uncompressedBytes:totalUncompressed};
+  }
+  function workbookSheetRows(sheetName){
+    if(!window.XLSX||!csvState.workbook)throw new Error("Excel o‘qish moduli yuklanmagan yoki fayl ochilmagan.");
+    const sheet=csvState.workbook.Sheets[sheetName];
+    if(!sheet)throw new Error("Tanlangan Excel varag‘i topilmadi.");
+    const range=sheet["!ref"]?XLSX.utils.decode_range(sheet["!ref"]):null;
+    if(range&&range.e.c>=100)throw new Error("Excel varag‘ida 100 tadan ko‘p ustun bor; varaqni qisqartiring.");
+    const rows=XLSX.utils.sheet_to_json(sheet,{header:1,defval:"",raw:false,blankrows:false});
+    if(rows.length<2)throw new Error("Tanlangan varaqda sarlavha va kamida bitta ma’lumot qatori bo‘lishi kerak.");
+    if(rows.length>10001)throw new Error("Excel varag‘ida 10 000 qatordan ko‘p ma’lumot bor.");
+    const headers=rows[0].map((v,i)=>String(v??"").trim()||("Column "+(i+1)));
+    return {headers,rows:rows.slice(1).map(r=>headers.map((_,i)=>String(r[i]??"").trim()))};
+  }
+  function useWorkbookSheet(sheetName){
+    const parsed=workbookSheetRows(sheetName);
+    csvState.headers=parsed.headers;csvState.rows=parsed.rows;
+    setupExcelMappings(parsed.headers);renderExcelPreview();
+    $("excel-file-info").textContent=csvState.fileName+" · "+sheetName+" · "+fmt(parsed.rows.length)+" qator";
+  }
+  function selectedMap(){return Object.fromEntries(["sku","name","quantity","unit","cost","reorder"].map(k=>[k,$("map-"+k).value]));}
+  function excelNumber(raw){
+    if(raw==null||String(raw).trim()==="")return null;
+    const value=Number(String(raw).replace(/\s/g,"").replace(",","."));
+    return Number.isFinite(value)?value:null;
+  }
+  function renderExcelPreview(){
+    const m=selectedMap(),required=["sku","name","quantity"];
+    const missing=required.filter(k=>!m[k]);
+    const valid=[],errors=[],seenSku=new Set(),errorByLine=new Map();
+    csvState.rows.forEach((r,index)=>{
+      const line=index+2;
+      const get=key=>m[key]?String(r[csvState.headers.indexOf(m[key])]??"").trim():"";
+      const sku=get("sku"),name=get("name"),rawQty=get("quantity"),qty=excelNumber(rawQty);
+      const unit=get("unit"),rawCost=get("cost"),cost=excelNumber(rawCost),rawReorder=get("reorder"),reorder=excelNumber(rawReorder);
+      const issues=[];
+      if(!sku)issues.push("SKU bo‘sh");
+      if(!name)issues.push("nom bo‘sh");
+      if(qty===null||qty<0)issues.push("miqdor noto‘g‘ri");
+      const normalizedSku=sku.toLocaleLowerCase();
+      if(sku&&seenSku.has(normalizedSku))issues.push("takroriy SKU");
+      if(sku)seenSku.add(normalizedSku);
+      if(rawCost&& (cost===null||cost<0))issues.push("birlik narxi noto‘g‘ri");
+      if(rawReorder&&(reorder===null||reorder<0))issues.push("reorder point noto‘g‘ri");
+      if(unit.length>32)issues.push("birlik nomi juda uzun");
+      if(issues.length){errors.push({line,issues:issues.join(", ")});errorByLine.set(line,issues.join(", "));}
+      else valid.push({sku,name,quantity:qty,unit:unit||null,cost,reorder});
+    });
+    $("excel-rows").textContent=fmt(csvState.rows.length);
+    $("excel-valid").textContent=fmt(valid.length);
+    $("excel-errors").textContent=fmt(errors.length+missing.length);
+    $("excel-total").textContent=fmt(valid.reduce((sum,row)=>sum+row.quantity,0),2);
+    const messages=[];
+    if(missing.length)messages.push("Majburiy ustunlar moslanmagan: "+missing.join(", "));
+    messages.push(errors.length?errors.length+" qatorda xato topildi.":"Qator tekshiruvida xato topilmadi.");
+    messages.push("Yaroqli qatorlar: "+valid.length+" / "+csvState.rows.length+".");
+    const root=$("excel-validation");root.replaceChildren();
+    messages.forEach((msg,i)=>{const item=el("div","alert");item.append(el("strong","",msg),el("span",i===1&&errors.length?"pill":"pill good",i===1&&errors.length?"Tekshiruv":"Info"));root.append(item);});
+    const head=$("excel-head");head.replaceChildren();const hr=el("tr","");
+    ["SKU","Mahsulot","Miqdor","Birlik","Birlik narxi","Reorder point","Holat"].forEach(v=>hr.append(el("th","",v)));head.append(hr);
+    const body=$("excel-preview");body.replaceChildren();
+    csvState.rows.slice(0,20).forEach((r,i)=>{
+      const get=key=>m[key]?String(r[csvState.headers.indexOf(m[key])]??"").trim():"";
+      const line=i+2,sku=get("sku"),name=get("name"),qty=get("quantity"),unit=get("unit"),cost=get("cost"),reorder=get("reorder");
+      const issue=missing.length||errorByLine.has(line);
+      const tr=el("tr","");[sku,name,qty,unit||"— (mavjud qiymat saqlanadi; yangi SKU: pcs)",cost||"—",reorder||"—",issue?"Tekshirish kerak":"Yaroqli"].forEach(v=>tr.append(el("td","",v)));body.append(tr);
+    });
+    if(csvState.rows.length>20){const tr=el("tr","");tr.append(el("td","muted","Yana "+(csvState.rows.length-20)+" qator preview’da ko‘rsatilmagan"));body.append(tr);}
+    renderImportDiff(valid);
+  }
+  function renderImportHistory(items){
+    const root=$("excel-history");root.replaceChildren();
+    if(!Array.isArray(items)||!items.length){root.append(el("div","muted","Hozircha import tarixi yo‘q."));return;}
+    items.slice().reverse().forEach(item=>{
+      const row=el("div","alert");
+      const left=el("div","");
+      left.append(el("strong","",item.file_name||"Excel import"));
+      const summary=[fmt(item.created)+" yangi",fmt(item.updated)+" yangilandi",fmt(item.unchanged)+" o‘zgarishsiz"].join(" · ");
+      const detail=[item.sheet||"",item.created_at||"",summary].filter(Boolean).join(" · ");
+      left.append(el("div","muted",detail));
+      const right=el("span","pill",fmt(item.processed)+" qator");
+      row.append(left,right);root.append(row);
+    });
+  }
+  async function loadImportHistory(){
+    const bootstrap=await api("/sc-api/v1/bootstrap");
+    renderImportHistory(bootstrap.recent_imports||[]);
+  }
+  async function renderImportDiff(rows){
+    const seq=++importPreviewSeq;
+    importRows=rows.map(r=>({sku:r.sku,name:r.name,quantity:r.quantity,unit:r.unit,unit_cost:r.cost,reorder_point:r.reorder}));
+    $("excel-import-confirm").disabled=true;
+    $("excel-confirm-check").checked=false;
+    $("excel-import-status").textContent="Joriy ombor holati olinmoqda…";
+    $("excel-diff").replaceChildren(el("div","muted","Joriy ombor bilan solishtirilmoqda…"));
+    try{
+      const bootstrap=await api("/sc-api/v1/bootstrap");
+      const products=await fetchAllPages("/sc-api/v1/inventory");
+      if(seq!==importPreviewSeq)return;
+      importVersion=Number(bootstrap.data_version||1);
+      renderImportHistory(bootstrap.recent_imports||[]);
+      inventoryBaseline=new Map(products.map(p=>[String(p.sku).toLocaleLowerCase(),p]));
+      const diffs=importRows.map(row=>{
+        const old=inventoryBaseline.get(row.sku.toLocaleLowerCase());
+        if(!old)return {row,action:"Yangi SKU",before:null,after:row.quantity,details:["Birlik: "+(row.unit||"pcs (default)"),"Miqdor: — → "+fmt(row.quantity,2)]};
+        const details=[];
+        if(String(old.name||"")!==row.name)details.push("Nom: "+(old.name||"—")+" → "+row.name);
+        if(row.unit&&String(old.unit||"")!==row.unit)details.push("Birlik: "+(old.unit||"—")+" → "+row.unit);
+        if(Number(old.quantity)!==Number(row.quantity))details.push("Miqdor: "+fmt(old.quantity,2)+" → "+fmt(row.quantity,2));
+        if(row.unit_cost!=null&&Number(old.unit_cost)!==Number(row.unit_cost))details.push("Narx: "+fmt(old.unit_cost,2)+" → "+fmt(row.unit_cost,2));
+        if(row.reorder_point!=null&&Number(old.reorder_point)!==Number(row.reorder_point))details.push("Reorder: "+fmt(old.reorder_point,2)+" → "+fmt(row.reorder_point,2));
+        return {row,action:details.length?"Yangilanadi":"O‘zgarish yo‘q",before:old.quantity,after:row.quantity,details};
+      });
+      const counts={created:diffs.filter(x=>x.action==="Yangi SKU").length,updated:diffs.filter(x=>x.action==="Yangilanadi").length,unchanged:diffs.filter(x=>x.action==="O‘zgarish yo‘q").length};
+      const root=$("excel-diff");root.replaceChildren();
+      [["Yangi SKU",counts.created],["Yangilanadi",counts.updated],["O‘zgarmaydi",counts.unchanged],["Versiya",importVersion]].forEach(([label,value])=>{const item=el("div","alert");item.append(el("strong","",label),el("span","pill",fmt(value)));root.append(item);});
+      const table=el("div","table-wrap");table.style.display="block";table.style.marginTop="10px";
+      const t=el("table","table");t.style.minWidth="520px";
+      const head=el("tr","");["SKU","Amal","Oldingi → yangi qiymatlar"].forEach(v=>head.append(el("th","",v)));
+      const thead=el("thead","");thead.append(head);const body=el("tbody","");
+      diffs.slice(0,50).forEach(d=>{const tr=el("tr","");[d.row.sku,d.action,d.details.length?d.details.join(" · "):"Farq yo‘q"].forEach(v=>tr.append(el("td","",v)));body.append(tr);});
+      t.append(thead,body);table.append(t);root.append(table);
+      if(diffs.length>50)root.append(el("div","muted","Yana "+fmt(diffs.length-50)+" ta farq jadvalda ko‘rsatilmagan."));
+      $("excel-import-status").textContent="Preview tayyor. Tasdiqlashdan oldin farqlarni tekshiring.";
+      const hasErrors=Number($("excel-errors").textContent.replace(/\D/g,""))>0;
+      $("excel-import-confirm").disabled=!$("excel-confirm-check").checked||rows.length===0||hasErrors;
+    }catch(error){
+      if(seq!==importPreviewSeq)return;
+      inventoryBaseline=null;importVersion=null;
+      $("excel-diff").replaceChildren(el("div","alert error","Ombor bilan solishtirib bo‘lmadi: "+error.message));
+      $("excel-import-status").textContent="Saqlash bloklandi — avval ma’lumotni qayta yuklang.";
+    }
+  }
+  async function confirmInventoryImport(){
+    if(!importRows.length||importVersion==null||!$("excel-confirm-check").checked)return;
+    const button=$("excel-import-confirm");
+    button.disabled=true;button.textContent="Saqlanmoqda…";
+    $("excel-file").disabled=true;
+    $("excel-reset").disabled=true;
+    $("excel-import-status").textContent="Server qatorlarni qayta tekshirib, versiya nazorati bilan saqlamoqda.";
+    const operationId=(window.crypto&&crypto.randomUUID)?crypto.randomUUID():("excel-"+Date.now()+"-"+Math.random().toString(36).slice(2));
+    try{
+      const result=await api("/sc-api/v1/inventory/import",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
+        operation_id:operationId,expected_version:importVersion,
+        source_name:csvState.fileName||"inventory-import",
+        source_sheet:csvState.workbook?$("excel-sheet").value:"",
+        rows:importRows
+      })});
+      $("excel-import-status").textContent="Saqlandi: "+fmt(result.result?.processed)+" qator · yangi "+fmt(result.result?.created)+" · yangilandi "+fmt(result.result?.updated)+" · o‘zgarishsiz "+fmt(result.result?.unchanged)+" · versiya "+fmt(result.version)+".";
+      $("excel-confirm-check").checked=false;
+      importRows=[];inventoryBaseline=null;importVersion=null;
+      await refreshAll();
+      await loadImportHistory();
+      $("excel-diff").replaceChildren(el("div","alert good","Import saqlandi va ombor yangilandi."));
+      $("excel-import-confirm").disabled=true;
+    }catch(error){
+      $("excel-confirm-check").checked=false;
+      $("excel-import-confirm").disabled=true;
+      $("excel-import-status").textContent="Import bajarilmadi: "+error.message+" Sahifani yangilab, faylni qayta tekshiring.";
+      if(/outcome|tasdiqlanmadi|Preview eskirgan/i.test(error.message)){
+        importVersion=null;inventoryBaseline=null;
+        $("excel-import-status").textContent+=" Takroran import qilishdan oldin omborni yangilab, farqlarni qayta tekshiring.";
+      }
+    }finally{
+      $("excel-file").disabled=false;
+      $("excel-reset").disabled=false;
+      button.textContent="Importni tasdiqlash";
+      const hasErrors=Number($("excel-errors").textContent.replace(/\D/g,""))>0;
+      button.disabled=!importRows.length||importVersion==null||!$("excel-confirm-check").checked||hasErrors;
+    }
+  }
+  function setupExcelMappings(headers){
+    ["sku","name","quantity","unit","cost","reorder"].forEach(key=>{
+      const select=$("map-"+key);select.replaceChildren();select.disabled=false;
+      select.append(new Option("— Ustun tanlanmagan —",""));
+      headers.forEach(h=>select.append(new Option(h,h)));
+      const normalized=headers.map(h=>h.toLowerCase().replace(/[_-]/g," ").trim());
+      const aliases=mapAliases[key].map(a=>a.toLowerCase().replace(/[_-]/g," ").trim());
+      const match=headers.find((h,i)=>aliases.includes(normalized[i]));
+      select.value=match||"";
+      select.onchange=renderExcelPreview;
+    });
+  }
+  $("excel-file").addEventListener("change",async event=>{
+    const file=event.target.files?.[0];if(!file)return;
+    importRows=[];importVersion=null;inventoryBaseline=null;importPreviewSeq++;
+    $("excel-import-confirm").disabled=true;$("excel-confirm-check").checked=false;
+    $("excel-import-status").textContent="Yangi fayl tekshirilmoqda…";
+    try{
+      if(file.size>5*1024*1024)throw new Error("Fayl 5 MB limitdan katta.");
+      csvState.fileName=file.name;csvState.workbook=null;
+      const isXlsx=file.name.toLowerCase().endsWith(".xlsx");
+      if(isXlsx){
+        if(!window.XLSX)throw new Error("Excel kutubxonasi yuklanmadi. Internet aloqasini tekshirib, sahifani qayta oching.");
+        const bytes=await file.arrayBuffer();
+        inspectXlsxArchive(bytes);
+        csvState.workbook=XLSX.read(bytes,{type:"array",cellDates:true,sheetRows:10002});
+        const names=csvState.workbook.SheetNames||[];
+        if(names.length>20)throw new Error("Faylda 20 tadan ko‘p ish varag‘i bor; faylni qisqartirib qayta yuklang.");
+        if(!names.length)throw new Error("Excel faylida ish varag‘i topilmadi.");
+        const picker=$("excel-sheet");picker.replaceChildren();
+        names.forEach(name=>picker.append(new Option(name,name)));
+        picker.disabled=false;$("excel-sheet-wrap").hidden=names.length<2;
+        picker.onchange=()=>{try{useWorkbookSheet(picker.value);}catch(err){$("excel-validation").replaceChildren(el("div","alert error",err.message));}};
+        useWorkbookSheet(names[0]);
+      }else if(file.name.toLowerCase().endsWith(".csv")){
+        const parsed=parseCSV(await file.text());csvState.headers=parsed.headers;csvState.rows=parsed.rows;
+        $("excel-sheet-wrap").hidden=true;$("excel-sheet").disabled=true;
+        $("excel-file-info").textContent=file.name+" · "+fmt(file.size/1024,1)+" KB · "+fmt(parsed.rows.length)+" qator";
+        setupExcelMappings(parsed.headers);renderExcelPreview();
+      }else throw new Error("Faqat CSV UTF-8 yoki Excel .xlsx fayl yuklang.");
+    }catch(err){
+      csvState.headers=[];csvState.rows=[];csvState.workbook=null;
+      importRows=[];importVersion=null;inventoryBaseline=null;importPreviewSeq++;
+      $("excel-import-confirm").disabled=true;$("excel-confirm-check").checked=false;
+      $("excel-import-status").textContent="Fayl xatosi — import bloklandi.";
+      $("excel-validation").replaceChildren(el("div","alert error",err.message));
+    }
+  });
+  $("excel-reset").addEventListener("click",()=>{
+    $("excel-file").value="";csvState.headers=[];csvState.rows=[];csvState.fileName="";csvState.workbook=null;$("excel-sheet").replaceChildren();$("excel-sheet").disabled=true;$("excel-sheet-wrap").hidden=true;
+    $("excel-file-info").textContent="Maksimal hajm: 5 MB · Maksimal qator: 10 000";
+    ["sku","name","quantity","unit","cost","reorder"].forEach(k=>{$("map-"+k).replaceChildren();$("map-"+k).disabled=true;});
+    ["excel-rows","excel-valid","excel-errors","excel-total"].forEach(id=>$(id).textContent="—");
+    $("excel-validation").replaceChildren(el("div","muted","Fayl tanlangandan keyin natija ko‘rinadi."));
+    $("excel-head").replaceChildren();$("excel-preview").replaceChildren();
+    $("excel-diff").replaceChildren(el("div","muted","Fayl yuklangandan keyin ombor bilan solishtiriladi."));
+    $("excel-import-confirm").disabled=true;$("excel-confirm-check").checked=false;
+    $("excel-import-status").textContent="Hozircha hech narsa saqlanmadi.";
+    importRows=[];inventoryBaseline=null;importVersion=null;importPreviewSeq++;
+  });
+  $("excel-confirm-check").addEventListener("change",event=>{
+    const hasErrors=Number($("excel-errors").textContent.replace(/\D/g,""))>0;
+    $("excel-import-confirm").disabled=!event.target.checked||!importRows.length||importVersion==null||hasErrors;
+  });
+  $("excel-import-confirm").addEventListener("click",confirmInventoryImport);
+  async function refreshAll() {
+    try { hideNotice(); $("connection").textContent="Yangilanmoqda"; await loadDashboard(); if(currentView==="inventory")await loadInventory(); $("connection").textContent="Ulangan"; }
+    catch(err){ $("connection").textContent="Xatolik"; showNotice("Ma’lumot yuklanmadi",err.message,true); }
+  }
+  function switchView(view) {
+    currentView=view;["dashboard","inventory","analytics","procurement","logistics","excel","reports"].forEach(v=>{const node=$(v+"-view");if(node)node.hidden=view!==v;});
+    document.querySelectorAll(".nav button").forEach(b=>b.classList.toggle("active",b.dataset.view===view));
+    if(view==="inventory")loadInventory().catch(e=>showNotice("Ombor yuklanmadi",e.message,true));
+    if(view==="analytics")loadAnalytics().catch(e=>showNotice("Analytics yuklanmadi",e.message,true));
+    if(view==="procurement")loadProcurement().catch(e=>showNotice("Xarid yuklanmadi",e.message,true));
+    if(view==="logistics")loadLogistics().catch(e=>showNotice("Logistika yuklanmadi",e.message,true));
+    if(view==="excel")loadImportHistory().catch(e=>$("excel-history").replaceChildren(el("div","alert error",e.message)));
+    if(view==="reports")$("report-status").textContent="Hisobotlar tayyor. Kerakli eksport turini tanlang.";
+  }
+  document.querySelectorAll(".nav button").forEach(b=>b.addEventListener("click",()=>switchView(b.dataset.view)));
+  $("refresh").addEventListener("click",refreshAll);$("inventory-refresh").addEventListener("click",()=>loadInventory().catch(e=>showNotice("Xatolik",e.message,true)));
+  $("detail-close").addEventListener("click",()=>{$("inventory-detail").hidden=true;});
+  $("analytics-refresh").addEventListener("click",()=>loadAnalytics().catch(e=>showNotice("Xatolik",e.message,true)));
+  $("procurement-refresh").addEventListener("click",()=>loadProcurement().catch(e=>showNotice("Xatolik",e.message,true)));
+  $("logistics-refresh").addEventListener("click",()=>loadLogistics().catch(e=>showNotice("Xatolik",e.message,true)));
+  $("reports-refresh").addEventListener("click",()=>$("report-status").textContent="Hisobotlar yangilandi. Eksport paytida eng yangi ma’lumot olinadi.");
+  $("export-inventory").addEventListener("click",()=>exportReport("inventory"));
+  $("export-orders").addEventListener("click",()=>exportReport("orders"));
+  $("export-shipments").addEventListener("click",()=>exportReport("shipments"));
+  $("export-inventory-xlsx").addEventListener("click",()=>exportReport("inventory","xlsx"));
+  $("export-orders-xlsx").addEventListener("click",()=>exportReport("orders","xlsx"));
+  $("export-shipments-xlsx").addEventListener("click",()=>exportReport("shipments","xlsx"));
+  $("export-inventory-pdf").addEventListener("click",()=>printReport("inventory"));
+  $("export-orders-pdf").addEventListener("click",()=>printReport("orders"));
+  $("export-shipments-pdf").addEventListener("click",()=>printReport("shipments"));
+  window.addEventListener("afterprint",()=>{$("print-area").hidden=true;});
+  $("prev").addEventListener("click",()=>{if(page>1){page--;loadInventory().catch(e=>showNotice("Xatolik",e.message,true));}});
+  $("next").addEventListener("click",()=>{if(page<totalPages){page++;loadInventory().catch(e=>showNotice("Xatolik",e.message,true));}});
+  ["search","status","sort"].forEach(id=>$(id).addEventListener(id==="search"?"input":"change",()=>{page=1;clearTimeout(searchTimer);searchTimer=setTimeout(()=>loadInventory().catch(e=>showNotice("Xatolik",e.message,true)),id==="search"?250:0);}));
+  $("retry").addEventListener("click",async()=>{try{hideNotice();if(!token)await authenticate();await refreshAll();}catch(e){showNotice("Kirish amalga oshmadi",e.message,true);}});
+  (async()=>{try{if(await authenticate())await refreshAll();}catch(e){$("connection").textContent="Xatolik";showNotice("Kirish amalga oshmadi",e.message,true);}})();
+})();
+</script>
+</body>
+</html>

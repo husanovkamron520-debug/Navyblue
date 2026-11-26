@@ -29,6 +29,9 @@ from difflib import SequenceMatcher
 from http.server import BaseHTTPRequestHandler, HTTPServer, ThreadingHTTPServer
 import museum
 import supply_chain
+import supply_chain_api as sc_api
+import supply_chain_persistence as sc_persistence
+import supply_chain_mini_app_import as sc_import
 import october_plus
 import october_creative
 from ppt_media_sources import find_commons_photo
@@ -84,6 +87,13 @@ logging.basicConfig(
     level=logging.INFO,
 )
 logger = logging.getLogger(__name__)
+
+# Supply Chain Mini App: process-local owner sessions and startup readiness gate.
+_SC_STORAGE_READY = threading.Event()
+_SC_SESSIONS = sc_api.SessionStore()
+_SC_SESSION_LIMITER = sc_api.RateLimiter(max_requests=8, window_seconds=60)
+_SC_API_LIMITER = sc_api.RateLimiter(max_requests=120, window_seconds=60)
+_SC_IMPORT_LIMITER = sc_api.RateLimiter(max_requests=3, window_seconds=60)
 # httpx so'rov URL'larida bot tokeni chiqib qolmasligi uchun
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
@@ -504,8 +514,10 @@ STORAGE_TABLE = "bot_storage"
 
 _cache = {}
 _cache_lock = threading.RLock()
-_pending = {}
-_pending_cv = threading.Condition()
+_STORAGE_WRITE_QUEUE = sc_persistence.SnapshotWriteQueue()
+_SC_COMMIT_ADAPTER = None
+_SC_STORAGE_KEY = "supply_chain_data"
+_storage_save_lock = threading.RLock()
 _writer_started = False
 
 
@@ -638,38 +650,93 @@ def _db_save(key, data):
     )
 
 
+def _sc_storage_load():
+    data = _db_load(_SC_STORAGE_KEY)
+    if not isinstance(data, dict):
+        raise sc_persistence.PersistenceError("Supply Chain storage row is missing or invalid")
+    return data
+
+
+def _sc_storage_patch(candidate, expected_version):
+    query = urlencode({
+        "storage_key": "eq." + _SC_STORAGE_KEY,
+        "data->>version": "eq." + str(expected_version),
+    })
+    rows = _db_request(
+        "PATCH",
+        f"{STORAGE_TABLE}?{query}",
+        {
+            "data": candidate,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        },
+        prefer="return=representation",
+    )
+    if isinstance(rows, list) and len(rows) == 1 and isinstance(rows[0], dict):
+        saved = rows[0].get("data")
+        return isinstance(saved, dict) and saved.get("version") == candidate.get("version")
+    return False
+
+
+def _get_sc_commit_adapter():
+    global _SC_COMMIT_ADAPTER
+    if _SC_COMMIT_ADAPTER is None:
+        cas = sc_persistence.JsonbCompareAndSwap(_sc_storage_load, _sc_storage_patch)
+        _SC_COMMIT_ADAPTER = sc_persistence.SerializedCommitAdapter(_sc_storage_load, cas.persist)
+    return _SC_COMMIT_ADAPTER
+
+
+def _sc_commit_inventory_import(payload):
+    """Commit one explicitly confirmed import and publish only acknowledged state."""
+    if not USE_DB:
+        raise sc_persistence.PersistenceError("Mini App import requires configured Supabase storage")
+    with _storage_save_lock:
+        result = sc_import.commit_inventory_import(_get_sc_commit_adapter(), payload)
+        try:
+            latest = _sc_storage_load()
+        except Exception:
+            # The commit is acknowledged; invalidate cache so later reads reload it.
+            with _cache_lock:
+                _cache.pop(_SC_STORAGE_KEY, None)
+        else:
+            with _cache_lock:
+                _cache[_SC_STORAGE_KEY] = copy.deepcopy(latest)
+        return result
+
+
 def _writer_loop():
+    """Single ordered writer: only this thread sends queued snapshots to Supabase."""
     while True:
-        with _pending_cv:
-            while not _pending:
-                _pending_cv.wait()
-            key, data = next(iter(_pending.items()))
-            del _pending[key]
+        key, data = _STORAGE_WRITE_QUEUE.take()
+        saved = False
         for attempt in range(4):
             try:
                 _db_save(key, data)
+                saved = True
                 break
             except Exception:
                 logger.warning("Supabase'ga yozib bo'lmadi (%s, urinish %s)", key, attempt + 1, exc_info=True)
                 time.sleep(2 * (attempt + 1))
-        else:
-            with _pending_cv:  # yangiroq versiya bo'lmasa, qayta navbatga qo'yamiz
-                _pending.setdefault(key, data)
+        _STORAGE_WRITE_QUEUE.finish(key, data, saved=saved)
+        if not saved:
             time.sleep(10)
 
 
 def flush_storage(timeout=15):
-    """Dastur to'xtashidan oldin kutayotgan yozuvlarni yuboradi."""
+    """Wait for the single writer to drain queued and in-flight snapshots.
+
+    This is a bounded best-effort shutdown wait, not a durable transaction
+    acknowledgement and not a substitute for database-side compare-and-swap.
+    """
     if not USE_DB:
-        return
-    with _pending_cv:
-        items = dict(_pending)
-        _pending.clear()
-    for key, data in items.items():
-        try:
-            _db_save(key, data)
-        except Exception:
-            logger.exception("Yakuniy saqlash xatosi: %s", key)
+        return True
+    drained = _STORAGE_WRITE_QUEUE.wait_empty(timeout)
+    if not drained:
+        logger.warning(
+            "Storage flush timed out; pending=%s inflight=%s",
+            _STORAGE_WRITE_QUEUE.pending_count,
+            _STORAGE_WRITE_QUEUE.inflight_count,
+        )
+    return drained
 
 
 def _file_load(filepath, default):
@@ -770,11 +837,77 @@ def save_json(filepath, data):
     if not USE_DB:
         return _file_save(filepath, data)
     key = _storage_key(filepath)
-    with _cache_lock:
-        _cache[key] = copy.deepcopy(data)
-    with _pending_cv:
-        _pending[key] = copy.deepcopy(data)
-        _pending_cv.notify()
+    snapshot = copy.deepcopy(data)
+
+    if key == _SC_STORAGE_KEY:
+        # Supply Chain is committed synchronously with a database-side JSONB
+        # version filter. It must never enter the legacy best-effort upsert queue.
+        with _storage_save_lock:
+            expected_version = snapshot.get("version", 1)
+            protected = {"version", "_write_idempotency", "audit_log"}
+            business_snapshot = {
+                name: value for name, value in snapshot.items()
+                if name not in protected
+            }
+            request_hash = hashlib.sha256(json.dumps(
+                business_snapshot,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+                allow_nan=False,
+            ).encode("utf-8")).hexdigest()
+
+            def apply_business_snapshot(current):
+                for name in list(current):
+                    if name not in protected and name not in business_snapshot:
+                        del current[name]
+                for name, value in business_snapshot.items():
+                    current[name] = copy.deepcopy(value)
+                return {"saved": True, "storage_key": key}
+
+            try:
+                committed = _get_sc_commit_adapter().commit(
+                    expected_version=expected_version,
+                    operation_id=secrets.token_urlsafe(24),
+                    request_hash=request_hash,
+                    mutate=apply_business_snapshot,
+                )
+            except Exception:
+                # Refresh the local cache after a conflict or ambiguous outcome;
+                # never publish the unacknowledged candidate as committed state.
+                try:
+                    latest = _sc_storage_load()
+                except Exception:
+                    latest = None
+                with _cache_lock:
+                    if isinstance(latest, dict):
+                        _cache[key] = copy.deepcopy(latest)
+                    else:
+                        _cache.pop(key, None)
+                raise
+
+            # The adapter's durable acknowledgement is authoritative. A follow-up
+            # read refreshes audit/idempotency metadata; if it fails, invalidate
+            # the cache so the next read must reload from the database.
+            try:
+                latest = _sc_storage_load()
+            except Exception:
+                logger.warning("Supply Chain commit acknowledged but cache refresh failed", exc_info=True)
+                latest = None
+            with _cache_lock:
+                if isinstance(latest, dict):
+                    _cache[key] = copy.deepcopy(latest)
+                else:
+                    _cache.pop(key, None)
+            if isinstance(data, dict):
+                data["version"] = committed["version"]
+            return True
+
+    # Other bot datasets keep their existing asynchronous snapshot persistence.
+    with _storage_save_lock:
+        with _cache_lock:
+            _cache[key] = snapshot
+        _STORAGE_WRITE_QUEUE.enqueue(key, snapshot)
     return True
 
 
@@ -1048,11 +1181,198 @@ def run_health_server():
     port = int(os.environ.get("PORT", "10000"))
 
     class Handler(BaseHTTPRequestHandler):
+        def _sc_json(self, payload, status=200):
+            raw = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Content-Length", str(len(raw)))
+            self.end_headers()
+            self.wfile.write(raw)
+
+        def _sc_error(self, code, message, status):
+            self._sc_json({"data": None, "meta": {"request_id": uuid.uuid4().hex},
+                           "error": {"code": code, "message": message}}, status)
+
+        def _sc_bearer(self):
+            header = self.headers.get("Authorization", "")
+            if not header.startswith("Bearer "):
+                return ""
+            return header[7:].strip()
+
+        def _sc_api_get(self, parsed):
+            if len(self.path.encode("utf-8")) > 8192:
+                self._sc_error("request_too_large", "API so‘rov manzili juda uzun.", 414)
+                return
+            if parsed.path == "/sc-api/v1/health":
+                ready = _SC_STORAGE_READY.is_set()
+                self._sc_json({"status": "ready" if ready else "starting"}, 200 if ready else 503)
+                return
+            allowed_paths = {
+                "/sc-api/v1/bootstrap", "/sc-api/v1/dashboard", "/sc-api/v1/inventory",
+                "/sc-api/v1/analytics/demand", "/sc-api/v1/analytics/abc",
+                "/sc-api/v1/analytics/eoq", "/sc-api/v1/analytics/replenishment",
+                "/sc-api/v1/procurement/orders", "/sc-api/v1/procurement/suppliers",
+                "/sc-api/v1/logistics/shipments", "/sc-api/v1/logistics/vehicles",
+            }
+            inventory_detail = parsed.path.startswith("/sc-api/v1/inventory/")
+            if parsed.path not in allowed_paths and not inventory_detail:
+                self._sc_error("not_found", "API endpoint topilmadi.", 404)
+                return
+            if not _SC_STORAGE_READY.is_set():
+                self._sc_error("not_ready", "Ma'lumotlar bazasi hali tayyor emas.", 503)
+                return
+            if not OWNER_CHAT_ID or not _SC_SESSIONS.authenticate(self._sc_bearer(), OWNER_CHAT_ID):
+                self._sc_error("unauthorized", "Sessiya yaroqsiz yoki muddati tugagan.", 401)
+                return
+            if not _SC_API_LIMITER.allow("read"):
+                self._sc_error("rate_limited", "So‘rovlar limiti tugadi. Birozdan keyin qayta urinib ko‘ring.", 429)
+                return
+            from urllib.parse import parse_qs
+            try:
+                query = parse_qs(parsed.query, max_num_fields=32, keep_blank_values=True)
+            except ValueError:
+                self._sc_error("invalid_query", "API so‘rov parametrlari noto‘g‘ri.", 400)
+                return
+            if len((query.get("search") or [""])[0]) > 120:
+                self._sc_error("invalid_query", "Qidiruv matni 120 belgidan oshmasligi kerak.", 400)
+                return
+            if len((query.get("sku") or [""])[0]) > 128:
+                self._sc_error("invalid_query", "SKU parametri juda uzun.", 400)
+                return
+            snapshot = load_json(supply_chain.DATA_FILE, {})
+            def _int_arg(key, default):
+                try:
+                    return int((query.get(key) or [str(default)])[0])
+                except (TypeError, ValueError):
+                    return default
+            if parsed.path == "/sc-api/v1/bootstrap":
+                result = sc_api.build_bootstrap(snapshot)
+            elif parsed.path == "/sc-api/v1/dashboard":
+                result = sc_api.build_dashboard(snapshot)
+            elif parsed.path == "/sc-api/v1/inventory":
+                result = sc_api.list_inventory(
+                    snapshot,
+                    search=(query.get("search") or [""])[0],
+                    status=(query.get("status") or ["all"])[0],
+                    sort=(query.get("sort") or ["name"])[0],
+                    page=_int_arg("page", 1),
+                    page_size=_int_arg("page_size", 10),
+                )
+            elif inventory_detail:
+                sku = parsed.path[len("/sc-api/v1/inventory/"):].strip("/")
+                result = sc_api.get_inventory_detail(snapshot, sku)
+                if result["data"]["item"] is None:
+                    self._sc_error("not_found", "Mahsulot topilmadi.", 404)
+                    return
+            elif parsed.path == "/sc-api/v1/analytics/demand":
+                result = sc_api.build_demand_analytics(snapshot, (query.get("sku") or [""])[0])
+            elif parsed.path == "/sc-api/v1/analytics/abc":
+                result = sc_api.build_abc_analysis(snapshot)
+            elif parsed.path == "/sc-api/v1/analytics/eoq":
+                result = sc_api.build_eoq_analysis(snapshot)
+            elif parsed.path == "/sc-api/v1/analytics/replenishment":
+                result = sc_api.build_replenishment(snapshot)
+            elif parsed.path == "/sc-api/v1/procurement/orders":
+                result = sc_api.list_purchase_orders(snapshot, (query.get("status") or ["all"])[0],
+                                                     _int_arg("page", 1), _int_arg("page_size", 10))
+            elif parsed.path == "/sc-api/v1/procurement/suppliers":
+                result = sc_api.list_suppliers(snapshot)
+            elif parsed.path == "/sc-api/v1/logistics/shipments":
+                result = sc_api.list_shipments(snapshot, (query.get("status") or ["all"])[0],
+                                               _int_arg("page", 1), _int_arg("page_size", 10))
+            elif parsed.path == "/sc-api/v1/logistics/vehicles":
+                result = sc_api.list_vehicles(snapshot)
+            else:
+                result = sc_api.build_replenishment(snapshot)
+            self._sc_json(result)
+
+        def _sc_api_post(self, parsed):
+            is_session = parsed.path == "/sc-api/v1/session"
+            is_import = parsed.path == "/sc-api/v1/inventory/import"
+            if not is_session and not is_import:
+                self._sc_error("not_found", "POST endpoint topilmadi.", 404)
+                return
+            if not _SC_STORAGE_READY.is_set():
+                self._sc_error("not_ready", "Ma'lumotlar bazasi hali tayyor emas.", 503)
+                return
+            if is_session and not _SC_SESSION_LIMITER.allow("session"):
+                self._sc_error("rate_limited", "Juda ko'p urinish. Birozdan keyin qayta urinib ko'ring.", 429)
+                return
+            if is_import:
+                if not OWNER_CHAT_ID or not _SC_SESSIONS.authenticate(self._sc_bearer(), OWNER_CHAT_ID):
+                    self._sc_error("unauthorized", "Sessiya yaroqsiz yoki muddati tugagan.", 401)
+                    return
+                if not _SC_IMPORT_LIMITER.allow("inventory-import"):
+                    self._sc_error("rate_limited", "Import limiti tugadi. Birozdan keyin qayta urinib ko'ring.", 429)
+                    return
+                if not USE_DB:
+                    self._sc_error("storage_unavailable", "Import uchun Supabase saqlash xizmati kerak.", 503)
+                    return
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                max_length = sc_api.MAX_INIT_DATA_BYTES if is_session else 8_000_000
+                if length <= 0 or length > max_length:
+                    self._sc_error("invalid_request", "So'rov hajmi noto'g'ri yoki limitdan katta.", 413)
+                    return
+                if "application/json" not in self.headers.get("Content-Type", "").lower():
+                    self._sc_error("invalid_request", "JSON format talab qilinadi.", 415)
+                    return
+                raw = self.rfile.read(length)
+                if len(raw) != length:
+                    self._sc_error("invalid_request", "So'rov to'liq kelmadi.", 400)
+                    return
+                payload = json.loads(raw.decode("utf-8"))
+                if is_session:
+                    init_data = payload.get("initData") if isinstance(payload, dict) else None
+                    user = sc_api.validate_init_data(init_data, TELEGRAM_BOT_TOKEN, OWNER_CHAT_ID)
+                    token, expires_in = _SC_SESSIONS.issue(user["id"])
+                    self._sc_json({"data": {"token": token, "token_type": "Bearer",
+                                            "expires_in": expires_in},
+                                   "meta": {"request_id": uuid.uuid4().hex}, "error": None})
+                    return
+
+                result = _sc_commit_inventory_import(payload)
+                self._sc_json({"data": result, "meta": {"request_id": uuid.uuid4().hex},
+                               "error": None})
+            except sc_api.AuthError as exc:
+                self._sc_error("unauthorized", str(exc), 401)
+            except sc_import.ImportValidationError as exc:
+                self._sc_error("invalid_import", str(exc), 400)
+            except sc_persistence.VersionConflict:
+                self._sc_error("version_conflict", "Preview eskirgan: ma'lumotlar o'zgargan. Sahifani yangilab, faylni qayta tekshiring.", 409)
+            except sc_persistence.IdempotencyConflict:
+                self._sc_error("idempotency_conflict", "Import identifikatori boshqa fayl uchun ishlatilgan. Faylni qayta tekshiring.", 409)
+            except sc_persistence.CommitOutcomeUnknown:
+                self._sc_error("outcome_unknown", "Saqlash natijasi hozircha tasdiqlanmadi. Takroran import qilmang; avval sahifani yangilab ombor holatini tekshiring.", 503)
+            except sc_persistence.PersistenceError as exc:
+                self._sc_error("storage_error", str(exc), 503)
+            except (UnicodeDecodeError, json.JSONDecodeError, AttributeError, TypeError, ValueError):
+                self._sc_error("invalid_request", "So'rov formati noto'g'ri.", 400)
+            except Exception:
+                logger.exception("Supply Chain API POST endpoint failed")
+                self._sc_error("internal_error", "Ichki server xatosi.", 500)
+
         def do_GET(self):
             body, ctype, code = b"OK", "text/plain; charset=utf-8", 200
             try:
                 from urllib.parse import urlparse, parse_qs
                 u = urlparse(self.path)
+                if (u.path == "/museum" or u.path.startswith("/museum/")
+                        or u.path in ("/task", "/cw", "/cwdata")):
+                    self.send_response(404)
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                    return
+                if u.path.startswith("/sc-api/v1/"):
+                    self._sc_api_get(u)
+                    return
+                if u.path in ("/supply-chain", "/supply-chain/"):
+                    app_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                            "supply_chain_mini_app.html")
+                    with open(app_path, "rb") as app_file:
+                        body, ctype = app_file.read(), "text/html; charset=utf-8"
                 if u.path == "/museum" or u.path.startswith("/museum/"):
                     museum.http_get(self, u)
                     return
@@ -1092,6 +1412,14 @@ def run_health_server():
             try:
                 from urllib.parse import urlparse
                 u = urlparse(self.path)
+                if u.path.startswith("/museum/"):
+                    self.send_response(404)
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                    return
+                if u.path.startswith("/sc-api/v1/"):
+                    self._sc_api_post(u)
+                    return
                 if u.path.startswith("/museum/"):
                     museum.http_post(self, u)
                     return
@@ -1812,7 +2140,7 @@ def teacher_menu(chat_id=None):
         return collapsed_menu(chat_id)
     rows = [
         [BTN_SC14],
-        [BTN_SLIDE, BTN_CROSS],
+        [BTN_SLIDE],
         [BTN_REFERAT, BTN_TESTF],
         [BTN_MAQOLA, BTN_TEZIS],
         [BTN_GLOS, BTN_CASEW],
@@ -1832,9 +2160,8 @@ def student_menu(chat_id=None):
         return collapsed_menu(chat_id)
     rows = [
         [BTN_SC14],
-        [BTN_TASK],
         [BTN_START_CASE],
-        [BTN_SLIDE, BTN_CROSS],
+        [BTN_SLIDE],
         [BTN_REFERAT, BTN_TESTF],
         [BTN_MAQOLA, BTN_TEZIS],
         [BTN_GLOS, BTN_CASEW],
@@ -2689,8 +3016,6 @@ async def attachment_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     """Rasm/hujjatni o'qib, mavjud matnli bot oqimiga uzatadi."""
     msg = update.effective_message
     if not msg or not update.effective_chat:
-        return
-    if await museum.on_media(update, context):
         return
     tg_file = None
     filename = ""
@@ -11851,8 +12176,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     if await supply_chain.on_text_handler()(update, context):
         return
-    if await museum.on_text(update, context, text, _is_btn):
-        return
     if text == BTN_REFERAT:
         await _ref_start(update.message, context)
         return
@@ -11902,39 +12225,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.pop("_ppt_cover_wait", None)
         await _ppt_ask_mode(update.message, context)
         return
-    if text == BTN_TASK:
-        # Task faqat yuklangan ombor krossvordi va so'z qidirish topshiriqlarini ochadi.
-        student = get_students().get(str(chat_id)) or {}
-        if not student or not student.get("teacher_code"):
-            await update.message.reply_text("Avval ustoz kodingiz bilan ro'yxatdan o'ting. Natija shunda ustozingizga yuboriladi.")
-            return
-        base = _cw_app_base()
-        if not base:
-            await update.message.reply_text("Task hozircha ochilmadi: Mini App server manzili sozlanmagan.")
-            return
-        now = time.time()
-        for old_token, info in list(TASK_TOKENS.items()):
-            if now - float((info or {}).get("created_at", 0)) > 7200:
-                TASK_TOKENS.pop(old_token, None)
-        token = secrets.token_urlsafe(24)
-        TASK_TOKENS[token] = {"chat_id": int(chat_id), "teacher_code": str(student.get("teacher_code")), "created_at": now}
-        await update.message.reply_text(
-            "📝 Ombor bo'yicha 2 ta topshiriq. Ikkalasini ham bajaring, so'ng pastdagi Web App tugmasini bosing. Natija botga avtomatik yuboriladi.",
-            reply_markup=ReplyKeyboardMarkup(
-                [[KeyboardButton("🧩 Krossvord + 🔎 So'z topish", web_app=WebAppInfo(url=f"{base}/task?t={token}"))],
-                 [KeyboardButton(BTN_MAIN_MENU)]],
-                resize_keyboard=True,
-                one_time_keyboard=False
-            )
-        )
-        return
-    if text == BTN_CROSS:
-        context.user_data.pop("_ref_wait", None)
-        context.user_data.pop("_pxb_wait", None)
-        context.user_data.pop("_ppt_wait", None)
-        context.user_data["_cw_wait"] = time.time()
-        await update.message.reply_text("🧩 Krossvord mavzusini yozing.\nMasalan: Ombor va inventar nazorati")
-        return
     if text in (BTN_VIDEO, BTN_FOTO):
         if not is_bot_owner(update.effective_user.id if update.effective_user else None):
             await update.message.reply_text("⛔ Foto va video qidiruv faqat bot egasi uchun.")
@@ -11972,7 +12262,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data.pop("_ppt_cover_wait", None)
             await _ppt_cover_run(update.message, context, _ppt_cover_parse(text))
             return
-    for _flag in ("_ppt_wait", "_cw_wait"):
+    for _flag in ("_ppt_wait",):
         _wait = context.user_data.get(_flag)
         if not _wait:
             continue
@@ -12007,11 +12297,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["_pxb_prompt"] = px_match.group(2).strip()
         _kind = {"video": "video", "illyustratsiya": "illustration", "vektor": "vector"}.get(_k, "photo")
         await _pxb_send(update.effective_message, context, context.user_data.pop("_pxb_prompt"), _kind, 1)
-        return
-    cw_match = re.match(r"^(?:iltimos\s+)?krossvord\s+(?:yarat|tuz|tayyorla|qil)\s*[:—-]?\s*(.*)$", text, re.I | re.S)
-    if cw_match:
-        context.user_data["_cw_prompt"] = cw_match.group(1).strip()
-        await crossword_command(update, context)
         return
     ppt_match = re.match(r"^(?:iltimos\s+)?(?:taqdimot|prezentatsiya|presentatsiya|slayd)\s+(?:yarat|tayyorla|qil)\s*[:—-]?\s*(.*)$", text, re.I | re.S)
     if ppt_match:
@@ -12732,7 +13017,7 @@ def _sys_status_text(short=False):
             tasks = 0
         up = int(now - _LAG["started"])
         lines.append(f"⚙️ Oqimlar: {threading.active_count()}, vazifalar: {tasks}, AI navbati: {busy}/10, "
-                     f"bazaga yozilishi kutilayotgan: {len(_pending)}, ish vaqti: {up // 3600} soat {up % 3600 // 60} daq")
+                     f"bazaga yozilishi kutilayotgan: {_STORAGE_WRITE_QUEUE.pending_count}, ish vaqti: {up // 3600} soat {up % 3600 // 60} daq")
     recent = list(_PERF)[-(2 if short else 6):]
     if recent:
         lines.append("⏱ Oxirgi vazifalar:")
@@ -14257,6 +14542,7 @@ def main():
     threading.Thread(target=run_keep_alive, daemon=True).start()
 
     init_storage_with_retry()  # DB vaqtincha uzilsa, process qulamaydi va ma'lumotlar tiklanguncha qayta urinadi.
+    _SC_STORAGE_READY.set()
     threading.Thread(target=_usage_flush_loop, daemon=True).start()
     atexit.register(_usage_flush)
 
@@ -14363,7 +14649,6 @@ def main():
     app.add_handler(CallbackQueryHandler(pxb_callback, pattern=r"^pxb:"))
     app.add_handler(CommandHandler(["taqdimot", "prezentatsiya", "ppt"], presentation_command))
     app.add_handler(CallbackQueryHandler(ppt_callback, pattern=r"^ppt:"))
-    app.add_handler(CommandHandler(["krossvord", "crossword"], crossword_command))
     app.add_handler(CommandHandler(["referat"], referat_command))
     app.add_handler(CommandHandler(["maqola", "article"], lambda u, c: _paper_start(u.effective_message, c, "maqola", " ".join(c.args or []))))
     app.add_handler(CommandHandler(["tezis"], lambda u, c: _paper_start(u.effective_message, c, "tezis", " ".join(c.args or []))))
@@ -14372,12 +14657,9 @@ def main():
     app.add_handler(CallbackQueryHandler(dg_callback, pattern=r"^dg:"))
     app.add_handler(CallbackQueryHandler(zip_callback, pattern=r"^z:"))
     _install_document_hook()
-    museum.install(app)
     app.add_handler(CallbackQueryHandler(ref_callback, pattern=r"^ref:"))
-    app.add_handler(CallbackQueryHandler(cw_callback, pattern=r"^cw:"))
     app.add_handler(MessageHandler(filters.ChatType.PRIVATE & (filters.VOICE | filters.AUDIO), voice_handler))
     app.add_handler(MessageHandler(filters.ChatType.PRIVATE & (filters.PHOTO | filters.Document.ALL | filters.VIDEO), attachment_handler))
-    app.add_handler(MessageHandler(filters.StatusUpdate.WEB_APP_DATA, puzzle_webapp_data))
     app.add_handler(MessageHandler(filters.ChatType.PRIVATE & filters.TEXT & ~filters.COMMAND, handle_message))
 
     logger.info("Bot ishga tushmoqda...")

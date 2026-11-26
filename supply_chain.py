@@ -10,8 +10,10 @@ Ma'lumot fayli formati o'zgarmagan: eski supply_chain_data.json bilan to'liq mos
 """
 from __future__ import annotations
 
+import os
 import threading
 import supply_chain_import
+import supply_chain_persistence as sc_persistence
 import uuid
 import math
 import asyncio
@@ -29,6 +31,7 @@ from telegram.ext import Application, CallbackQueryHandler, CommandHandler, Cont
 
 DATA_FILE = "supply_chain_data.json"
 _LOCK = threading.RLock()
+_SC_MUTATION_LOCK = asyncio.Lock()
 _OWNER_ID: int | None = None
 _LOAD: Callable[[str, Any], Any] | None = None
 _SAVE: Callable[[str, Any], Any] | None = None
@@ -58,10 +61,16 @@ def _data() -> dict[str, Any]:
         return raw
 
 
-def _save(data: dict[str, Any]) -> None:
-    if _SAVE is not None:
+async def _save(data: dict[str, Any]) -> None:
+    if _SAVE is None:
+        return
+
+    def persist() -> None:
         with _LOCK:
             _SAVE(DATA_FILE, data)
+
+    # Supabase CAS is synchronous HTTP; keep it off the Telegram event loop.
+    await asyncio.to_thread(persist)
 
 
 def _allowed(update: Update) -> bool:
@@ -1544,14 +1553,22 @@ def _btn(label: str, cb: str) -> InlineKeyboardButton:
 
 
 def _home_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup([
+    rows = [
         [_btn("📦 Ombor", "inventory"), _btn("➕ Mahsulot", "add")],
         [_btn("📥 Kirim", "in"), _btn("📤 Chiqim", "out")],
         [_btn("📊 Hisobotlar", "reports"), _btn("🛒 Xarid", "buy")],
         [_btn("🚛 Transport", "transport"), _btn("🧪 Simulyatsiya", "sim")],
         [_btn("📥 Excel qabul qilish", "excel_upload")],
         [_btn("🤖 AI maslahatchi", "ai")],
-    ])
+    ]
+    base_url = (os.environ.get("RENDER_EXTERNAL_URL") or "").strip().rstrip("/")
+    if base_url.startswith("https://"):
+        from telegram import WebAppInfo
+        rows.insert(0, [InlineKeyboardButton(
+            "📱 Supply Chain Mini App",
+            web_app=WebAppInfo(url=base_url + "/supply-chain"),
+        )])
+    return InlineKeyboardMarkup(rows)
 
 
 def _menu_keyboard(kind: str) -> InlineKeyboardMarkup:
@@ -1682,28 +1699,27 @@ async def _callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             return await alert("Yuk topilmadi")
         status = shipment.get("status")
         if action == "ship_dispatch" and status == "planned":
-            with _LOCK:
-                product = data.get("products", {}).get(shipment.get("sku"))
-                qty = float(shipment.get("quantity", 0))
-                if not product or float(product.get("quantity", 0)) < qty:
-                    return await alert("Omborda yukni jo'natish uchun yetarli zaxira yo'q")
-                product["quantity"] = float(product.get("quantity", 0)) - qty
-                product["updated_at"] = _now()
-                data["movements"].append({"id": uuid.uuid4().hex[:12], "sku": shipment["sku"], "type": "out", "quantity": qty,
-                                          "note": f"Transport yuk {shipment_id} jo'natildi", "created_at": _now(), "shipment_id": shipment_id})
-                shipment["status"] = "dispatched"
-                shipment["dispatched_at"] = _now()
-                _save(data)
+            product = data.get("products", {}).get(shipment.get("sku"))
+            qty = float(shipment.get("quantity", 0))
+            if not product or float(product.get("quantity", 0)) < qty:
+                return await alert("Omborda yukni jo'natish uchun yetarli zaxira yo'q")
+            product["quantity"] = float(product.get("quantity", 0)) - qty
+            product["updated_at"] = _now()
+            data["movements"].append({"id": uuid.uuid4().hex[:12], "sku": shipment["sku"], "type": "out", "quantity": qty,
+                                      "note": f"Transport yuk {shipment_id} jo'natildi", "created_at": _now(), "shipment_id": shipment_id})
+            shipment["status"] = "dispatched"
+            shipment["dispatched_at"] = _now()
+            await _save(data)
             message = f"Yuk yo'lga chiqdi. Ombordan {qty:g} birlik yechildi."
         elif action == "ship_deliver" and status == "dispatched":
             shipment["status"] = "delivered"
             shipment["delivered_at"] = _now()
-            _save(data)
+            await _save(data)
             message = "Yuk yetkazildi."
         elif action == "ship_cancel" and status == "planned":
             shipment["status"] = "cancelled"
             shipment["cancelled_at"] = _now()
-            _save(data)
+            await _save(data)
             message = "Yuk bekor qilindi. Zaxira o'zgarmadi."
         else:
             return await alert("Bu yuk uchun bu amalni bajarib bo'lmaydi")
@@ -1735,7 +1751,7 @@ async def _callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             message = "Buyurtma bekor qilindi. Zaxira o'zgarmadi."
         else:
             return await alert("Bu buyurtma uchun bu amalni bajarib bo'lmaydi")
-        _save(data)
+        await _save(data)
         await _edit(q, message + "\n\n" + _orders_text(data), _orders_keyboard(data))
     elif action == "home":
         context.user_data.pop("_sc_wait", None)
@@ -2016,10 +2032,26 @@ async def _text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
             return True
         import copy
         try:
-            with _LOCK:
-                data = copy.deepcopy(_data())
-                result = supply_chain_import.apply_import(data, validated)
-                _save(data)
+            data = copy.deepcopy(_data())
+            result = supply_chain_import.apply_import(data, validated)
+            await _save(data)
+        except sc_persistence.VersionConflict:
+            context.user_data.pop("_sc_wait", None)
+            await update.message.reply_text(
+                "⚠️ Ma'lumotlar boshqa sessiyada yangilangan. Hech narsa ustidan yozilmadi. "
+                "Excel faylni yangilangan ma'lumot bilan qayta ko'rib chiqing."
+            )
+            return True
+        except sc_persistence.CommitOutcomeUnknown:
+            context.user_data.pop("_sc_wait", None)
+            await update.message.reply_text(
+                "⚠️ Saqlash javobining holati noaniq. Importni qayta yubormang; avval ombor holatini tekshiring."
+            )
+            return True
+        except sc_persistence.PersistenceError:
+            context.user_data.pop("_sc_wait", None)
+            await update.message.reply_text("⚠️ Import bazaga xavfsiz saqlanmadi. Hech qanday muvaffaqiyat tasdiqlanmadi.")
+            return True
         except Exception as exc:
             context.user_data.pop("_sc_wait", None)
             await update.message.reply_text("⚠️ Import saqlanmadi: " + _friendly_error(exc))
@@ -2042,13 +2074,20 @@ async def _text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
         return True
     import copy
     result, error = None, None
-    with _LOCK:
-        try:
-            data = copy.deepcopy(_data())
-            result = handler(data, raw)
-            _save(data)
-        except Exception as exc:  # noqa: BLE001 — foydalanuvchiga tushunarli xabar beramiz
-            error = _friendly_error(exc)
+    try:
+        data = copy.deepcopy(_data())
+        result = handler(data, raw)
+        await _save(data)
+    except sc_persistence.VersionConflict:
+        error = ("Ma'lumotlar boshqa sessiyada yangilangan. Hech narsa ustidan yozilmadi. "
+                 "Bo'limni qayta ochib, amalni yangilangan ma'lumot bilan takrorlang.")
+    except sc_persistence.CommitOutcomeUnknown:
+        error = ("Saqlash javobining holati noaniq. Amalni hozircha qayta yubormang; "
+                 "avval ombor holatini yangilang va o'zgarish saqlanganini tekshiring.")
+    except sc_persistence.PersistenceError:
+        error = "Ma'lumotni bazaga xavfsiz saqlab bo'lmadi. Hech qanday muvaffaqiyat tasdiqlanmadi."
+    except Exception as exc:  # noqa: BLE001 — foydalanuvchiga tushunarli xabar beramiz
+        error = _friendly_error(exc)
     done_kb = InlineKeyboardMarkup([[_btn("✅ Tayyor — orqaga", parent)]])
     if error:
         await _reply(update.message, f"⚠️ {error}\n\nQayta yozing yoki «Orqaga» ni bosing.", done_kb)
@@ -2059,15 +2098,56 @@ async def _text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     return True
 
 
+async def _notify_persistence_error(update: Update, exc: Exception) -> None:
+    message = update.effective_message
+    if message is None and update.callback_query:
+        message = update.callback_query.message
+    if isinstance(exc, sc_persistence.VersionConflict):
+        text = ("Ma'lumotlar boshqa sessiyada yangilangan. Hech narsa ustidan yozilmadi. "
+                "Bo'limni qayta ochib, amalni yangilangan ma'lumot bilan takrorlang.")
+    elif isinstance(exc, sc_persistence.CommitOutcomeUnknown):
+        text = ("Saqlash javobining holati noaniq. Amalni hozircha qayta yubormang; "
+                "avval ombor holatini yangilang va o'zgarish saqlanganini tekshiring.")
+    else:
+        text = "Ma'lumotni bazaga xavfsiz saqlab bo'lmadi. Hech qanday muvaffaqiyat tasdiqlanmadi."
+    if message:
+        await message.reply_text("⚠️ " + text)
+
+
+async def _serialized_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    async with _SC_MUTATION_LOCK:
+        try:
+            await _callback(update, context)
+        except sc_persistence.PersistenceError as exc:
+            await _notify_persistence_error(update, exc)
+
+
+async def _serialized_excel_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    async with _SC_MUTATION_LOCK:
+        try:
+            await _handle_excel_document(update, context)
+        except sc_persistence.PersistenceError as exc:
+            await _notify_persistence_error(update, exc)
+
+
+async def _serialized_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    async with _SC_MUTATION_LOCK:
+        try:
+            return await _text(update, context)
+        except sc_persistence.PersistenceError as exc:
+            await _notify_persistence_error(update, exc)
+            return True
+
+
 def install(app: Application, load_json: Callable[[str, Any], Any], save_json: Callable[[str, Any], Any], owner_id: int | None, ai_client: Any = None, ai_model: str | None = None) -> None:
     global _LOAD, _SAVE, _OWNER_ID, _AI_CLIENT, _AI_MODEL
     _LOAD, _SAVE, _OWNER_ID = load_json, save_json, owner_id
     _AI_CLIENT = ai_client
     _AI_MODEL = (ai_model or "gemini-3.5-flash-lite").strip()
     app.add_handler(CommandHandler("supply", open_supply))
-    app.add_handler(CallbackQueryHandler(_callback, pattern=r"^sc:"))
-    app.add_handler(MessageHandler(filters.ChatType.PRIVATE & filters.Document.ALL, _handle_excel_document))
+    app.add_handler(CallbackQueryHandler(_serialized_callback, pattern=r"^sc:"))
+    app.add_handler(MessageHandler(filters.ChatType.PRIVATE & filters.Document.ALL, _serialized_excel_document))
 
 
 def on_text_handler():
-    return _text
+    return _serialized_text
