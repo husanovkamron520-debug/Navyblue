@@ -43,7 +43,7 @@ _CANONICAL = {
 _ALIAS_TO_FIELD = {}
 for _field, _aliases in _CANONICAL.items():
     for _alias in _aliases:
-        _ALIAS_TO_FIELD[re.sub(r"[^a-z0-9а-я]+", "", _alias.casefold().replace("ё", "е"))] = _field
+        _ALIAS_TO_FIELD[re.sub(r"[^\\w]+", "", _alias.casefold().replace("ё", "е"), flags=re.UNICODE).replace("_", "")] = _field
 
 _REQUIRED = {
     "products": {"product_name", "quantity"},
@@ -135,7 +135,7 @@ def _read_sheet(zf: zipfile.ZipFile, path: str, shared: list[str]) -> list[tuple
     root = ET.fromstring(_read_xml_entry(zf, path))
     output = []
     for row in root.findall(".//m:sheetData/m:row", _NS):
-        if len(output) >= MAX_XLSX_ROWS:
+        if len(output) >= MAX_XLSX_ROWS or int(row.attrib.get("r", len(output) + 1)) > MAX_XLSX_ROWS:
             raise ValueError("Excel faylda 10 000 qatordan ortiq ma'lumot bor.")
         cells = row.findall("m:c", _NS)
         if not cells:
