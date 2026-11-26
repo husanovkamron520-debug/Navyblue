@@ -967,16 +967,21 @@ def _registered_teacher_code(chat_id, teachers=None):
     return None
 
 
-def get_teacher_code_by_chat_id(chat_id):
-    """Faqat faol roli ustoz bo'lgan foydalanuvchi uchun ustoz kodini qaytaradi.
+def _teacher_is_approved(info):
+    """Eski ro'yxatdan o'tgan ustozlarni saqlab qoladi, yangi ustozlar tasdiqlanishi shart."""
+    return (info or {}).get("status", "approved") == "approved"
 
-    Eski teachers.json yozuvlarida active_role bo'lmasa, avvalgi xulq saqlanadi.
-    """
+
+def get_teacher_code_by_chat_id(chat_id):
+    """Faqat tasdiqlangan va faol roli ustoz bo'lgan foydalanuvchi kodini qaytaradi."""
     teachers = get_teachers()
     code = _registered_teacher_code(chat_id, teachers)
     if not code:
         return None
-    if (teachers.get(code) or {}).get("active_role", "teacher") != "teacher":
+    info = teachers.get(code) or {}
+    if not _teacher_is_approved(info):
+        return None
+    if info.get("active_role", "teacher") != "teacher":
         return None
     return code
 
@@ -1894,37 +1899,87 @@ async def role_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     students = get_students()
 
     if query.data == "role_teacher":
-        # Oldin shogird roliga o'tgan ustozning kodi qayta yaratilmasin.
         existing_code = _registered_teacher_code(chat_id, teachers)
-        if existing_code:
-            teacher_code = existing_code
-            teachers[teacher_code]["active_role"] = "teacher"
-            teachers[teacher_code]["name"] = query.from_user.full_name
-        else:
-            teacher_code = make_teacher_code(chat_id, teachers)
-            teachers[teacher_code] = {
-                "chat_id": chat_id,
-                "name": query.from_user.full_name,
-                "active_role": "teacher",
-            }
+        existing_info = teachers.get(existing_code) if existing_code else None
+
+        # Eski tasdiqlangan ustozlar va avval tasdiqlangan ustozlar uchun odatiy kirish saqlanadi.
+        if existing_code and _teacher_is_approved(existing_info):
+            existing_info["active_role"] = "teacher"
+            existing_info["name"] = query.from_user.full_name
+            save_teachers(teachers)
+            await query.edit_message_text(
+                f"✅ Ustoz rejimi faollashdi!\n\n🔑 Ustoz kodingiz: {existing_code}\n"
+                "Shogirdlaringizga shu kodni bering."
+            )
+            await context.bot.send_message(
+                chat_id=chat_id, text="Ta'lim bo'limi — Ustoz.",
+                reply_markup=teacher_menu(chat_id),
+            )
+            return
+
+        # Pending ariza takroran yuborilmaydi.
+        if existing_code and (existing_info or {}).get("status") == "pending":
+            await query.edit_message_text(
+                "⏳ Ustozlik arizangiz ko'rib chiqilmoqda. Administrator tasdiqlagach, "
+                "ustoz kodingiz shu chatga yuboriladi."
+            )
+            return
+
+        # Yangi ariza. Kod tasdiqlanmaguncha shogirdlarga ishlamaydi va ko'rsatilmaydi.
+        teacher_code = existing_code or make_teacher_code(chat_id, teachers)
+        teachers[teacher_code] = {
+            **(existing_info or {}),
+            "chat_id": chat_id,
+            "name": query.from_user.full_name,
+            "username": query.from_user.username or "",
+            "active_role": "pending",
+            "status": "pending",
+            "requested_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        }
         save_teachers(teachers)
 
         await query.edit_message_text(
-            f"✅ O'qituvchi rejimi faollashdi!\n\n"
-            f"🔑 O'qituvchi kodingiz: {teacher_code}\n"
-            "Talabalaringizga shu kodni bering."
-        )
-        await context.bot.send_message(
-            chat_id=chat_id,
-            text="Asosiy menyu:",
-            reply_markup=teacher_menu(chat_id),
+            "📨 Ustozlik arizangiz yuborildi.\n\n"
+            "Administrator arizangizni tekshiradi. Tasdiqlangandan keyingina "
+            "ustoz paneli va shaxsiy guruh kodingiz ochiladi."
         )
 
+        if OWNER_CHAT_ID is not None:
+            keyboard = InlineKeyboardMarkup([[
+                InlineKeyboardButton("✅ Tasdiqlash", callback_data=f"teacher_approval:approve:{chat_id}"),
+                InlineKeyboardButton("❌ Rad etish", callback_data=f"teacher_approval:reject:{chat_id}"),
+            ]])
+            username = f"@{query.from_user.username}" if query.from_user.username else "username yo'q"
+            try:
+                await context.bot.send_message(
+                    chat_id=OWNER_CHAT_ID,
+                    text=(
+                        "🆕 USTOZLIK ARIZASI\n\n"
+                        f"👤 Ism: {query.from_user.full_name}\n"
+                        f"🔗 Telegram: {username}\n"
+                        f"🆔 ID: {chat_id}\n"
+                        "Holat: tekshiruv kutilmoqda."
+                    ),
+                    reply_markup=keyboard,
+                )
+            except Exception:
+                logger.exception("Ustozlik arizasi haqida administratorga xabar yuborilmadi")
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text="⚠️ Ariza saqlandi, ammo administratorga xabar yuborilmadi. Keyinroq qayta urinib ko'ring."
+                )
+        else:
+            logger.error("OWNER_CHAT_ID sozlanmagan: ustozlik arizasi administratorga yuborilmadi")
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text="⚠️ Ariza saqlandi, lekin administrator ID sozlanmagani sababli tekshiruv xabari yuborilmadi."
+            )
+
     elif query.data == "role_student":
-        # Avvaldan ro'yxatdan o'tgan shogird qayta kod kiritmaydi.
         existing_student = students.get(user_id) or {}
         existing_student_code = str(existing_student.get("teacher_code") or "")
-        if existing_student_code in teachers:
+        if (existing_student_code in teachers
+                and _teacher_is_approved(teachers.get(existing_student_code))):
             existing_code = _registered_teacher_code(chat_id, teachers)
             if existing_code:
                 teachers[existing_code]["active_role"] = "student"
@@ -1936,16 +1991,94 @@ async def role_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=student_menu(chat_id),
             )
             return
-        # Bir foydalanuvchi ham ustoz, ham shogird bo'lishi mumkin.
+
+        # Bir foydalanuvchi ham tasdiqlangan ustoz, ham shogird bo'lishi mumkin.
         existing_code = _registered_teacher_code(chat_id, teachers)
-        if existing_code:
+        if existing_code and _teacher_is_approved(teachers.get(existing_code)):
             teachers[existing_code]["active_role"] = "student"
             save_teachers(teachers)
         context.user_data["awaiting_teacher_code"] = True
         await query.edit_message_text(
             "👨‍🎓 Shogird rejimi tanlandi.\n\n"
-            "O'qituvchingiz bergan kodni yuboring (masalan: T_1234):"
+            "Ustozingiz bergan guruh kodini yuboring:"
         )
+
+
+async def teacher_approval_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Ustozlik arizasini faqat bot egasi shaxsiy chatida tasdiqlashi yoki rad etishi mumkin."""
+    query = update.callback_query
+    if not query or not query.message:
+        return
+    actor = getattr(query, "from_user", None)
+    if (not is_bot_owner(query.message.chat_id)
+            or not actor
+            or str(actor.id) != str(OWNER_CHAT_ID)
+            or getattr(query.message.chat, "type", None) != ChatType.PRIVATE):
+        await query.answer("Bu amal faqat administrator uchun.", show_alert=True)
+        return
+
+    parts = (query.data or "").split(":")
+    if len(parts) != 3 or parts[1] not in ("approve", "reject") or not parts[2].isdigit():
+        await query.answer("Ariza ma'lumoti noto'g'ri.", show_alert=True)
+        return
+
+    applicant_id = int(parts[2])
+    teachers = get_teachers()
+    code = _registered_teacher_code(applicant_id, teachers)
+    info = teachers.get(code) if code else None
+    if not info or str(info.get("chat_id")) != str(applicant_id) or info.get("status") != "pending":
+        await query.answer("Ariza topilmadi yoki avval ko'rib chiqilgan.", show_alert=True)
+        try:
+            await query.edit_message_reply_markup(None)
+        except Exception:
+            pass
+        return
+
+    if parts[1] == "approve":
+        info["status"] = "approved"
+        info["active_role"] = "teacher"
+        info["approved_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        info["approved_by"] = str(OWNER_CHAT_ID)
+        save_teachers(teachers)
+        await query.answer("Ustoz tasdiqlandi.")
+        await query.edit_message_text(
+            f"✅ USTOZ TASDIQLANDI\n\n👤 {info.get('name', 'Foydalanuvchi')}\n"
+            f"🆔 {applicant_id}\n🔑 Kod: {code}"
+        )
+        try:
+            await context.bot.send_message(
+                chat_id=applicant_id,
+                text=(
+                    "🎉 Ustozlik arizangiz tasdiqlandi!\n\n"
+                    f"🔑 Shaxsiy guruh kodingiz: {code}\n"
+                    "Bu kodni faqat o'zingizning shogirdlaringizga bering. "
+                    "Ustoz paneli endi ochiq."
+                ),
+                reply_markup=teacher_menu(applicant_id),
+            )
+        except Exception:
+            logger.exception("Tasdiqlangan ustozga xabar yuborilmadi")
+    else:
+        info["status"] = "rejected"
+        info["active_role"] = "student"
+        info["rejected_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        info["rejected_by"] = str(OWNER_CHAT_ID)
+        save_teachers(teachers)
+        await query.answer("Ariza rad etildi.")
+        await query.edit_message_text(
+            f"❌ USTOZLIK ARIZASI RAD ETILDI\n\n👤 {info.get('name', 'Foydalanuvchi')}\n🆔 {applicant_id}"
+        )
+        try:
+            await context.bot.send_message(
+                chat_id=applicant_id,
+                text=(
+                    "Ustozlik arizangiz hozircha tasdiqlanmadi. "
+                    "Qo'shimcha ma'lumot bilan qayta ariza yuborishingiz mumkin."
+                ),
+                reply_markup=student_menu(applicant_id),
+            )
+        except Exception:
+            logger.exception("Rad etilgan ariza haqida foydalanuvchiga xabar yuborilmadi")
 
 
 # ============================================================
@@ -12163,6 +12296,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "❌ Bunday o'qituvchi kodi topilmadi. Kodni tekshirib qayta yuboring:"
             )
             return
+        if not _teacher_is_approved(teachers.get(code)):
+            await update.message.reply_text(
+                "⏳ Bu ustoz hali administrator tomonidan tasdiqlanmagan. "
+                "Tasdiqlangach, guruh kodi ishlaydi."
+            )
+            return
 
         existing = students.get(user_id, {})
         # Bir guruhga qayta kirsa, topshirilgan keys ro'yxatini saqlab qolamiz.
@@ -14353,6 +14492,7 @@ def main():
     app.add_handler(CallbackQueryHandler(gen_callback, pattern=r"^gen:"))
     app.add_handler(CallbackQueryHandler(case_manage_callback, pattern=r"^(cview|cdel|cyes|cno|cmode):"))
     app.add_handler(CallbackQueryHandler(role_callback, pattern=r"^role_"))
+    app.add_handler(CallbackQueryHandler(teacher_approval_callback, pattern=r"^teacher_approval:"))
     app.add_handler(CallbackQueryHandler(submit_callback, pattern=r"^submit$"))
     app.add_handler(CallbackQueryHandler(izoh_callback, pattern=r"^izoh:"))
     app.add_handler(CallbackQueryHandler(penalty_off_callback, pattern=r"^penoff:"))
