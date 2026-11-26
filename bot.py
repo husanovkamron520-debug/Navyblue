@@ -1359,6 +1359,12 @@ def run_health_server():
             try:
                 from urllib.parse import urlparse, parse_qs
                 u = urlparse(self.path)
+                if (u.path == "/museum" or u.path.startswith("/museum/")
+                        or u.path in ("/task", "/cw", "/cwdata")):
+                    self.send_response(404)
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                    return
                 if u.path.startswith("/sc-api/v1/"):
                     self._sc_api_get(u)
                     return
@@ -1406,6 +1412,11 @@ def run_health_server():
             try:
                 from urllib.parse import urlparse
                 u = urlparse(self.path)
+                if u.path.startswith("/museum/"):
+                    self.send_response(404)
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                    return
                 if u.path.startswith("/sc-api/v1/"):
                     self._sc_api_post(u)
                     return
@@ -2129,7 +2140,7 @@ def teacher_menu(chat_id=None):
         return collapsed_menu(chat_id)
     rows = [
         [BTN_SC14],
-        [BTN_SLIDE, BTN_CROSS],
+        [BTN_SLIDE],
         [BTN_REFERAT, BTN_TESTF],
         [BTN_MAQOLA, BTN_TEZIS],
         [BTN_GLOS, BTN_CASEW],
@@ -2149,7 +2160,6 @@ def student_menu(chat_id=None):
         return collapsed_menu(chat_id)
     rows = [
         [BTN_SC14],
-        [BTN_TASK],
         [BTN_START_CASE],
         [BTN_SLIDE, BTN_CROSS],
         [BTN_REFERAT, BTN_TESTF],
@@ -3006,8 +3016,6 @@ async def attachment_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     """Rasm/hujjatni o'qib, mavjud matnli bot oqimiga uzatadi."""
     msg = update.effective_message
     if not msg or not update.effective_chat:
-        return
-    if await museum.on_media(update, context):
         return
     tg_file = None
     filename = ""
@@ -12168,8 +12176,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     if await supply_chain.on_text_handler()(update, context):
         return
-    if await museum.on_text(update, context, text, _is_btn):
-        return
     if text == BTN_REFERAT:
         await _ref_start(update.message, context)
         return
@@ -12219,39 +12225,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.pop("_ppt_cover_wait", None)
         await _ppt_ask_mode(update.message, context)
         return
-    if text == BTN_TASK:
-        # Task faqat yuklangan ombor krossvordi va so'z qidirish topshiriqlarini ochadi.
-        student = get_students().get(str(chat_id)) or {}
-        if not student or not student.get("teacher_code"):
-            await update.message.reply_text("Avval ustoz kodingiz bilan ro'yxatdan o'ting. Natija shunda ustozingizga yuboriladi.")
-            return
-        base = _cw_app_base()
-        if not base:
-            await update.message.reply_text("Task hozircha ochilmadi: Mini App server manzili sozlanmagan.")
-            return
-        now = time.time()
-        for old_token, info in list(TASK_TOKENS.items()):
-            if now - float((info or {}).get("created_at", 0)) > 7200:
-                TASK_TOKENS.pop(old_token, None)
-        token = secrets.token_urlsafe(24)
-        TASK_TOKENS[token] = {"chat_id": int(chat_id), "teacher_code": str(student.get("teacher_code")), "created_at": now}
-        await update.message.reply_text(
-            "📝 Ombor bo'yicha 2 ta topshiriq. Ikkalasini ham bajaring, so'ng pastdagi Web App tugmasini bosing. Natija botga avtomatik yuboriladi.",
-            reply_markup=ReplyKeyboardMarkup(
-                [[KeyboardButton("🧩 Krossvord + 🔎 So'z topish", web_app=WebAppInfo(url=f"{base}/task?t={token}"))],
-                 [KeyboardButton(BTN_MAIN_MENU)]],
-                resize_keyboard=True,
-                one_time_keyboard=False
-            )
-        )
-        return
-    if text == BTN_CROSS:
-        context.user_data.pop("_ref_wait", None)
-        context.user_data.pop("_pxb_wait", None)
-        context.user_data.pop("_ppt_wait", None)
-        context.user_data["_cw_wait"] = time.time()
-        await update.message.reply_text("🧩 Krossvord mavzusini yozing.\nMasalan: Ombor va inventar nazorati")
-        return
     if text in (BTN_VIDEO, BTN_FOTO):
         if not is_bot_owner(update.effective_user.id if update.effective_user else None):
             await update.message.reply_text("⛔ Foto va video qidiruv faqat bot egasi uchun.")
@@ -12289,7 +12262,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data.pop("_ppt_cover_wait", None)
             await _ppt_cover_run(update.message, context, _ppt_cover_parse(text))
             return
-    for _flag in ("_ppt_wait", "_cw_wait"):
+    for _flag in ("_ppt_wait",):
         _wait = context.user_data.get(_flag)
         if not _wait:
             continue
@@ -12324,11 +12297,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["_pxb_prompt"] = px_match.group(2).strip()
         _kind = {"video": "video", "illyustratsiya": "illustration", "vektor": "vector"}.get(_k, "photo")
         await _pxb_send(update.effective_message, context, context.user_data.pop("_pxb_prompt"), _kind, 1)
-        return
-    cw_match = re.match(r"^(?:iltimos\s+)?krossvord\s+(?:yarat|tuz|tayyorla|qil)\s*[:—-]?\s*(.*)$", text, re.I | re.S)
-    if cw_match:
-        context.user_data["_cw_prompt"] = cw_match.group(1).strip()
-        await crossword_command(update, context)
         return
     ppt_match = re.match(r"^(?:iltimos\s+)?(?:taqdimot|prezentatsiya|presentatsiya|slayd)\s+(?:yarat|tayyorla|qil)\s*[:—-]?\s*(.*)$", text, re.I | re.S)
     if ppt_match:
@@ -14681,7 +14649,6 @@ def main():
     app.add_handler(CallbackQueryHandler(pxb_callback, pattern=r"^pxb:"))
     app.add_handler(CommandHandler(["taqdimot", "prezentatsiya", "ppt"], presentation_command))
     app.add_handler(CallbackQueryHandler(ppt_callback, pattern=r"^ppt:"))
-    app.add_handler(CommandHandler(["krossvord", "crossword"], crossword_command))
     app.add_handler(CommandHandler(["referat"], referat_command))
     app.add_handler(CommandHandler(["maqola", "article"], lambda u, c: _paper_start(u.effective_message, c, "maqola", " ".join(c.args or []))))
     app.add_handler(CommandHandler(["tezis"], lambda u, c: _paper_start(u.effective_message, c, "tezis", " ".join(c.args or []))))
@@ -14690,12 +14657,9 @@ def main():
     app.add_handler(CallbackQueryHandler(dg_callback, pattern=r"^dg:"))
     app.add_handler(CallbackQueryHandler(zip_callback, pattern=r"^z:"))
     _install_document_hook()
-    museum.install(app)
     app.add_handler(CallbackQueryHandler(ref_callback, pattern=r"^ref:"))
-    app.add_handler(CallbackQueryHandler(cw_callback, pattern=r"^cw:"))
     app.add_handler(MessageHandler(filters.ChatType.PRIVATE & (filters.VOICE | filters.AUDIO), voice_handler))
     app.add_handler(MessageHandler(filters.ChatType.PRIVATE & (filters.PHOTO | filters.Document.ALL | filters.VIDEO), attachment_handler))
-    app.add_handler(MessageHandler(filters.StatusUpdate.WEB_APP_DATA, puzzle_webapp_data))
     app.add_handler(MessageHandler(filters.ChatType.PRIVATE & filters.TEXT & ~filters.COMMAND, handle_message))
 
     logger.info("Bot ishga tushmoqda...")
