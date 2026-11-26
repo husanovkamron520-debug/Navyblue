@@ -565,7 +565,8 @@
       }
     }finally{
       button.textContent="Importni tasdiqlash";
-      button.disabled=!importRows.length;
+      const hasErrors=Number($("excel-errors").textContent.replace(/\D/g,""))>0;
+      button.disabled=!importRows.length||importVersion==null||!$("excel-confirm-check").checked||hasErrors;
     }
   }
   function setupExcelMappings(headers){
