@@ -271,3 +271,10 @@ Phase 6 — Hardening and rollout:
 - Reports view now offers both CSV and XLSX downloads for inventory, purchase orders and shipments.
 - XLSX files are generated in the browser using the same version-pinned SheetJS library; report data is still read from authenticated, read-only API endpoints.
 - No report export writes back to the server or changes inventory.
+
+
+### Inventory detail drill-down progress (2026-11-26)
+- Inventory rows and mobile product cards can now open a product detail panel.
+- The panel reads the existing authenticated `GET /sc-api/v1/inventory/{sku}` endpoint and displays allow-listed product metrics, up to 20 recent movements and up to 12 demand-history rows.
+- The detail view is read-only and uses text-only DOM rendering for stored values. It does not create movements or update stock.
+- Keyboard activation and a close control are included for accessibility.
