@@ -148,11 +148,18 @@ class SerializedCommitAdapter:
                 acknowledged = self._persist_snapshot(candidate, current_version, new_version)
             except VersionConflict:
                 raise
-            except Exception as exc:
-                # A timeout may happen after the database committed. Never retry
-                # with a new ID; reload and retry the exact same operation ID.
+            except PersistenceError:
+                # The persistence layer has already classified known/ambiguous outcomes.
+                raise
+            except (TimeoutError, OSError, ConnectionError) as exc:
+                # Transport failures may happen after the database committed.
                 raise CommitOutcomeUnknown(
                     "storage outcome is unknown; retry with the same operation_id"
+                ) from exc
+            except Exception as exc:
+                # Serialization/programming errors are not evidence of a network commit.
+                raise PersistenceError(
+                    "storage adapter failed before commit acknowledgement"
                 ) from exc
             if acknowledged is not True:
                 raise PersistenceError("storage did not acknowledge durable commit")
@@ -176,6 +183,8 @@ class SnapshotWriteQueue:
         self._condition = threading.Condition(threading.RLock())
         self._pending: dict[str, dict] = {}
         self._inflight: set[str] = set()
+        self._failures: dict[str, int] = {}
+        self._retry_after: dict[str, float] = {}
 
     def enqueue(self, key: str, snapshot: dict) -> None:
         if not isinstance(key, str) or not key:
@@ -184,24 +193,48 @@ class SnapshotWriteQueue:
             raise TypeError("snapshot must be a dictionary")
         with self._condition:
             self._pending[key] = copy.deepcopy(snapshot)
+            if key not in self._inflight:
+                self._retry_after.pop(key, None)
             self._condition.notify_all()
 
     def take(self) -> tuple[str, dict]:
-        """Wait until a snapshot is available and mark its key in-flight."""
+        """Wait for a key that is neither in-flight nor in retry backoff."""
         with self._condition:
-            while not self._pending:
-                self._condition.wait()
-            key = next(iter(self._pending))
-            snapshot = self._pending.pop(key)
-            self._inflight.add(key)
-            return key, snapshot
+            while True:
+                now = time.monotonic()
+                available = [
+                    key for key in self._pending
+                    if key not in self._inflight and self._retry_after.get(key, 0.0) <= now
+                ]
+                if available:
+                    key = available[0]
+                    snapshot = self._pending.pop(key)
+                    self._inflight.add(key)
+                    return key, snapshot
+                delays = [
+                    self._retry_after.get(key, 0.0) - now
+                    for key in self._pending if key not in self._inflight
+                ]
+                timeout = max(0.01, min(delays)) if delays else None
+                self._condition.wait(timeout=timeout)
 
     def finish(self, key: str, snapshot: dict, *, saved: bool) -> None:
-        """Complete a write; on failure requeue only if no newer snapshot exists."""
+        """Complete a write; preserve newer snapshots and back off failed retries."""
         with self._condition:
             self._inflight.discard(key)
-            if not saved and key not in self._pending:
+            if saved:
+                self._failures.pop(key, None)
+                self._retry_after.pop(key, None)
+            elif key not in self._pending:
                 self._pending[key] = copy.deepcopy(snapshot)
+                failures = self._failures.get(key, 0) + 1
+                self._failures[key] = failures
+                delay = min(60.0, 0.5 * (2 ** min(failures - 1, 7)))
+                self._retry_after[key] = time.monotonic() + delay
+            else:
+                # A newer snapshot supersedes the failed in-flight snapshot.
+                self._failures.pop(key, None)
+                self._retry_after.pop(key, None)
             self._condition.notify_all()
 
     def wait_empty(self, timeout: float = 15.0) -> bool:
@@ -272,8 +305,14 @@ class JsonbCompareAndSwap:
             try:
                 if self._patch_snapshot(copy.deepcopy(candidate), expected_version) is True:
                     return True
-            except Exception as exc:
+            except PersistenceError:
+                raise
+            except (TimeoutError, OSError, ConnectionError) as exc:
                 last_error = exc
+            except Exception as exc:
+                raise PersistenceError(
+                    "conditional storage update failed before a transport outcome was established"
+                ) from exc
 
             try:
                 latest = self._load_snapshot()
