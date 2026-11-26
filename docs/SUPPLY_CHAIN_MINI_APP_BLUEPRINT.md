@@ -282,5 +282,5 @@ Phase 6 — Hardening and rollout:
 
 ### Print-ready PDF reports progress (2026-11-26)
 - Inventory, purchase-order and shipment reports now have a print/PDF action alongside CSV and XLSX exports.
-- The app builds a print-only table from the authenticated read-only APIs and opens the device/browser print dialog; users can choose Save as PDF.
+- The app builds a print-only table from the authenticated read-only APIs and opens the device/browser print dialog; users can choose Save as PDF. Print output is capped at 5,000 rows to avoid excessive mobile memory use.
 - No PDF service, server upload or inventory mutation is involved. Availability of Save as PDF depends on the browser or device print support, especially inside Telegram WebView.
