@@ -263,11 +263,11 @@
     for(let p=2;p<=pages;p++){const next=await api(path+(path.includes("?")?"&":"?")+"page="+p+"&page_size=100");items.push(...(next.items||[]));}
     return items;
   }
-  function csvCell(value){const s=value==null?"":String(value);return '"' + s.replace(/"/g,'""') + '"';}
+  function csvCell(value){let s=value==null?"":String(value);if(/^[\\s]*[=+@-]/.test(s))s="\'"+s;return '"' + s.replace(/"/g,'""') + '"';}
   function downloadCSV(filename,headers,rows){
     const csv=String.fromCharCode(65279)+[headers,...rows].map(row=>row.map(csvCell).join(",")).join(String.fromCharCode(13,10));
     const url=URL.createObjectURL(new Blob([csv],{type:"text/csv;charset=utf-8"}));
-    const link=document.createElement("a");link.href=url;link.download=filename;document.body.append(link);link.click();link.remove();URL.revokeObjectURL(url);
+    const link=document.createElement("a");link.href=url;link.download=filename;document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
     $("report-status").textContent=filename+" · "+fmt(rows.length)+" qator eksport qilindi.";
   }
   async function exportReport(kind){
