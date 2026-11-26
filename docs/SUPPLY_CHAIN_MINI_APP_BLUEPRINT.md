@@ -249,3 +249,10 @@ Phase 6 — Hardening and rollout:
 - Validates required fields, non-negative numeric values, duplicate SKUs, file size (5 MB) and row count (10,000); shows a 20-row preview and validation summary.
 - This is analysis-only: no file is uploaded to the server, no inventory data is changed, and no import/apply endpoint exists.
 - Direct .xlsx parsing, server-side validation, persistent import history, and an explicitly confirmed durable apply flow remain future work. Do not implement inventory writes until persistence acknowledgement and operation-level locking are designed and tested.
+
+
+### Reports & export progress (2026-11-26)
+- Added a Reports view with inventory, purchase-order, and shipment CSV exports.
+- Exports read all available API pages (100 rows per page) and generate UTF-8 BOM CSV files in the browser for spreadsheet compatibility.
+- Export endpoints are read-only; no import, update, or inventory mutation is performed.
+- Browser-side Excel parsing remains CSV-only in this phase; direct XLSX parsing and end-to-end browser runtime validation remain outstanding.
