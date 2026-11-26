@@ -263,7 +263,7 @@
     for(let p=2;p<=pages;p++){const next=await api(path+(path.includes("?")?"&":"?")+"page="+p+"&page_size=100");items.push(...(next.items||[]));}
     return items;
   }
-  function csvCell(value){let s=value==null?"":String(value);if(/^[\\s]*[=+@-]/.test(s))s="\'"+s;return '"' + s.replace(/"/g,'""') + '"';}
+  function csvCell(value){let s=value==null?"":String(value);const first=s.trimStart()[0];if(["=","+","@","-"].includes(first))s="\'"+s;return '"' + s.replace(/"/g,'""') + '"';}
   function downloadCSV(filename,headers,rows){
     const csv=String.fromCharCode(65279)+[headers,...rows].map(row=>row.map(csvCell).join(",")).join(String.fromCharCode(13,10));
     const url=URL.createObjectURL(new Blob([csv],{type:"text/csv;charset=utf-8"}));
