@@ -217,6 +217,8 @@ class MiniAppBrowserTests(unittest.TestCase):
         self.assertEqual(len(self.import_payload["rows"]), 2)
         self.assertEqual(self.import_payload["rows"][0]["sku"], "SKU-100")
         self.assertEqual(self.import_payload["rows"][0]["unit_cost"], 12)
+        self.assertEqual(self.import_payload["source_name"], "inventory.csv")
+        self.assertEqual(self.import_payload["source_sheet"], "")
         self.assertTrue(any(method == "POST" and path == "/sc-api/v1/inventory/import"
                             for method, path, _query, _auth in self.api_calls))
 
