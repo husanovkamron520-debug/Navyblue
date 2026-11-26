@@ -84,10 +84,10 @@
       <div class="card" style="margin-top:12px"><div class="chart-title">Yetkazib beruvchilar</div><div id="suppliers-list" class="alert-list"></div></div>
     </section>
     <section id="excel-view" hidden>
-      <div class="section-head"><div><h2>Excel Workspace</h2><p>Faylni tekshirish va tahlil qilish — ombor ma’lumotlari o‘zgarmaydi</p></div><button class="retry" id="excel-reset">Tozalash</button></div>
+      <div class="section-head"><div><h2>Excel Workspace</h2><p>Faylni tekshirish, farqlarni ko‘rish va tasdiqlangan import</p></div><button class="retry" id="excel-reset">Tozalash</button></div>
       <div class="card">
         <div class="chart-title">1. Excel yoki CSV faylni yuklang</div>
-        <div class="chart-sub">Excel’dan CSV UTF-8 formatida saqlab yuklang. CSV UTF-8 va Excel .xlsx fayllar brauzerda tahlil qilinadi; serverga yuborilmaydi.</div>
+        <div class="chart-sub">CSV UTF-8 va Excel .xlsx fayllar brauzerda tekshiriladi. Saqlash faqat alohida tasdiqdan keyin bajariladi.</div>
         <div class="toolbar" style="margin-top:14px"><input id="excel-file" type="file" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"></div>
         <div id="excel-file-info" class="muted" style="font-size:12px">Maksimal hajm: 5 MB · Maksimal qator: 10 000</div>
         <label class="kpi-label" id="excel-sheet-wrap" hidden style="display:block;margin-top:12px">Ish varag‘i<select id="excel-sheet" style="display:block;width:100%;margin-top:5px" disabled></select></label>
@@ -139,7 +139,7 @@
     </section>
     <div class="notice" id="notice" hidden><strong id="notice-title">Telegram orqali oching</strong><span id="notice-text">Mini App bot ichida ishlaydi.</span><div style="margin-top:12px"><button class="retry" id="retry" hidden>Qayta urinish</button></div></div>
   </main>
-  <div class="footer">Navyblue Supply Chain · Read-only preview</div>
+  <div class="footer">Navyblue Supply Chain · Owner Mini App</div>
 </div>
 <section id="print-area" hidden aria-hidden="true"><h1 id="print-title">Supply Chain report</h1><div class="print-meta" id="print-meta"></div><table><thead id="print-head"></thead><tbody id="print-body"></tbody></table></section>
 <script>
