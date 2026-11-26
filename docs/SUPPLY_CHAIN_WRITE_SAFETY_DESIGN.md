@@ -17,7 +17,7 @@ Observed behavior in `bot.py`:
 
 **Important consequence:** `save_json() == True` means the cache was updated and a write was queued. It does not prove that Supabase durably stored the new value. The Mini App must not report a successful inventory mutation based on this return value.
 
-The current read API is deliberately read-only. Keep it that way until the requirements below are implemented and tested.
+The Mini App read endpoints remain read-only. The isolated branch additionally exposes one narrowly scoped, owner-authenticated Excel inventory-import POST route; other Mini App business mutations remain deferred.
 
 
 ## 1.1 Additional persistence findings from code review
@@ -81,16 +81,18 @@ Before implementing the protocol, refactor storage behind one writer/commit adap
 A process-local lock is sufficient only while the service is guaranteed to run as a single writer. If multiple Render instances or processes may write the same storage key, a process-local lock is insufficient. Before horizontal scaling, use a database-side transaction/compare-and-swap or a dedicated transactional RPC. That may require a schema or database-function change and must be separately reviewed and explicitly approved.
 
 
-## 3.1 Isolated adapter prototype (not wired into the bot)
+## 3.1 Acknowledged commit adapter (wired on the isolated branch)
 
-Two new files provide an executable prototype without changing the current bot storage path:
+The branch implements the acknowledged commit path without changing the Supabase schema:
 
 - `supply_chain_persistence.py` — `SerializedCommitAdapter` serializes the complete load/version-check/mutate/persist operation within one process. It creates a new document revision, stores bounded audit and idempotency records in the candidate document, and returns success only when the persistence callback returns an explicit `True`.
 - `tests/test_supply_chain_persistence.py` — focused tests for acknowledged commits, persistence failure, idempotent replay, mismatched idempotency reuse, stale preview versions, concurrent same-version requests and missing acknowledgements.
 
-The adapter intentionally requires an injected `persist_snapshot(candidate, expected_version, new_version)` callback. That callback is a strict contract, not an implementation of Supabase persistence: it must atomically compare the stored revision and commit the entire candidate document. An exception is treated as an unknown outcome; callers must retry with the same operation ID. The prototype currently bounds idempotency records by count (default 1,000), not by elapsed time, and does not yet define a durable tombstone strategy after eviction. Therefore the proposed 30-day retry guarantee in section 4 is a target policy, not a guarantee provided by this prototype. Before production, choose and test a retention policy that prevents an old client retry from being mistaken for a new operation after its record is evicted.
+The adapter requires an injected `persist_snapshot(candidate, expected_version, new_version)` callback. In `bot.py`, that callback is backed by `JsonbCompareAndSwap` and a conditional PostgREST PATCH against `bot_storage`, filtered by `storage_key` and the embedded JSONB `version`. It returns success only after the returned representation confirms the new version, or after a reload proves that the exact idempotency record was committed. An ambiguous outcome is retried with the same operation ID and never reported as success without verification.
 
-**Limitations:** the adapter is not imported by `bot.py`, is not exposed through HTTP, and cannot yet be used for inventory changes. Its lock coordinates only threads in one Python process. The current Supabase REST upsert does not satisfy the required atomic compare-and-swap contract, so no production storage callback is supplied. The prototype's tests must pass in CI before it can be considered validated.
+Idempotency records and audit entries are bounded by count (default 1,000); they are not retained for a guaranteed 30-day period. After eviction, an old retry may no longer be recognized. Production policy must either increase/define retention and/or use a durable operation ledger before offering a long retry guarantee.
+
+**Limitations:** the lock and storage-save lock coordinate one Python process only. The conditional PATCH has fake-store/unit coverage but has not yet been tested against a disposable staging row/project. Any other process or legacy writer using blind upsert for the same key can bypass CAS. Those are release blockers, not completed validations.
 
 
 
@@ -111,7 +113,7 @@ The current branch now routes ordinary `save_json` snapshots through `SnapshotWr
 - `flush_storage(timeout)` no longer steals pending items and writes them concurrently. It waits, with a real timeout, for both pending and in-flight work to drain.
 - The queue has focused unit tests for newer-snapshot precedence, in-flight flush waiting, defensive snapshot copies, and retry requeue.
 
-This removes the known same-process writer/flush race and a cache/queue ordering race. It does **not** make the REST upsert transactional, provide a durable per-operation acknowledgement, protect against another bot process or an independent writer, or resolve a process crash between cache publication and database persistence. `save_json` still means accepted into the in-memory cache/queue, not durably committed. The Mini App therefore remains read-only and the new acknowledged-commit adapter remains unconnected until database-side CAS and a single-writer policy are proven.
+This removes the known same-process writer/flush race for ordinary datasets. It does **not** make generic REST upserts transactional or protect against another bot process or independent writer. The `supply_chain_data` key is special-cased and never enters this generic queue: its `save_json` path uses the acknowledged CAS adapter synchronously, publishing cache state only after commit acknowledgement. This remains a single-process policy and must be validated against staging before production.
 
 
 ## 3.2 Branch implementation: JSONB compare-and-swap without schema changes
@@ -127,7 +129,7 @@ Integration on the isolated branch:
 - Version conflicts are surfaced without overwriting newer data. Ambiguous outcomes warn the user not to repeat the action until the inventory state is checked.
 - Other bot datasets continue using the latest-snapshot queue described below.
 
-This implementation is covered by fake-store/unit tests only. **No live PATCH was sent to Supabase**, and no schema, row or production state was changed. Before any production deployment, the exact PostgREST query encoding, service-role response shape, conflict handling and concurrent-client behavior must be validated against a disposable staging row/project. Any separate process still using a blind upsert for the same storage key can bypass this CAS, so all writers must be upgraded or disabled before enabling writes. The Mini App itself remains read-only until its write routes are separately reviewed and tested.
+This implementation is covered by fake-store/unit tests only. **No live PATCH was sent to Supabase**, and no schema, row or production state was changed. Before any production deployment, the exact PostgREST query encoding, service-role response shape, conflict handling and concurrent-client behavior must be validated against a disposable staging row/project. Any separate process still using a blind upsert for the same storage key can bypass this CAS, so all writers must be upgraded or disabled before enabling writes. The Mini App has one scoped write route for explicitly confirmed Excel inventory imports; receipts, manual movements, purchase-order transitions and shipment transitions remain read-only/deferred.
 
 ## 3.3 Read-only Supabase storage inspection (2026-11-26)
 
@@ -177,9 +179,7 @@ Requirements:
 
 ## 5. Excel import/apply contract
 
-The current browser-side CSV/XLSX workflow remains **local preview only**. It does not upload files or modify inventory.
-
-Future apply should follow this sequence:
+The browser-side CSV/XLSX preview remains local and read-only. It fetches the current inventory/version for the before/after diff but does not upload workbook bytes or mutate inventory. The implemented apply route follows this sequence:
 
 1. Parse the workbook locally and show the selected worksheet and mapped columns.
 2. Send a bounded, normalized preview payload — not an opaque workbook — to the server.
@@ -233,9 +233,9 @@ Never return a success-shaped response while the write is merely queued.
 
 - No Supabase schema changes.
 - No new database tables or RPC functions.
-- No Mini App write endpoints.
+- No additional Mini App write endpoints beyond the confirmed Excel inventory-import route.
 - No change to `save_json()` behavior for existing bot modules.
-- No inventory mutation from Excel preview.
+- No inventory mutation during Excel preview; only explicit confirmed apply may mutate inventory.
 - No automatic purchase order or stock adjustment.
 - No merge to `main` and no Render deployment.
 
