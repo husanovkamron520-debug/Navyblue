@@ -115,13 +115,13 @@ All routes require a validated Telegram Web App session and owner authorization,
 - `GET /sc-api/v1/bootstrap` — supported sections and metric definitions.
 - `GET /sc-api/v1/dashboard` — product, inventory value, low-stock, open-order and active-shipment KPIs.
 - `GET /sc-api/v1/inventory?search=&status=&sort=&page=&page_size=` — paginated, allow-listed product rows.
+- `GET /sc-api/v1/inventory/{sku}` — allow-listed product detail, up to 20 recent movements and up to 12 demand-history rows; read-only.
 - Authenticated responses set `Cache-Control: no-store`; JSON responses set `X-Content-Type-Options: nosniff`. No permissive CORS is configured.
 - Session credentials are in-memory, expire after 30 minutes and are cleared automatically on process restart.
 - The current session rate limiter is process-local and global to the app instance; it is a basic abuse-control layer, not a distributed limiter or a substitute for edge/network controls.
 - The current frontend is a read-only preview: it authenticates with Telegram `initData`, renders dashboard KPIs and stock status, and provides searchable/filterable/paginated inventory. No browser-side mutation is implemented.
 
 ### Planned read-only endpoints
-- `GET /sc-api/v1/inventory/{sku}` — product detail, movement history, demand history, supplier links and replenishment inputs.
 - `GET /sc-api/v1/analytics/demand?sku=&months=&horizon=` — actual and forecast points plus method/coverage metadata.
 - `GET /sc-api/v1/analytics/abc` — ranked product contribution, cumulative percentage and class.
 - `GET /sc-api/v1/analytics/eoq` — EOQ inputs, outputs, assumption flags and sorted rows.
