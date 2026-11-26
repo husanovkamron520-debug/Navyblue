@@ -190,11 +190,7 @@ The browser-side CSV/XLSX preview remains local and read-only. It fetches the cu
 7. Server revalidates and commits the entire import atomically. If any required row fails, default behavior is **all-or-nothing**; partial import must not happen silently.
 8. Return the committed version and a row-level result report.
 
-Import modes must be explicit. Recommended initial modes:
-
-- **Analysis only:** never changes stored data.
-- **Create missing products:** creates only new SKUs; existing records remain unchanged.
-- **Update selected fields:** user explicitly chooses which existing fields may be updated; movement history and unrelated metadata are preserved.
+Current behavior is one explicit **create-or-update** mode: missing SKUs are created; matching SKUs update the name and quantity, plus unit/cost/reorder point only when those optional columns are mapped. Omitted optional fields are preserved. Rows with no field changes are counted as unchanged; quantity changes append a stock-adjustment movement. The preview is analysis-only until the user confirms apply. Separate create-only and selected-field modes are not currently exposed.
 
 Do not offer a full-dataset replacement mode until backup, restore, audit and conflict handling are proven.
 
