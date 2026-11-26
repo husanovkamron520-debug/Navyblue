@@ -1750,7 +1750,8 @@ async def _magic_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> boo
     import copy
     try:
         data = _data()
-        sku, product = _magic_resolve_product(data, raw)
+        product, _hits = _need_product(data, raw)
+        sku = str(product.get("sku") or next((k for k, v in data["products"].items() if v is product), ""))
         input_unit, _rest = _take_unit(raw)
         product_unit = str(product.get("unit") or "dona")
         if input_unit:
