@@ -445,6 +445,7 @@
       api("/sc-api/v1/analytics/eoq"),api("/sc-api/v1/analytics/replenishment")
     ]);
     analyticsState.abc=abc;analyticsState.replenishment=replenishment;
+    window.dispatchEvent(new CustomEvent("sc-demand-analytics",{detail:demand}));
     renderStockChart(replenishment.items||[]);
     renderAbcVisual(abc);renderAbcBars(abc.items||[]);
     renderCapital(replenishment.items||[]);
