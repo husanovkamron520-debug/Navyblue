@@ -2076,12 +2076,14 @@ async def show_teacher_applications(update: Update, context: ContextTypes.DEFAUL
         if not applicant_id:
             continue
         username = str(info.get("username") or "").strip().lstrip("@")
+        applicant_name = str(info.get("name") or "Noma’lum")
+        telegram_label = "@" + username if username else "username yo'q"
         details = str(info.get("application_details") or "").strip()
         lines = [
             "🆕 USTOZLIK ARIZASI",
             "",
-            f"👤 Ism: {info.get('name') or 'Noma’lum'}",
-            f"🔗 Telegram: @{username}" if username else "🔗 Telegram: username yo'q",
+            f"👤 Ism: {applicant_name}",
+            f"🔗 Telegram: {telegram_label}",
             f"🆔 ID: {applicant_id}",
             "",
             "📚 Ariza ma'lumotlari:",
