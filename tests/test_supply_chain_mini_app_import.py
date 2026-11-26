@@ -74,6 +74,13 @@ class MiniAppImportValidationTests(unittest.TestCase):
         with self.assertRaises(importer.ImportValidationError):
             importer.normalize_payload(payload(rows))
 
+    def test_source_filename_is_sanitized_and_part_of_request_hash(self):
+        body = payload(source_name="../../inventory.csv", source_sheet="Main")
+        normalized = importer.normalize_payload(body)
+        self.assertEqual(normalized[4], "inventory.csv")
+        self.assertEqual(normalized[5], "Main")
+        self.assertEqual(len(normalized[3]), 64)
+
     def test_rejects_malformed_operation_id_and_version(self):
         with self.assertRaises(importer.ImportValidationError):
             importer.normalize_payload(payload(operation_id="bad op"))
@@ -98,6 +105,15 @@ class MiniAppImportCommitTests(unittest.TestCase):
         self.assertEqual(len(saved["movements"]), 2)
         self.assertEqual(saved["movements"][0]["type"], "in")
         self.assertEqual(saved["movements"][1]["type"], "in")
+
+    def test_import_history_records_source_file_and_sheet(self):
+        body = payload(source_name="inventory.xlsx", source_sheet="Warehouse")
+        importer.commit_inventory_import(self.adapter, body)
+        history = self.store.load()["import_history"]
+        self.assertEqual(len(history), 1)
+        self.assertEqual(history[0]["file_name"], "inventory.xlsx")
+        self.assertEqual(history[0]["sheet"], "Warehouse")
+        self.assertEqual(history[0]["processed"], 2)
 
     def test_optional_fields_are_preserved_when_not_in_file(self):
         rows = [{"sku": "SKU-1", "name": "Cotton", "quantity": 5}]
