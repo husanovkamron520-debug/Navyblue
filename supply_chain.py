@@ -1321,7 +1321,8 @@ def _ask_gemini_sync(client: Any, model: str, question: str, snapshot: dict[str,
         "Har qanday xarid yoki boshqa o‘zgarish uchun egadan alohida tasdiq talab qilinishini eslat.\n"
         "Odatiy javob 4–5 qisqa qatordan oshmasin: avval xulosa, keyin 1–2 dalil va bitta amaliy keyingi qadam. "
         "Faqat foydalanuvchi batafsil tahlil so‘rasa, kengroq tushuntir. "
-        "Mijozga API, JSON, callback, deploy, database kabi dasturchilik atamalarini ko‘rsatma; oddiy biznes tilida gapir. "
+        "Texnik atamalar, JSON, ichki maydon nomlari va koddagi o‘zgaruvchilarni hech qachon tilga olma; oddiy biznes tilida gapir. "
+        "Xulosa, dalillar va keyingi qadam orasida bitta bo‘sh qator qoldir; ro‘yxatlarni • bilan yoz. "
         "Javobni keraksiz sarlavha va uzun kirish bilan cho‘zma.\n\n"
         f"EGANING SAVOLI:\n{question[:2000]}\n\n"
         f"SUPPLY CHAIN MA’LUMOTLARI (to‘liq JSON):\n{payload}"
@@ -1341,9 +1342,12 @@ def _ask_gemini_quick_sync(client: Any, model: str, question: str, snapshot: dic
         raise RuntimeError("Ombor ma’lumotlari juda katta; chuqur tahlilni bo‘limlarga ajratish kerak.")
     prompt = (
         "Sen korxona rahbarining Supply Chain bo‘yicha qisqa va aniq yordamchisisan. "
-        "Faqat o‘zbek tilida, ko‘pi bilan 5 ta qisqa qatorda javob ber. "
-        "Birinchi qatorda eng muhim xulosa, keyin faqat zarur dalil va bitta amaliy keyingi qadamni yoz. "
-        "Faqat berilgan JSON va undagi oldindan hisoblangan metrikalardan foydalan. "
+        "Faqat o‘zbek tilida, ixcham va tabiiy gapir. Xulosa, dalillar va keyingi qadamni alohida bloklarda ber; "
+        "bloklar orasida bitta bo‘sh qator qoldir. Mahsulotlar ro‘yxatida har bir mahsulotni yangi qatorda • belgisi bilan yoz. "
+        "Odatda 5–8 qisqa qator yetarli; foydalanuvchi batafsil so‘ramasa uzun izoh yozma. "
+        "Texnik atamalar, JSON, ichki maydon nomlari, koddagi o‘zgaruvchilar va tizim arxitekturasini hech qachon tilga olma. "
+        "computed_reports.abc yoki shunga o‘xshash ichki nomlarni foydalanuvchiga ko‘rsatma; oddiy biznes tilida izohla. "
+        "Faqat berilgan ma’lumot va undagi oldindan hisoblangan metrikalardan foydalan. "
         "Raqamlarni qayta hisoblab o‘zgartirma, mavjud bo‘lmagan ma’lumotni to‘qima. "
         "Ma’lumot yetishmasa, buni ochiq ayt va qaysi ma’lumot kerakligini ko‘rsat. "
         "Zaxira, yetkazish muddati yoki talab bo‘yicha dalil bo‘lmasa, mahsulotni xavfli deb e’lon qilma. "
@@ -1358,8 +1362,97 @@ def _ask_gemini_quick_sync(client: Any, model: str, question: str, snapshot: dic
     answer = getattr(response, "text", None)
     if not answer or not str(answer).strip():
         raise RuntimeError("AI javobi bo‘sh qaytdi. Birozdan keyin qayta urinib ko‘ring.")
-    lines = [line.strip() for line in str(answer).strip().splitlines() if line.strip()]
-    return "\n".join(lines[:6])
+    return _format_ai_customer_answer(str(answer))
+
+
+def _format_ai_customer_answer(answer: str) -> str:
+    """Keep AI output readable and hide internal implementation vocabulary."""
+    import re
+    text = str(answer or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+    technical = re.compile(
+        r"(?i)(json|computed_reports|computed_metrics|inventory_summary|kpi_availability|"
+        r"risk_assessment|callback|api|database|deploy|backend|field|schema|sku\s*[:=])"
+    )
+    cleaned = []
+    for raw in text.split("\n"):
+        line = raw.strip()
+        if not line:
+            if cleaned and cleaned[-1] != "":
+                cleaned.append("")
+            continue
+        if technical.search(line):
+            # Never expose internal field names or code vocabulary to a business user.
+            cleaned.append("Hisobotdagi mavjud ma’lumotlar asosida.")
+            continue
+        if line.startswith(("-", "*")):
+            line = "• " + line.lstrip("-* ").strip()
+        cleaned.append(line)
+    # Keep one blank line between thought blocks, without blank lines inside bullet lists.
+    out = []
+    for i, line in enumerate(cleaned):
+        if line == "":
+            if out and out[-1] != "":
+                out.append("")
+            continue
+        if out and out[-1] != "" and re.match(r"^(💡|Dalillar:|Keyingi qadam:|Xulosa:)", line, re.I):
+            out.append("")
+        out.append(line)
+    return "\n".join(out).strip()
+
+
+def _ai_draft_candidates(data: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return low-stock products with evidence-backed or minimum-gap draft quantities."""
+    metrics = {str(x.get("sku")): x for x in _computed_metrics(data)}
+    candidates = []
+    for sku, product in data.get("products", {}).items():
+        if not isinstance(product, dict):
+            continue
+        stock = _safe_num(product.get("quantity"))
+        minimum = _safe_num(product.get("reorder_point"))
+        if product.get("quantity") is None or product.get("reorder_point") is None or stock > minimum:
+            continue
+        metric = metrics.get(str(sku), {})
+        if metric.get("forecast_status") == "available":
+            qty = _safe_num(metric.get("recommended_purchase_quantity"))
+        else:
+            qty = max(0.0, minimum - stock)
+        if qty <= 0:
+            continue
+        candidates.append({
+            "sku": str(sku), "name": str(product.get("name", sku)),
+            "quantity": qty, "unit": str(product.get("unit", "dona")),
+        })
+    return candidates
+
+
+def _create_ai_draft_orders(data: dict[str, Any], candidates: list[dict[str, Any]]) -> list[str]:
+    """Create drafts only after an explicit button press; never submit them to suppliers."""
+    suppliers = data.get("suppliers", {})
+    if len(suppliers) != 1:
+        raise ValueError("Buyurtma qoralamasini tayyorlash uchun bitta asosiy yetkazib beruvchini tanlash kerak.")
+    supplier = next(iter(suppliers.values()))
+    if not isinstance(supplier, dict) or not supplier.get("id"):
+        raise ValueError("Yetkazib beruvchi ma’lumoti to‘liq emas.")
+    lead_days = max(0, int(_safe_num(supplier.get("lead_time_days"))))
+    expected = (date.today() + timedelta(days=lead_days)).isoformat()
+    prepared = []
+    for item in candidates:
+        product = data.get("products", {}).get(item["sku"])
+        if not product:
+            raise ValueError(f"{item['name']}: mahsulot topilmadi.")
+        price = _safe_num(product.get("unit_cost"))
+        if price <= 0:
+            raise ValueError(f"{item['name']}: xarid narxi kiritilmagan. Avval mahsulot narxini to‘ldiring.")
+        prepared.append({
+            "id": "PO-" + uuid.uuid4().hex[:8].upper(),
+            "sku": item["sku"], "supplier_id": supplier["id"],
+            "quantity": item["quantity"], "unit_price": price,
+            "expected_date": expected, "status": "draft", "created_at": _now(),
+        })
+    if not prepared:
+        raise ValueError("Qoralama yaratish uchun mos mahsulot topilmadi.")
+    data.setdefault("orders", []).extend(prepared)
+    return [str(order["id"]) for order in prepared]
 
 
 def _dashboard_text(data: dict[str, Any]) -> str:
@@ -2007,6 +2100,7 @@ async def _callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             await _edit(q, "🤖 **AI maslahatchi**\n\nHozircha yordamchi ulanmagan. Boshqa ombor funksiyalari ishlayveradi.", _back_keyboard("home"))
         else:
             context.user_data.pop("_sc_wait", None)
+            context.user_data.pop("_sc_ai_draft_candidates", None)
             await _edit(q, "🤖 **AI MASLAHATCHI**\n\nQaysi masalada yordam kerak?", _ai_quick_keyboard())
     elif action == "ai_custom":
         if _AI_CLIENT is None:
@@ -2014,6 +2108,32 @@ async def _callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         else:
             context.user_data["_sc_wait"] = {"action": "ai_ask", "started": datetime.now().timestamp(), "parent": "home"}
             await _edit(q, "Savolingizni shu yerga yozing. Qisqa va aniq javob beraman.", _back_keyboard("ai"))
+    elif action == "aiq_draft":
+        candidates = context.user_data.pop("_sc_ai_draft_candidates", [])
+        if not candidates:
+            await _edit(q, "Qoralama yaratish uchun mahsulotlar ro‘yxati eskirgan. Tahlilni qayta oching.",
+                        InlineKeyboardMarkup([[_btn("↩️ Boshqa savol", "ai")], [_btn("⬅️ Menyu", "home")]]))
+        else:
+            try:
+                current = _data()
+                # Revalidate quantities and product existence against the latest inventory before writing.
+                fresh = {x["sku"]: x for x in _ai_draft_candidates(current)}
+                valid = [fresh[x["sku"]] for x in candidates if x.get("sku") in fresh]
+                if len(valid) != len(candidates):
+                    raise ValueError("Ombor qoldig‘i o‘zgargan. Iltimos, tahlilni yangilang.")
+                order_ids = _create_ai_draft_orders(current, valid)
+                await _save(current)
+                lines = ["✅ **Qoralama buyurtmalar yaratildi**", ""]
+                for item in valid:
+                    lines.append(f"• {item['name']} — {_f(item['quantity'])} {item['unit']}")
+                lines.extend(["", "Buyurtmalar hali yetkazib beruvchiga yuborilmadi. Ularni «Buyurtmalar» bo‘limida tekshirishingiz mumkin."])
+                await _edit(q, "\n".join(lines),
+                            InlineKeyboardMarkup([[_btn("🧾 Buyurtmalarni ko‘rish", "orders")],
+                                                  [_btn("↩️ Boshqa savol", "ai")], [_btn("⬅️ Menyu", "home")]]))
+            except Exception as exc:
+                await _edit(q, "⚠️ " + str(exc),
+                            InlineKeyboardMarkup([[_btn("✍️ Buyurtmani qo‘lda tayyorlash", "order_add")],
+                                                  [_btn("↩️ Boshqa savol", "ai")], [_btn("⬅️ Menyu", "home")]]))
     elif action in _AI_QUICK_QUESTIONS:
         if _AI_CLIENT is None:
             await _edit(q, "AI maslahatchi hozir ulanmagan.", _back_keyboard("home"))
@@ -2021,13 +2141,23 @@ async def _callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             question = _AI_QUICK_QUESTIONS[action]
             await _edit(q, "⏳ Ombor ma’lumotlari tekshirilmoqda…")
             try:
-                snapshot = _ai_snapshot(_data())
+                current = _data()
+                snapshot = _ai_snapshot(current)
                 answer = await asyncio.wait_for(
                     asyncio.to_thread(_ask_gemini_quick_sync, _AI_CLIENT, _AI_MODEL, question, snapshot),
                     timeout=42,
                 )
-                await _edit(q, "🤖 **Qisqa tahlil**\n\n" + answer + "\n\n_Tavsiya avtomatik bajarilmadi._",
-                            InlineKeyboardMarkup([[_btn("↩️ Boshqa savol", "ai")], [_btn("⬅️ Menyu", "home")]]))
+                rows = []
+                if action in ("aiq_stock", "aiq_order"):
+                    candidates = _ai_draft_candidates(current)
+                    if candidates:
+                        context.user_data["_sc_ai_draft_candidates"] = candidates
+                        rows.append([_btn(f"🛒 {len(candidates)} ta tovarga qoralama buyurtma yaratish", "aiq_draft")])
+                    else:
+                        context.user_data.pop("_sc_ai_draft_candidates", None)
+                rows.extend([[_btn("↩️ Boshqa savol", "ai")], [_btn("⬅️ Menyu", "home")]])
+                await _edit(q, "🤖 **Qisqa tahlil**\n\n" + answer,
+                            InlineKeyboardMarkup(rows))
             except asyncio.TimeoutError:
                 await _edit(q, "⏱ Tahlil biroz cho‘zildi. Iltimos, qayta urinib ko‘ring.",
                             InlineKeyboardMarkup([[_btn("↩️ Qayta tanlash", "ai")], [_btn("⬅️ Menyu", "home")]]))
