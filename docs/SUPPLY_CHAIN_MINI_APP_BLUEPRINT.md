@@ -217,7 +217,8 @@ Current gaps:
 All new Mini App business endpoints remain read-only. No new database schema or production deployment is part of this branch.
 
 Phase 4 — Excel Workspace:
-- staged import, mapping, validation, preview and explicit apply flow.
+- CSV/XLSX parsing, mapping, validation, before/after preview and explicit apply flow are implemented on the isolated branch.
+- Server-side validation, expected-version CAS, idempotency and audit metadata are implemented without schema changes; staging integration remains a release gate.
 
 Phase 5 — Procurement, logistics and reports:
 - supplier, purchase order, shipment and export views.
@@ -247,15 +248,18 @@ Phase 6 — Hardening and rollout:
 - Added a mobile-first Excel Workspace view to the isolated Mini App branch.
 - Current phase accepts CSV UTF-8 exported from Excel, parses it locally in the browser, and supports column mapping for SKU, product name, quantity, unit cost and reorder point.
 - Validates required fields, non-negative numeric values, duplicate SKUs, file size (5 MB) and row count (10,000); shows a 20-row preview and validation summary.
-- This is analysis-only: no file is uploaded to the server, no inventory data is changed, and no import/apply endpoint exists.
-- Direct .xlsx parsing is implemented below; server-side validation, persistent import history, and an explicitly confirmed durable apply flow remain future work. Do not implement inventory writes until persistence acknowledgement and operation-level locking are designed and tested.
+- The preview/analysis stage remains local and read-only; it fetches current inventory/version only to calculate before/after differences.
+- The explicit apply flow sends normalized rows (not workbook bytes) only after a separate confirmation checkbox and button.
+- The server independently validates all rows and commits through the existing JSONB-CAS adapter with expected-version checks, idempotency and audit metadata. No schema change is required.
+- Existing SKU quantities are set to the imported value; new products default to unit `pcs`; optional cost/reorder fields preserve saved values when omitted. Quantity changes append inbound/outbound movement records.
+- The exact PostgREST behavior has not yet been tested against a disposable staging row/project; do not merge/deploy until that gate is complete.
 
 
 ### Reports & export progress (2026-11-26)
 - Added a Reports view with inventory, purchase-order, and shipment CSV exports.
 - Exports read all available API pages (100 rows per page) and generate UTF-8 BOM CSV files in the browser for spreadsheet compatibility.
 - Export endpoints are read-only; no import, update, or inventory mutation is performed.
-- Browser-side CSV and XLSX parsing are implemented below. A Chromium browser smoke suite with mocked Telegram/API responses now verifies the main navigation, responsive layouts, product drill-down, local CSV preview, malformed XLSX rejection, CSV export and print-preview invocation; live Render and Telegram WebView validation remain outstanding.
+- Browser-side CSV and XLSX parsing are implemented below. Chromium browser QA now verifies main navigation, responsive layouts, product drill-down, local CSV preview, malformed XLSX rejection, explicit-confirmation import POST, CSV export and print-preview invocation; live Render and Telegram WebView validation remain outstanding.
 
 
 ### Direct XLSX preview progress (2026-11-26)
@@ -264,7 +268,7 @@ Phase 6 — Hardening and rollout:
 - Parsing is capped at 5 MB per file, 10,002 parsed rows per worksheet and 100 columns; the preview rejects more than 10,000 data rows.
 - CSV parser newline, carriage-return, whitespace and UTF-8 BOM handling was corrected.
 - Column mapping validates duplicate SKUs and non-negative quantity, optional unit cost and reorder point values.
-- No workbook bytes are uploaded, no import/apply endpoint is called, and inventory remains unchanged. The SheetJS library is loaded from a version-pinned CDN, so XLSX preview requires that CDN to be reachable.
+- No workbook bytes are uploaded. Preview alone never changes inventory; normalized rows are sent only after explicit confirmation. The SheetJS library is loaded from a version-pinned CDN, so XLSX preview requires that CDN to be reachable.
 - Before SheetJS parses an XLSX file, a ZIP archive preflight rejects malformed/multi-disk archives, ZIP64, encrypted entries, unsupported compression methods, more than 2,000 archive entries, any uncompressed entry over 20 MB, or total uncompressed contents over 40 MB. This is an additional guard beyond the 5 MB uploaded-file limit; it does not replace full browser/runtime testing.
 
 
@@ -289,7 +293,7 @@ Phase 6 — Hardening and rollout:
 
 ### Chromium browser QA progress (2026-11-26)
 - Added a pinned Playwright 1.55.0 / Chromium job to the existing pull-request CI workflow, using Ubuntu 24.04 for browser compatibility.
-- Added four browser tests against a local static server with mocked Telegram Web App and read-only API responses.
-- Verified dashboard authentication/rendering, inventory detail drill-down, mobile and desktop responsive layouts, Analytics/Procurement/Logistics navigation, local CSV preview, malformed XLSX archive rejection, CSV download and print-preview invocation.
-- Browser QA result on code commit `eb2ad069ad9449ea6cdad9ec943bd038cd07b889`: **4 tests passed**. No business API writes were made; the only POST in the harness is the mocked session-creation request.
+- Added five browser tests against a local static server with mocked Telegram Web App and API responses.
+- Verified dashboard authentication/rendering, inventory detail drill-down, mobile and desktop responsive layouts, Analytics/Procurement/Logistics navigation, local CSV preview, malformed XLSX archive rejection, explicit-confirmation import POST, CSV download and print-preview invocation.
+- Browser QA result on code commit `99c355cf2fb8efc9701b98618d9e429ca99b158f`: **5 tests passed**. The import POST is mocked; no real inventory write is performed by browser QA.
 - These are automated Chromium tests with simulated Telegram/API responses, not a live Render deployment test or a real Telegram Android WebView test. PDF printing inside Telegram WebView remains unverified.
