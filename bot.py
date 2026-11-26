@@ -13036,6 +13036,7 @@ _LAG = {"last": 0.0, "max": 0.0, "max_ts": 0.0, "cpu": 0.0, "started": time.time
 _LAG_TASK = None
 _COMP_NOTIFY_TASK = None
 _OCT_REMINDER_TASK = None
+_SC_DAILY_TASK = None
 
 
 def _perf_note(kind, secs, detail=""):
@@ -13147,14 +13148,23 @@ async def holat_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def _post_init(app):
-    global _LAG_TASK, _COMP_NOTIFY_TASK, _OCT_REMINDER_TASK
+    global _LAG_TASK, _COMP_NOTIFY_TASK, _OCT_REMINDER_TASK, _SC_DAILY_TASK
     _LAG_TASK = asyncio.create_task(_lag_monitor(), name="lag-monitor")
     _COMP_NOTIFY_TASK = asyncio.create_task(_supplychain_notification_loop(app), name="supplychain-notifications")
     _OCT_REMINDER_TASK = asyncio.create_task(_oct_task_reminder_loop(app), name="october-reminders")
+    _SC_DAILY_TASK = asyncio.create_task(supply_chain.daily_report_loop(app), name="supply-chain-daily-report")
 
 
 async def _post_shutdown(app):
-    global _LAG_TASK, _COMP_NOTIFY_TASK, _OCT_REMINDER_TASK
+    global _LAG_TASK, _COMP_NOTIFY_TASK, _OCT_REMINDER_TASK, _SC_DAILY_TASK
+    daily_task = _SC_DAILY_TASK
+    _SC_DAILY_TASK = None
+    if daily_task and not daily_task.done():
+        daily_task.cancel()
+        try:
+            await daily_task
+        except asyncio.CancelledError:
+            pass
     task = _LAG_TASK
     _LAG_TASK = None
     reminder_task = _OCT_REMINDER_TASK
