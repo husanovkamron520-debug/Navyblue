@@ -1330,6 +1330,36 @@ def _ask_gemini_sync(client: Any, model: str, question: str, snapshot: dict[str,
         raise RuntimeError("Gemini bo‘sh javob qaytardi. Birozdan keyin qayta urinib ko‘ring.")
     return str(answer).strip()
 
+def _ask_gemini_quick_sync(client: Any, model: str, question: str, snapshot: dict[str, Any]) -> str:
+    """Short, evidence-grounded answers for one-tap owner questions."""
+    if client is None:
+        raise RuntimeError("AI maslahatchi hozir ulanmagan.")
+    payload = json.dumps(snapshot, ensure_ascii=False, default=str, separators=(",", ":"))
+    if len(payload) > 100000:
+        raise RuntimeError("Ombor ma’lumotlari juda katta; chuqur tahlilni bo‘limlarga ajratish kerak.")
+    prompt = (
+        "Sen korxona rahbarining Supply Chain bo‘yicha qisqa va aniq yordamchisisan. "
+        "Faqat o‘zbek tilida, ko‘pi bilan 5 ta qisqa qatorda javob ber. "
+        "Birinchi qatorda eng muhim xulosa, keyin faqat zarur dalil va bitta amaliy keyingi qadamni yoz. "
+        "Faqat berilgan JSON va undagi oldindan hisoblangan metrikalardan foydalan. "
+        "Raqamlarni qayta hisoblab o‘zgartirma, mavjud bo‘lmagan ma’lumotni to‘qima. "
+        "Ma’lumot yetishmasa, buni ochiq ayt va qaysi ma’lumot kerakligini ko‘rsat. "
+        "Zaxira, yetkazish muddati yoki talab bo‘yicha dalil bo‘lmasa, mahsulotni xavfli deb e’lon qilma. "
+        "Pul zaxirada band bo‘lsa, mahsulot miqdori × birlik tannarxidan foydalan; tannarx yo‘q bo‘lsa qiymatni hisoblama. "
+        "Yetkazib beruvchi xavfini faqat mavjud reyting, yetkazish muddati va kechikkan buyurtmalar dalili bilan bahola. "
+        "Hech qanday amal bajarma, ombor yoki buyurtmalarni o‘zgartirma. Buyurtma kerak bo‘lsa, faqat qoralama taklif qil; "
+        "foydalanuvchi tasdiqlamaguncha hech narsa yuborilmaydi.\n\n"
+        f"SAVOL: {question[:1000]}\n\n"
+        f"JORIY SUPPLY CHAIN MA’LUMOTLARI (JSON):\n{payload}"
+    )
+    response = client.models.generate_content(model=model, contents=prompt)
+    answer = getattr(response, "text", None)
+    if not answer or not str(answer).strip():
+        raise RuntimeError("AI javobi bo‘sh qaytdi. Birozdan keyin qayta urinib ko‘ring.")
+    lines = [line.strip() for line in str(answer).strip().splitlines() if line.strip()]
+    return "\n".join(lines[:6])
+
+
 def _dashboard_text(data: dict[str, Any]) -> str:
     products = list(data.get("products", {}).values())
     suppliers = list(data.get("suppliers", {}).values())
@@ -1713,6 +1743,25 @@ def _btn(label: str, cb: str) -> InlineKeyboardButton:
     return InlineKeyboardButton(label, callback_data=f"sc:{cb}")
 
 
+def _ai_quick_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [_btn("🔴 Bugun nima tugayapti?", "aiq_stock")],
+        [_btn("🛒 Nimalarga buyurtma beray?", "aiq_order")],
+        [_btn("💰 Qayerda pulim ko‘p yotibdi?", "aiq_money")],
+        [_btn("🚚 Qaysi yetkazib beruvchi xavfli?", "aiq_supplier")],
+        [_btn("✍️ O‘zim savol beraman", "ai_custom")],
+        [_btn("⬅️ Menyu", "home")],
+    ])
+
+
+_AI_QUICK_QUESTIONS = {
+    "aiq_stock": "Bugun qaysi mahsulotlar tugash xavfida? Faqat mavjud zaxira, minimum va hisoblangan zaxira qoplamasi dalillarini ko‘rsat.",
+    "aiq_order": "Hozir qaysi mahsulotlarga buyurtma berish kerak? Mahsulot, mavjud qoldiq, minimum va tavsiya miqdorini faqat ma’lumot yetarli bo‘lsa ko‘rsat. Buyurtma yaratma.",
+    "aiq_money": "Ombordagi qaysi mahsulotlarda eng ko‘p pul band? Faqat mavjud miqdor va birlik tannarxi bor mahsulotlar bo‘yicha qiymatni solishtir.",
+    "aiq_supplier": "Qaysi yetkazib beruvchilarda xavf belgisi bor? Faqat mavjud reyting, yetkazish muddati va kechikkan buyurtmalar dalillariga tayangan holda ayt.",
+}
+
+
 def _home_keyboard() -> InlineKeyboardMarkup:
     rows = [
         [_btn("📦 Ombor", "inventory"), _btn("➕ Mahsulot", "add")],
@@ -1953,11 +2002,37 @@ async def _callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             await alert(f"Hisobot tayyorlashda xatolik: {str(exc)[:300]}")
     elif action == "ai":
         if _AI_CLIENT is None:
-            await _edit(q, "🤖 **AI MASLAHATCHI**\n\nGemini hozir ulanmagan (`GEMINI_API_KEY`). Qolgan funksiyalar ishlaydi.", _back_keyboard("home"))
+            await _edit(q, "🤖 **AI maslahatchi**\n\nHozircha yordamchi ulanmagan. Boshqa ombor funksiyalari ishlayveradi.", _back_keyboard("home"))
+        else:
+            context.user_data.pop("_sc_wait", None)
+            await _edit(q, "🤖 **AI MASLAHATCHI**\n\nQaysi masalada yordam kerak?", _ai_quick_keyboard())
+    elif action == "ai_custom":
+        if _AI_CLIENT is None:
+            await _edit(q, "AI maslahatchi hozir ulanmagan.", _back_keyboard("home"))
         else:
             context.user_data["_sc_wait"] = {"action": "ai_ask", "started": datetime.now().timestamp(), "parent": "home"}
-            await _edit(q, "🤖 **AI MASLAHATCHI**\n\nSavolingizni yozing, masalan:\n• Qaysi mahsulotni buyurtma qilish kerak?\n• Eng katta risklarim qaysilar?\n"
-                           "• Transport xarajatini tahlil qil.\n\nAI faqat tahlil qiladi, hech narsani o'zgartirmaydi.", _back_keyboard("home"))
+            await _edit(q, "Savolingizni shu yerga yozing. Qisqa va aniq javob beraman.", _back_keyboard("ai"))
+    elif action in _AI_QUICK_QUESTIONS:
+        if _AI_CLIENT is None:
+            await _edit(q, "AI maslahatchi hozir ulanmagan.", _back_keyboard("home"))
+        else:
+            question = _AI_QUICK_QUESTIONS[action]
+            await _edit(q, "⏳ Ombor ma’lumotlari tekshirilmoqda…")
+            try:
+                snapshot = _ai_snapshot(_data())
+                answer = await asyncio.wait_for(
+                    asyncio.to_thread(_ask_gemini_quick_sync, _AI_CLIENT, _AI_MODEL, question, snapshot),
+                    timeout=42,
+                )
+                await _edit(q, "🤖 **Qisqa tahlil**\n\n" + answer + "\n\n_Tavsiya avtomatik bajarilmadi._",
+                            InlineKeyboardMarkup([[_btn("↩️ Boshqa savol", "ai")], [_btn("⬅️ Menyu", "home")]]))
+            except asyncio.TimeoutError:
+                await _edit(q, "⏱ Tahlil biroz cho‘zildi. Iltimos, qayta urinib ko‘ring.",
+                            InlineKeyboardMarkup([[_btn("↩️ Qayta tanlash", "ai")], [_btn("⬅️ Menyu", "home")]]))
+            except Exception:
+                logger.exception("Supply Chain quick AI failed")
+                await _edit(q, "⚠️ Hozir tahlilni yakunlay olmadim. Birozdan keyin qayta urinib ko‘ring.",
+                            InlineKeyboardMarkup([[_btn("↩️ Qayta tanlash", "ai")], [_btn("⬅️ Menyu", "home")]]))
     elif action in _PROMPTS:
         context.user_data["_sc_wait"] = {"action": action, "started": datetime.now().timestamp(), "parent": _PARENT.get(action, "home")}
         await _edit(q, _PROMPTS[action], _back_keyboard(_PARENT.get(action, "home")))
