@@ -1,5 +1,6 @@
 import json
 import threading
+import time
 import unittest
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -78,6 +79,7 @@ class MiniAppBrowserTests(unittest.TestCase):
 
         if request.method == "POST" and path == "/sc-api/v1/inventory/import":
             self.import_payload = json.loads(request.post_data or "{}")
+            time.sleep(0.25)
             route.fulfill(status=200, json={"data": {"version": 2, "replayed": False,
                 "result": {"processed": len(self.import_payload.get("rows", [])), "created": 2,
                            "updated": 0, "unchanged_quantity": 0}}})
@@ -213,7 +215,11 @@ class MiniAppBrowserTests(unittest.TestCase):
         self.page.locator("#excel-confirm-check").check()
         self.assertTrue(confirm.is_enabled())
         confirm.click()
+        self.assertTrue(self.page.locator("#excel-file").is_disabled())
+        self.assertTrue(self.page.locator("#excel-reset").is_disabled())
         self.page.wait_for_function("document.querySelector('#excel-import-status').textContent.includes('Saqlandi')")
+        self.assertFalse(self.page.locator("#excel-file").is_disabled())
+        self.assertFalse(self.page.locator("#excel-reset").is_disabled())
         self.assertEqual(self.import_payload["expected_version"], 1)
         self.assertEqual(len(self.import_payload["rows"]), 2)
         self.assertEqual(self.import_payload["rows"][0]["sku"], "SKU-100")
