@@ -113,7 +113,14 @@
         <div class="chart-title">3. Tekshiruv natijasi</div>
         <div id="excel-validation" class="alert-list"><div class="muted">Fayl tanlangandan keyin natija ko‘rinadi.</div></div>
         <div class="table-wrap" style="display:block;margin-top:12px"><table class="table" style="min-width:620px"><thead id="excel-head"></thead><tbody id="excel-preview"></tbody></table></div>
-        <div class="muted" style="font-size:12px;margin-top:10px">Xavfsizlik: bu bosqich faqat lokal preview. Hech qanday import, ombor yangilanishi yoki avtomatik buyurtma bajarilmaydi.</div>
+      </div>
+      <div class="card" style="margin-top:12px">
+        <div class="chart-title">4. Ombor bilan farq va tasdiqlash</div>
+        <div class="chart-sub">Import mavjud mahsulot miqdorini Excel’dagi qiymatga moslaydi; yangi SKU qo‘shadi. Ixtiyoriy narx yoki reorder ustuni bo‘sh bo‘lsa, saqlangan qiymat o‘zgarmaydi. Har bir miqdor farqi kirim/chiqim tarixiga yoziladi.</div>
+        <div id="excel-diff" class="alert-list" style="margin-top:12px"><div class="muted">Avval faylni yuklang va ustunlarni moslang.</div></div>
+        <label style="display:flex;gap:9px;align-items:flex-start;margin-top:14px"><input id="excel-confirm-check" type="checkbox" style="margin-top:3px"><span>Yuqoridagi farqlarni tekshirdim. Ombor ma’lumotlarini shu fayl asosida yangilashga roziman.</span></label>
+        <button class="retry" id="excel-import-confirm" disabled style="margin-top:12px;width:100%">Importni tasdiqlash</button>
+        <div id="excel-import-status" class="muted" style="font-size:12px;margin-top:10px">Hozircha hech narsa saqlanmadi.</div>
       </div>
     </section>
     <section id="reports-view" hidden>
@@ -140,6 +147,7 @@
   const tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
   const $ = id => document.getElementById(id);
   let token = "", page = 1, totalPages = 1, searchTimer = null, currentView = "dashboard";
+  let inventoryBaseline = null, importVersion = null, importRows = [], importPreviewSeq = 0;
   const fmt = (n, digits=0) => n == null || !Number.isFinite(Number(n)) ? "—" : new Intl.NumberFormat("uz-UZ",{maximumFractionDigits:digits}).format(Number(n));
   const money = n => n == null ? "—" : fmt(n,0) + " UZS";
   const el = (tag, cls, value) => { const node=document.createElement(tag); if(cls)node.className=cls; if(value!==undefined)node.textContent=value; return node; };
@@ -486,6 +494,72 @@
       const tr=el("tr","");[sku,name,qty,cost||"—",reorder||"—",issue?"Tekshirish kerak":"Yaroqli"].forEach(v=>tr.append(el("td","",v)));body.append(tr);
     });
     if(csvState.rows.length>20){const tr=el("tr","");tr.append(el("td","muted","Yana "+(csvState.rows.length-20)+" qator preview’da ko‘rsatilmagan"));body.append(tr);}
+    renderImportDiff(valid);
+  }
+  async function renderImportDiff(rows){
+    const seq=++importPreviewSeq;
+    importRows=rows.map(r=>({sku:r.sku,name:r.name,quantity:r.quantity,unit_cost:r.cost,reorder_point:r.reorder}));
+    $("excel-import-confirm").disabled=true;
+    $("excel-confirm-check").checked=false;
+    $("excel-import-status").textContent="Joriy ombor holati olinmoqda…";
+    $("excel-diff").replaceChildren(el("div","muted","Joriy ombor bilan solishtirilmoqda…"));
+    try{
+      const bootstrap=await api("/sc-api/v1/bootstrap");
+      const products=await fetchAllPages("/sc-api/v1/inventory");
+      if(seq!==importPreviewSeq)return;
+      importVersion=Number(bootstrap.data_version||1);
+      inventoryBaseline=new Map(products.map(p=>[String(p.sku).toLocaleLowerCase(),p]));
+      const diffs=importRows.map(row=>{
+        const old=inventoryBaseline.get(row.sku.toLocaleLowerCase());
+        if(!old)return {row,action:"Yangi SKU",before:null,after:row.quantity};
+        const changes=[];
+        if(String(old.name||"")!==row.name)changes.push("nom");
+        if(Number(old.quantity)!==Number(row.quantity))changes.push("miqdor");
+        if(row.unit_cost!=null&&Number(old.unit_cost)!==Number(row.unit_cost))changes.push("narx");
+        if(row.reorder_point!=null&&Number(old.reorder_point)!==Number(row.reorder_point))changes.push("reorder");
+        return {row,action:changes.length?"Yangilanadi":"O‘zgarish yo‘q",fields:changes,before:old.quantity,after:row.quantity};
+      });
+      const counts={created:diffs.filter(x=>x.action==="Yangi SKU").length,updated:diffs.filter(x=>x.action==="Yangilanadi").length,unchanged:diffs.filter(x=>x.action==="O‘zgarish yo‘q").length};
+      const root=$("excel-diff");root.replaceChildren();
+      [["Yangi SKU",counts.created],["Yangilanadi",counts.updated],["O‘zgarmaydi",counts.unchanged],["Versiya",importVersion]].forEach(([label,value])=>{const item=el("div","alert");item.append(el("strong","",label),el("span","pill",fmt(value)));root.append(item);});
+      const table=el("div","table-wrap");table.style.display="block";table.style.marginTop="10px";
+      const t=el("table","table");t.style.minWidth="520px";
+      const head=el("tr","");["SKU","Amal","Oldingi miqdor","Yangi miqdor"].forEach(v=>head.append(el("th","",v)));
+      const thead=el("thead","");thead.append(head);const body=el("tbody","");
+      diffs.slice(0,50).forEach(d=>{const tr=el("tr","");[d.row.sku,d.action,d.before==null?"—":fmt(d.before,2),fmt(d.after,2)].forEach(v=>tr.append(el("td","",v)));body.append(tr);});
+      t.append(thead,body);table.append(t);root.append(table);
+      if(diffs.length>50)root.append(el("div","muted","Yana "+fmt(diffs.length-50)+" ta farq jadvalda ko‘rsatilmagan."));
+      $("excel-import-status").textContent="Preview tayyor. Tasdiqlashdan oldin farqlarni tekshiring.";
+      $("excel-import-confirm").disabled=rows.length===0||Number($("excel-errors").textContent.replace(/\D/g,""))>0;
+    }catch(error){
+      if(seq!==importPreviewSeq)return;
+      inventoryBaseline=null;importVersion=null;
+      $("excel-diff").replaceChildren(el("div","alert error","Ombor bilan solishtirib bo‘lmadi: "+error.message));
+      $("excel-import-status").textContent="Saqlash bloklandi — avval ma’lumotni qayta yuklang.";
+    }
+  }
+  async function confirmInventoryImport(){
+    if(!importRows.length||importVersion==null||!$("excel-confirm-check").checked)return;
+    const button=$("excel-import-confirm");
+    button.disabled=true;button.textContent="Saqlanmoqda…";
+    $("excel-import-status").textContent="Server qatorlarni qayta tekshirib, versiya nazorati bilan saqlamoqda.";
+    const operationId=(window.crypto&&crypto.randomUUID)?crypto.randomUUID():("excel-"+Date.now()+"-"+Math.random().toString(36).slice(2));
+    try{
+      const result=await api("/sc-api/v1/inventory/import",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
+        operation_id:operationId,expected_version:importVersion,rows:importRows
+      })});
+      $("excel-import-status").textContent="Saqlandi: "+fmt(result.result?.processed)+" qator · yangi "+fmt(result.result?.created)+" · yangilandi "+fmt(result.result?.updated)+" · versiya "+fmt(result.version)+".";
+      $("excel-confirm-check").checked=false;
+      importRows=[];inventoryBaseline=null;importVersion=null;
+      await refreshAll();
+      if(currentView==="excel")await renderImportDiff([]);
+    }catch(error){
+      $("excel-import-status").textContent="Import bajarilmadi: "+error.message+" Sahifani yangilab, faylni qayta tekshiring.";
+      if(/outcome|tasdiqlanmadi/i.test(error.message))$("excel-import-status").textContent+=" Takroran import qilishdan oldin omborni tekshiring.";
+    }finally{
+      button.textContent="Importni tasdiqlash";
+      button.disabled=!importRows.length;
+    }
   }
   function setupExcelMappings(headers){
     ["sku","name","quantity","cost","reorder"].forEach(key=>{
