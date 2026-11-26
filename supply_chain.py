@@ -61,10 +61,16 @@ def _data() -> dict[str, Any]:
         return raw
 
 
-def _save(data: dict[str, Any]) -> None:
-    if _SAVE is not None:
+async def _save(data: dict[str, Any]) -> None:
+    if _SAVE is None:
+        return
+
+    def persist() -> None:
         with _LOCK:
             _SAVE(DATA_FILE, data)
+
+    # Supabase CAS is synchronous HTTP; keep it off the Telegram event loop.
+    await asyncio.to_thread(persist)
 
 
 def _allowed(update: Update) -> bool:
@@ -1693,28 +1699,27 @@ async def _callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             return await alert("Yuk topilmadi")
         status = shipment.get("status")
         if action == "ship_dispatch" and status == "planned":
-            with _LOCK:
-                product = data.get("products", {}).get(shipment.get("sku"))
-                qty = float(shipment.get("quantity", 0))
-                if not product or float(product.get("quantity", 0)) < qty:
-                    return await alert("Omborda yukni jo'natish uchun yetarli zaxira yo'q")
-                product["quantity"] = float(product.get("quantity", 0)) - qty
-                product["updated_at"] = _now()
-                data["movements"].append({"id": uuid.uuid4().hex[:12], "sku": shipment["sku"], "type": "out", "quantity": qty,
-                                          "note": f"Transport yuk {shipment_id} jo'natildi", "created_at": _now(), "shipment_id": shipment_id})
-                shipment["status"] = "dispatched"
-                shipment["dispatched_at"] = _now()
-                _save(data)
+            product = data.get("products", {}).get(shipment.get("sku"))
+            qty = float(shipment.get("quantity", 0))
+            if not product or float(product.get("quantity", 0)) < qty:
+                return await alert("Omborda yukni jo'natish uchun yetarli zaxira yo'q")
+            product["quantity"] = float(product.get("quantity", 0)) - qty
+            product["updated_at"] = _now()
+            data["movements"].append({"id": uuid.uuid4().hex[:12], "sku": shipment["sku"], "type": "out", "quantity": qty,
+                                      "note": f"Transport yuk {shipment_id} jo'natildi", "created_at": _now(), "shipment_id": shipment_id})
+            shipment["status"] = "dispatched"
+            shipment["dispatched_at"] = _now()
+            await _save(data)
             message = f"Yuk yo'lga chiqdi. Ombordan {qty:g} birlik yechildi."
         elif action == "ship_deliver" and status == "dispatched":
             shipment["status"] = "delivered"
             shipment["delivered_at"] = _now()
-            _save(data)
+            await _save(data)
             message = "Yuk yetkazildi."
         elif action == "ship_cancel" and status == "planned":
             shipment["status"] = "cancelled"
             shipment["cancelled_at"] = _now()
-            _save(data)
+            await _save(data)
             message = "Yuk bekor qilindi. Zaxira o'zgarmadi."
         else:
             return await alert("Bu yuk uchun bu amalni bajarib bo'lmaydi")
@@ -1746,7 +1751,7 @@ async def _callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             message = "Buyurtma bekor qilindi. Zaxira o'zgarmadi."
         else:
             return await alert("Bu buyurtma uchun bu amalni bajarib bo'lmaydi")
-        _save(data)
+        await _save(data)
         await _edit(q, message + "\n\n" + _orders_text(data), _orders_keyboard(data))
     elif action == "home":
         context.user_data.pop("_sc_wait", None)
@@ -2053,12 +2058,11 @@ async def _text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
         return True
     import copy
     result, error = None, None
-    with _LOCK:
-        try:
-            data = copy.deepcopy(_data())
-            result = handler(data, raw)
-            _save(data)
-        except sc_persistence.VersionConflict:
+    try:
+        data = copy.deepcopy(_data())
+        result = handler(data, raw)
+        await _save(data)
+    except sc_persistence.VersionConflict:
             error = ("Ma'lumotlar boshqa sessiyada yangilangan. Hech narsa ustidan yozilmadi. "
                      "Bo'limni qayta ochib, amalni yangilangan ma'lumot bilan takrorlang.")
         except sc_persistence.CommitOutcomeUnknown:
