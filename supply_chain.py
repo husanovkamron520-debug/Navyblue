@@ -25,9 +25,9 @@ from xml.sax.saxutils import escape as xml_escape
 from datetime import datetime, timezone, date, timedelta
 from typing import Any, Callable
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, InlineQueryResultArticle, InputTextMessageContent
 from telegram.constants import ChatType
-from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
+from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, InlineQueryHandler, filters
 
 DATA_FILE = "supply_chain_data.json"
 _LOCK = threading.RLock()
@@ -1598,6 +1598,66 @@ def _eoq_text(data: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _inventory_summary(data: dict[str, Any]) -> dict[str, Any]:
+    """All-SKU inventory KPIs; low stock and <20-day attention are separate states."""
+    products = list(data.get("products", {}).values())
+    history = data.get("demand_history", [])
+    low, attention, healthy = [], [], []
+    total_value = 0.0
+    for p in products:
+        qty = _safe_num(p.get("quantity"))
+        reorder = _safe_num(p.get("reorder_point"))
+        total_value += qty * _safe_num(p.get("unit_cost"))
+        is_low = qty <= reorder if reorder > 0 else qty <= 0
+        if is_low:
+            low.append(p)
+            continue
+        annual = _safe_num(p.get("annual_demand"))
+        if annual <= 0:
+            sku = p.get("sku")
+            records = sorted((r for r in history if r.get("sku") == sku), key=lambda r: str(r.get("month", "")))[-6:]
+            if records:
+                annual = sum(_safe_num(r.get("quantity")) for r in records) / len(records) * 12
+        days = qty / (annual / 365) if annual > 0 else None
+        if days is not None and days < 20:
+            attention.append((p, days))
+        else:
+            healthy.append(p)
+    return {"products": products, "total_value": total_value, "low": low,
+            "attention": attention, "healthy": healthy}
+
+
+def _inventory_summary_text(data: dict[str, Any]) -> str:
+    stats = _inventory_summary(data)
+    products = stats["products"]
+    if not products:
+        return "📦 **OMBOR XULOSASI**\n\nOmbor hozircha bo‘sh. «➕ Mahsulot» orqali kiriting."
+    currency = (os.environ.get("SUPPLY_CHAIN_CURRENCY") or "UZS").strip().upper()
+    value = _f(stats["total_value"])
+    low_names = ", ".join(str(p.get("name", p.get("sku", "Nomsiz"))) for p in stats["low"][:5])
+    if len(stats["low"]) > 5:
+        low_names += f" va yana {len(stats['low']) - 5} ta"
+    attention_names = ", ".join(str(p.get("name", p.get("sku", "Nomsiz"))) for p, _ in stats["attention"][:4])
+    if len(stats["attention"]) > 4:
+        attention_names += f" va yana {len(stats['attention']) - 4} ta"
+    return ("📦 **OMBOR XULOSASI**\n"
+            f"💰 Jami qiymat: **{value} {currency}** · {len(products)} ta SKU\n"
+            f"🔴 Buyurtma kerak: **{len(stats['low'])} ta**" + (f" ({low_names})" if low_names else "") + "\n"
+            f"🟡 Diqqat (<20 kun): **{len(stats['attention'])} ta**" + (f" ({attention_names})" if attention_names else "") + "\n"
+            f"🟢 Me’yorda: **{len(stats['healthy'])} ta**")
+
+
+def _low_stock_text(data: dict[str, Any]) -> str:
+    stats = _inventory_summary(data)
+    rows = ["🔴 **BUYURTMA TALAB QILINADIGAN MAHSULOTLAR**", ""]
+    for p in stats["low"]:
+        rows.append(f"• {p.get('name', p.get('sku'))} — {_f(_safe_num(p.get('quantity')))} {p.get('unit', 'dona')} (minimum: {_f(_safe_num(p.get('reorder_point')))})")
+    if not stats["low"]:
+        rows.append("Hozircha minimal zaxiraga yetgan mahsulot yo‘q.")
+    rows.append("\nBuyurtma qoralamasini yaratish uchun quyidagi tugmadan foydalaning.")
+    return "\n".join(rows)
+
+
 def _inventory_text(data: dict[str, Any]) -> str:
     products = list(data["products"].values())
     if not products:
@@ -1859,9 +1919,19 @@ async def _callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await _edit(q, "📥 **EXCEL QABUL QILISH**\n\n.xlsx faylni shu chatga yuboring. Faylni o'qiy olmasam, sababini ko'rsataman va sizdan uning mazmuni hamda ustunlari haqida so'rayman.\n\nImportdan oldin barcha ma'lumotlar ko'rib chiqiladi; tasdiqlamaguningizcha omborga yozilmaydi.", _back_keyboard("home"))
     elif action in _MENU_TITLES:
         await _edit(q, _MENU_TITLES[action], _menu_keyboard(action))
+    elif action == "low_stock":
+        rows = [[_btn("🛒 Buyurtma qoralamasi yaratish", "order_add")], [_btn("⬅️ Ombor xulosasi", "inventory")]]
+        await _edit(q, _low_stock_text(data), InlineKeyboardMarkup(rows))
     elif action in _simple_views():
         text_fn, parent = _simple_views()[action]
-        await _edit(q, text_fn(data), _back_keyboard(parent))
+        if action == "inventory":
+            stats = _inventory_summary(data)
+            rows = [[InlineKeyboardButton(f"🔴 Buyurtma kerak ({len(stats['low'])})", callback_data="sc:low_stock")],
+                    [InlineKeyboardButton("🔍 Mahsulot qidirish", switch_inline_query_current_chat=""),
+                     InlineKeyboardButton("📱 To‘liq ombor (Mini App)", web_app=__import__("telegram").WebAppInfo(url=(os.environ.get("RENDER_EXTERNAL_URL") or "").rstrip("/") + "/supply-chain"))]]
+            await _edit(q, _inventory_summary_text(data), InlineKeyboardMarkup(rows))
+        else:
+            await _edit(q, text_fn(data), _back_keyboard(parent))
     elif action == "orders":
         await _edit(q, _orders_text(data), _orders_keyboard(data))
     elif action == "shipments":
@@ -2200,6 +2270,43 @@ async def _text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     return True
 
 
+async def _inline_inventory_search(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.inline_query
+    if query is None:
+        return
+    if _OWNER_ID is None or int(query.from_user.id) != int(_OWNER_ID):
+        await query.answer([], cache_time=2, is_personal=True)
+        return
+    term = _norm(query.query)
+    if len(term) < 3:
+        await query.answer([], cache_time=2, is_personal=True)
+        return
+    data = _data()
+    results = []
+    for sku, product in data.get("products", {}).items():
+        name = str(product.get("name", sku))
+        if term not in _norm(name) and term not in _norm(sku):
+            continue
+        qty = _safe_num(product.get("quantity"))
+        reorder = _safe_num(product.get("reorder_point"))
+        eoq = _eoq_value(product)
+        annual = _safe_num(product.get("annual_demand"))
+        days = qty / (annual / 365) if annual > 0 else None
+        status = "🔴 Buyurtma kerak" if (qty <= reorder if reorder > 0 else qty <= 0) else ("🟡 Diqqat" if days is not None and days < 20 else "🟢 Me’yorda")
+        detail = f"{name}\nQoldiq: {_f(qty)} {product.get('unit', 'dona')}\nMinimum: {_f(reorder)}\nHolat: {status}"
+        if days is not None:
+            detail += f"\nTaxminiy yetish muddati: {days:.1f} kun"
+        detail += f"\nEOQ: {_f(round(eoq[0], 1)) if eoq else 'Ma’lumot yetarli emas'}"
+        results.append(InlineQueryResultArticle(
+            id=str(sku)[:64], title=name,
+            description=f"Qoldiq: {_f(qty)} {product.get('unit', 'dona')} · {status}",
+            input_message_content=InputTextMessageContent(detail),
+        ))
+        if len(results) >= 20:
+            break
+    await query.answer(results, cache_time=3, is_personal=True)
+
+
 async def _notify_persistence_error(update: Update, exc: Exception) -> None:
     message = update.effective_message
     if message is None and update.callback_query:
@@ -2248,6 +2355,7 @@ def install(app: Application, load_json: Callable[[str, Any], Any], save_json: C
     _AI_MODEL = (ai_model or "gemini-3.5-flash-lite").strip()
     app.add_handler(CommandHandler("supply", open_supply))
     app.add_handler(CallbackQueryHandler(_serialized_callback, pattern=r"^sc:"))
+    app.add_handler(InlineQueryHandler(_inline_inventory_search))
     app.add_handler(MessageHandler(filters.ChatType.PRIVATE & filters.Document.ALL, _serialized_excel_document))
 
 
