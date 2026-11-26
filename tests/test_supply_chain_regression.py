@@ -79,6 +79,61 @@ class SupplyChainCalculationRegressionTests(unittest.TestCase):
         self.assertIn("Keyingi oy prognozi: **23.33 kg**", text)
         self.assertIn("Tavsiya etiladigan xarid: **0.00 kg**", text)
 
+    def test_forecast_purchase_recommendation_subtracts_only_open_po_quantities(self):
+        data = empty_data()
+        data["products"]["P-001"] = {
+            "name": "Sugar", "quantity": 5, "reorder_point": 10, "unit": "kg"
+        }
+        data["demand_history"] = [
+            {"sku": "P-001", "month": "2026-01", "quantity": 10},
+            {"sku": "P-001", "month": "2026-02", "quantity": 20},
+            {"sku": "P-001", "month": "2026-03", "quantity": 30},
+        ]
+        data["orders"] = [
+            {"sku": "P-001", "quantity": 5, "status": "draft"},
+            {"sku": "P-001", "quantity": 20, "status": "ordered"},
+            {"sku": "P-001", "quantity": 100, "status": "received"},
+            {"sku": "P-001", "quantity": 100, "status": "cancelled"},
+        ]
+
+        metric = supply_chain._computed_metrics(data)[0]
+
+        self.assertEqual(metric["open_order_quantity"], 25)
+        self.assertAlmostEqual(metric["recommended_purchase_quantity"], 23.3333 + 10 - 5 - 25, places=3)
+
+    def test_auto_cart_minimum_fallback_subtracts_open_po_quantity(self):
+        data = empty_data()
+        data["suppliers"]["SUP-001"] = {"id": "SUP-001", "name": "Supplier A"}
+        data["products"]["P-001"] = {
+            "sku": "P-001", "name": "Sugar", "quantity": 5, "reorder_point": 20,
+            "unit": "kg", "unit_cost": 100, "supplier_id": "SUP-001",
+        }
+        data["orders"] = [{"sku": "P-001", "quantity": 10, "status": "ordered"}]
+
+        candidates = supply_chain._ai_draft_candidates(data)
+
+        self.assertEqual(len(candidates), 1)
+        self.assertEqual(candidates[0]["quantity"], 5)
+
+    def test_auto_cart_does_not_subtract_open_orders_twice_when_forecast_exists(self):
+        data = empty_data()
+        data["suppliers"]["SUP-001"] = {"id": "SUP-001", "name": "Supplier A"}
+        data["products"]["P-001"] = {
+            "sku": "P-001", "name": "Sugar", "quantity": 5, "reorder_point": 10,
+            "unit": "kg", "unit_cost": 100, "supplier_id": "SUP-001",
+        }
+        data["demand_history"] = [
+            {"sku": "P-001", "month": "2026-01", "quantity": 10},
+            {"sku": "P-001", "month": "2026-02", "quantity": 20},
+            {"sku": "P-001", "month": "2026-03", "quantity": 30},
+        ]
+        data["orders"] = [{"sku": "P-001", "quantity": 5, "status": "ordered"}]
+
+        candidates = supply_chain._ai_draft_candidates(data)
+
+        self.assertEqual(len(candidates), 1)
+        self.assertAlmostEqual(candidates[0]["quantity"], 23.3333 + 10 - 5 - 5, places=3)
+
     def test_abc_uses_annual_demand_times_unit_cost_and_midpoint_bands(self):
         data = empty_data()
         data["products"] = {
