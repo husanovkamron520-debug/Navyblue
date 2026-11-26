@@ -37,7 +37,7 @@ jobs:
       - name: Install module runtime dependency
         run: python -m pip install --upgrade pip && python -m pip install "python-telegram-bot==21.4" "Pillow>=10,<13"
       - name: Compile Supply Chain modules
-        run: python -m py_compile bot.py supply_chain.py supply_chain_import.py supply_chain_api.py supply_chain_persistence.py supply_chain_mini_app_import.py tests/test_supply_chain_regression.py tests/test_supply_chain_api.py tests/test_supply_chain_persistence.py tests/test_supply_chain_serialization.py tests/test_supply_chain_mini_app_import.py
+        run: python -m py_compile bot.py supply_chain.py supply_chain_import.py supply_chain_api.py supply_chain_persistence.py supply_chain_mini_app_import.py tests/test_supply_chain_regression.py tests/test_supply_chain_api.py tests/test_supply_chain_persistence.py tests/test_supply_chain_serialization.py tests/test_supply_chain_mini_app_import.py tests/test_archived_features.py
       - name: Run regression tests
         run: python -m unittest discover -s tests -v
 
