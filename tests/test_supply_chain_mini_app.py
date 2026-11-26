@@ -103,6 +103,18 @@ class SupplyChainMiniAppShellTests(unittest.TestCase):
         self.assertIn('id="detail-close"', self.html)
         self.assertNotIn('/sc-api/v1/inventory/movements', self.html)
 
+    def test_reports_can_be_printed_or_saved_as_pdf_without_server_writes(self):
+        self.assertIn('id="export-inventory-pdf"', self.html)
+        self.assertIn('id="export-orders-pdf"', self.html)
+        self.assertIn('id="export-shipments-pdf"', self.html)
+        self.assertIn('async function printReport(kind)', self.html)
+        self.assertIn('window.print()', self.html)
+        self.assertIn('id="print-area"', self.html)
+        self.assertIn('@media print', self.html)
+        self.assertIn('window.addEventListener("afterprint"', self.html)
+        self.assertIn('Save as PDF / PDF sifatida saqlash', self.html)
+        self.assertNotIn('/sc-api/v1/imports', self.html)
+
     def test_dynamic_business_values_are_not_inserted_as_html(self):
         self.assertNotIn("innerHTML", self.html)
         self.assertIn("textContent", self.html)
