@@ -260,7 +260,7 @@
     }catch(error){$("detail-name").textContent="Tafsilotlar yuklanmadi";const tr=el("tr","");tr.append(el("td","error",error.message));$("detail-movements").append(tr);}
   }
   async function archiveInventoryProduct(sku,name){
-    if(!confirm("\\""+name+"\\" ("+sku+") mahsulotini faol ombordan arxivga o‘tkazamizmi?\n\nMahsulot o‘chib ketmaydi: arxivda saqlanadi."))return;
+    if(!confirm("\""+name+"\" ("+sku+") mahsulotini faol ombordan arxivga o‘tkazamizmi?\n\nMahsulot o‘chib ketmaydi: arxivda saqlanadi."))return;
     try{
       let operation=pendingArchiveOperations.get(sku);
       if(!operation){
