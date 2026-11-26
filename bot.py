@@ -967,16 +967,21 @@ def _registered_teacher_code(chat_id, teachers=None):
     return None
 
 
-def get_teacher_code_by_chat_id(chat_id):
-    """Faqat faol roli ustoz bo'lgan foydalanuvchi uchun ustoz kodini qaytaradi.
+def _teacher_is_approved(info):
+    """Eski ro'yxatdan o'tgan ustozlarni saqlab qoladi, yangi ustozlar tasdiqlanishi shart."""
+    return (info or {}).get("status", "approved") == "approved"
 
-    Eski teachers.json yozuvlarida active_role bo'lmasa, avvalgi xulq saqlanadi.
-    """
+
+def get_teacher_code_by_chat_id(chat_id):
+    """Faqat tasdiqlangan va faol roli ustoz bo'lgan foydalanuvchi kodini qaytaradi."""
     teachers = get_teachers()
     code = _registered_teacher_code(chat_id, teachers)
     if not code:
         return None
-    if (teachers.get(code) or {}).get("active_role", "teacher") != "teacher":
+    info = teachers.get(code) or {}
+    if not _teacher_is_approved(info):
+        return None
+    if info.get("active_role", "teacher") != "teacher":
         return None
     return code
 
@@ -994,12 +999,12 @@ def _is_private_callback_owner(query):
 
 
 def make_teacher_code(chat_id, teachers):
-    digits = str(chat_id)
-    for n in range(4, len(digits) + 1):
-        code = f"T_{digits[-n:]}"
-        if code not in teachers or teachers[code].get("chat_id") == chat_id:
+    """Yangi ustozlar uchun taxmin qilish qiyin bo'lgan tasodifiy guruh kodi."""
+    for _ in range(20):
+        code = "T_" + secrets.token_hex(5).upper()
+        if code not in teachers:
             return code
-    return f"T_{digits}"
+    raise RuntimeError("Ustoz kodi yaratilmadi; qayta urinib ko'ring.")
 
 
 def find_case(t_code, case_id):
@@ -1894,37 +1899,63 @@ async def role_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     students = get_students()
 
     if query.data == "role_teacher":
-        # Oldin shogird roliga o'tgan ustozning kodi qayta yaratilmasin.
         existing_code = _registered_teacher_code(chat_id, teachers)
-        if existing_code:
+        existing_info = teachers.get(existing_code) if existing_code else None
+
+        # Eski tasdiqlangan ustozlar va avval tasdiqlangan ustozlar uchun odatiy kirish saqlanadi.
+        if existing_code and _teacher_is_approved(existing_info):
+            existing_info["active_role"] = "teacher"
+            existing_info["name"] = query.from_user.full_name
+            save_teachers(teachers)
+            await query.edit_message_text(
+                f"✅ Ustoz rejimi faollashdi!\n\n🔑 Ustoz kodingiz: {existing_code}\n"
+                "Shogirdlaringizga shu kodni bering."
+            )
+            await context.bot.send_message(
+                chat_id=chat_id, text="Ta'lim bo'limi — Ustoz.",
+                reply_markup=teacher_menu(chat_id),
+            )
+            return
+
+        # Pending ariza takroran yuborilmaydi.
+        if existing_code and (existing_info or {}).get("status") == "pending":
+            if (existing_info or {}).get("application_details"):
+                await query.edit_message_text(
+                    "⏳ Ustozlik arizangiz administrator ko'rib chiqishi uchun yuborilgan. "
+                    "Natija shu chatga keladi."
+                )
+                return
             teacher_code = existing_code
-            teachers[teacher_code]["active_role"] = "teacher"
-            teachers[teacher_code]["name"] = query.from_user.full_name
         else:
-            teacher_code = make_teacher_code(chat_id, teachers)
+            # Yangi ariza. Kod tasdiqlanmaguncha shogirdlarga ishlamaydi va ko'rsatilmaydi.
+            teacher_code = existing_code or make_teacher_code(chat_id, teachers)
             teachers[teacher_code] = {
+                **(existing_info or {}),
                 "chat_id": chat_id,
                 "name": query.from_user.full_name,
-                "active_role": "teacher",
+                "username": query.from_user.username or "",
+                "active_role": "pending",
+                "status": "pending",
+                "application_details": "",
+                "application_submitted_at": None,
+                "requested_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             }
-        save_teachers(teachers)
+            save_teachers(teachers)
 
+        context.user_data["awaiting_teacher_application"] = True
         await query.edit_message_text(
-            f"✅ O'qituvchi rejimi faollashdi!\n\n"
-            f"🔑 O'qituvchi kodingiz: {teacher_code}\n"
-            "Talabalaringizga shu kodni bering."
-        )
-        await context.bot.send_message(
-            chat_id=chat_id,
-            text="Asosiy menyu:",
-            reply_markup=teacher_menu(chat_id),
+            "📝 Ustozlik arizasi uchun quyidagi ma'lumotlarni bitta xabarda yuboring:\n\n"
+            "1. Ishlaydigan yoki o'qiydigan muassasangiz;\n"
+            "2. Qaysi fan yoki yo'nalishdan dars bermoqchisiz;\n"
+            "3. Tajribangiz yoki nima sababdan ustoz bo'lmoqchisiz.\n\n"
+            "Kamida 20 belgi yozing. Arizani administrator ko'rib chiqadi."
         )
 
     elif query.data == "role_student":
-        # Avvaldan ro'yxatdan o'tgan shogird qayta kod kiritmaydi.
         existing_student = students.get(user_id) or {}
         existing_student_code = str(existing_student.get("teacher_code") or "")
-        if existing_student_code in teachers:
+        if (existing_student_code in teachers
+                and _teacher_is_approved(teachers.get(existing_student_code))):
             existing_code = _registered_teacher_code(chat_id, teachers)
             if existing_code:
                 teachers[existing_code]["active_role"] = "student"
@@ -1936,16 +1967,133 @@ async def role_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=student_menu(chat_id),
             )
             return
-        # Bir foydalanuvchi ham ustoz, ham shogird bo'lishi mumkin.
+
+        # Bir foydalanuvchi ham tasdiqlangan ustoz, ham shogird bo'lishi mumkin.
         existing_code = _registered_teacher_code(chat_id, teachers)
-        if existing_code:
+        if existing_code and _teacher_is_approved(teachers.get(existing_code)):
             teachers[existing_code]["active_role"] = "student"
             save_teachers(teachers)
         context.user_data["awaiting_teacher_code"] = True
         await query.edit_message_text(
             "👨‍🎓 Shogird rejimi tanlandi.\n\n"
-            "O'qituvchingiz bergan kodni yuboring (masalan: T_1234):"
+            "Ustozingiz bergan guruh kodini yuboring:"
         )
+
+
+async def teacher_approval_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Ustozlik arizasini faqat bot egasi shaxsiy chatida tasdiqlashi yoki rad etishi mumkin."""
+    query = update.callback_query
+    if not query or not query.message:
+        return
+    actor = getattr(query, "from_user", None)
+    if (not is_bot_owner(query.message.chat_id)
+            or not actor
+            or str(actor.id) != str(OWNER_CHAT_ID)
+            or getattr(query.message.chat, "type", None) != ChatType.PRIVATE):
+        await query.answer("Bu amal faqat administrator uchun.", show_alert=True)
+        return
+
+    parts = (query.data or "").split(":")
+    if len(parts) != 3 or parts[1] not in ("approve", "reject") or not parts[2].isdigit():
+        await query.answer("Ariza ma'lumoti noto'g'ri.", show_alert=True)
+        return
+
+    applicant_id = int(parts[2])
+    teachers = get_teachers()
+    code = _registered_teacher_code(applicant_id, teachers)
+    info = teachers.get(code) if code else None
+    if not info or str(info.get("chat_id")) != str(applicant_id) or info.get("status") != "pending":
+        await query.answer("Ariza topilmadi yoki avval ko'rib chiqilgan.", show_alert=True)
+        try:
+            await query.edit_message_reply_markup(None)
+        except Exception:
+            pass
+        return
+
+    if parts[1] == "approve":
+        info["status"] = "approved"
+        info["active_role"] = "teacher"
+        info["approved_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        info["approved_by"] = str(OWNER_CHAT_ID)
+        save_teachers(teachers)
+        await query.answer("Ustoz tasdiqlandi.")
+        await query.edit_message_text(
+            f"✅ USTOZ TASDIQLANDI\n\n👤 {info.get('name', 'Foydalanuvchi')}\n"
+            f"🆔 {applicant_id}\n🔑 Kod: {code}"
+        )
+        try:
+            await context.bot.send_message(
+                chat_id=applicant_id,
+                text=(
+                    "🎉 Ustozlik arizangiz tasdiqlandi!\n\n"
+                    f"🔑 Shaxsiy guruh kodingiz: {code}\n"
+                    "Bu kodni faqat o'zingizning shogirdlaringizga bering. "
+                    "Ustoz paneli endi ochiq."
+                ),
+                reply_markup=teacher_menu(applicant_id),
+            )
+        except Exception:
+            logger.exception("Tasdiqlangan ustozga xabar yuborilmadi")
+    else:
+        info["status"] = "rejected"
+        info["active_role"] = "student"
+        info["rejected_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        info["rejected_by"] = str(OWNER_CHAT_ID)
+        save_teachers(teachers)
+        await query.answer("Ariza rad etildi.")
+        await query.edit_message_text(
+            f"❌ USTOZLIK ARIZASI RAD ETILDI\n\n👤 {info.get('name', 'Foydalanuvchi')}\n🆔 {applicant_id}"
+        )
+        try:
+            await context.bot.send_message(
+                chat_id=applicant_id,
+                text=(
+                    "Ustozlik arizangiz hozircha tasdiqlanmadi. "
+                    "Qo'shimcha ma'lumot bilan qayta ariza yuborishingiz mumkin."
+                ),
+                reply_markup=student_menu(applicant_id),
+            )
+        except Exception:
+            logger.exception("Rad etilgan ariza haqida foydalanuvchiga xabar yuborilmadi")
+
+
+async def show_teacher_applications(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Administrator uchun kutayotgan ustozlik arizalari ro'yxati."""
+    chat_id = update.effective_chat.id
+    if not is_bot_owner(chat_id):
+        await update.message.reply_text("⛔ Bu buyruq faqat administrator uchun.")
+        return
+    pending = [
+        (code, info) for code, info in get_teachers().items()
+        if (info or {}).get("status") == "pending"
+    ]
+    if not pending:
+        await update.message.reply_text("📭 Kutayotgan ustozlik arizalari yo'q.")
+        return
+    await update.message.reply_text(f"📋 Kutayotgan ustozlik arizalari: {len(pending)} ta")
+    for code, info in pending[:30]:
+        applicant_id = info.get("chat_id")
+        if not applicant_id:
+            continue
+        username = str(info.get("username") or "").strip().lstrip("@")
+        applicant_name = str(info.get("name") or "Noma’lum")
+        telegram_label = "@" + username if username else "username yo'q"
+        details = str(info.get("application_details") or "").strip()
+        lines = [
+            "🆕 USTOZLIK ARIZASI",
+            "",
+            f"👤 Ism: {applicant_name}",
+            f"🔗 Telegram: {telegram_label}",
+            f"🆔 ID: {applicant_id}",
+            "",
+            "📚 Ariza ma'lumotlari:",
+            details if details else "⏳ Qo'shimcha ma'lumot kutilmoqda.",
+        ]
+        keyboard = InlineKeyboardMarkup([[
+            InlineKeyboardButton("✅ Tasdiqlash", callback_data=f"teacher_approval:approve:{applicant_id}"),
+            InlineKeyboardButton("❌ Rad etish", callback_data=f"teacher_approval:reject:{applicant_id}"),
+        ]]) if details else None
+        await update.message.reply_text("\n".join(lines), reply_markup=keyboard)
 
 
 # ============================================================
@@ -11839,6 +11987,59 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
             return
 
+    if context.user_data.get("awaiting_teacher_application"):
+        if text in (BTN_ROLE, BTN_EDU_BACK, BTN_EDU, BTN_MAIN_MENU):
+            context.user_data.pop("awaiting_teacher_application", None)
+            await update.message.reply_text("Ustozlik arizasi bekor qilindi.")
+            return
+        if text.startswith("/") or len(text) < 20 or len(text) > 1200:
+            await update.message.reply_text(
+                "Ma'lumot 20–1200 belgi bo'lsin. Muassasa, fan/yo'nalish va tajribangizni yozing."
+            )
+            return
+        teachers = get_teachers()
+        teacher_code = _registered_teacher_code(chat_id, teachers)
+        info = teachers.get(teacher_code) if teacher_code else None
+        if not info or info.get("status") != "pending":
+            context.user_data.pop("awaiting_teacher_application", None)
+            await update.message.reply_text("Ariza holati topilmadi. «Rolni o'zgartirish» orqali qayta boshlang.")
+            return
+        info["application_details"] = text[:1200]
+        info["application_submitted_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        save_teachers(teachers)
+        context.user_data.pop("awaiting_teacher_application", None)
+
+        await update.message.reply_text(
+            "✅ Arizangiz administratorga yuborildi. Tekshiruv yakunlangach, javob shu chatga keladi."
+        )
+        if OWNER_CHAT_ID is not None:
+            keyboard = InlineKeyboardMarkup([[
+                InlineKeyboardButton("✅ Tasdiqlash", callback_data=f"teacher_approval:approve:{chat_id}"),
+                InlineKeyboardButton("❌ Rad etish", callback_data=f"teacher_approval:reject:{chat_id}"),
+            ]])
+            username = f"@{update.effective_user.username}" if update.effective_user.username else "username yo'q"
+            try:
+                await context.bot.send_message(
+                    chat_id=OWNER_CHAT_ID,
+                    text=(
+                        "🆕 USTOZLIK ARIZASI — TEKSHIRUV\n\n"
+                        f"👤 Ism: {update.effective_user.full_name}\n"
+                        f"🔗 Telegram: {username}\n"
+                        f"🆔 ID: {chat_id}\n\n"
+                        f"📚 Ariza ma'lumotlari:\n{text[:1200]}"
+                    ),
+                    reply_markup=keyboard,
+                )
+            except Exception:
+                logger.exception("Ustozlik arizasi administratorga yuborilmadi")
+                await update.message.reply_text(
+                    "⚠️ Ariza saqlandi, ammo administratorga xabar yuborilmadi. Keyinroq administratorga murojaat qiling."
+                )
+        else:
+            logger.error("OWNER_CHAT_ID sozlanmagan: ustozlik arizasi administratorga yuborilmadi")
+            await update.message.reply_text("⚠️ Administrator ID sozlanmagan. Ariza tekshiruvga yuborilmadi.")
+        return
+
     _is_btn = text in {v for k, v in globals().items() if k.startswith("BTN_") and isinstance(v, str)}
     if _is_btn:
         for _k in ("_dg_wait", "_src_wait", "_sc_wait"):
@@ -12161,6 +12362,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not code:
             await update.message.reply_text(
                 "❌ Bunday o'qituvchi kodi topilmadi. Kodni tekshirib qayta yuboring:"
+            )
+            return
+        if not _teacher_is_approved(teachers.get(code)):
+            await update.message.reply_text(
+                "⏳ Bu ustoz hali administrator tomonidan tasdiqlanmagan. "
+                "Tasdiqlangach, guruh kodi ishlaydi."
             )
             return
 
@@ -14332,6 +14539,7 @@ def main():
     app.add_error_handler(_on_error)
     app.add_handler(CommandHandler("rol", role_command))
     app.add_handler(CommandHandler("role", role_command))
+    app.add_handler(CommandHandler("ustoz_arizalar", show_teacher_applications, filters=filters.ChatType.PRIVATE))
     app.add_handler(CommandHandler("myid", myid_command))
     app.add_handler(CommandHandler("qa", qa_command, filters=filters.ChatType.PRIVATE))
     app.add_handler(CommandHandler(["qa_status", "qastatus"], qa_status_command, filters=filters.ChatType.PRIVATE))
@@ -14353,6 +14561,7 @@ def main():
     app.add_handler(CallbackQueryHandler(gen_callback, pattern=r"^gen:"))
     app.add_handler(CallbackQueryHandler(case_manage_callback, pattern=r"^(cview|cdel|cyes|cno|cmode):"))
     app.add_handler(CallbackQueryHandler(role_callback, pattern=r"^role_"))
+    app.add_handler(CallbackQueryHandler(teacher_approval_callback, pattern=r"^teacher_approval:"))
     app.add_handler(CallbackQueryHandler(submit_callback, pattern=r"^submit$"))
     app.add_handler(CallbackQueryHandler(izoh_callback, pattern=r"^izoh:"))
     app.add_handler(CallbackQueryHandler(penalty_off_callback, pattern=r"^penoff:"))
