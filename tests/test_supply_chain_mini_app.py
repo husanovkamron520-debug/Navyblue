@@ -37,7 +37,7 @@ class SupplyChainMiniAppShellTests(unittest.TestCase):
         self.assertIn("Authorization", self.html)
         self.assertIn("Bearer ", self.html)
 
-    def test_shell_uses_only_read_only_business_endpoints(self):
+    def test_shell_uses_read_models_and_has_one_scoped_import_endpoint(self):
         self.assertIn('"/sc-api/v1/dashboard"', self.html)
         self.assertIn('"/sc-api/v1/inventory?"', self.html)
         self.assertIn('"/sc-api/v1/analytics/demand"', self.html)
@@ -46,24 +46,37 @@ class SupplyChainMiniAppShellTests(unittest.TestCase):
         self.assertIn('"/sc-api/v1/analytics/replenishment"', self.html)
         self.assertIn('"/sc-api/v1/procurement/orders?page_size=50"', self.html)
         self.assertIn('"/sc-api/v1/logistics/shipments?page_size=50"', self.html)
+        self.assertIn('"/sc-api/v1/inventory/import"', self.html)
         self.assertNotIn("/sc-api/v1/imports", self.html)
         self.assertNotIn("/sc-api/v1/inventory/movements", self.html)
 
-    def test_excel_workspace_is_local_read_only_csv_and_xlsx_preview(self):
+    def test_excel_workspace_parses_csv_and_xlsx_locally_before_confirmed_import(self):
         self.assertIn('data-view="excel"', self.html)
         self.assertIn('id="excel-file"', self.html)
         self.assertIn('function parseCSV(text)', self.html)
         self.assertIn('file.size>5*1024*1024', self.html)
         self.assertIn('rows.length>10001', self.html)
         self.assertIn('renderExcelPreview()', self.html)
-        self.assertIn('serverga yuborilmaydi', self.html)
+        self.assertIn('Saqlash faqat alohida tasdiqdan keyin bajariladi', self.html)
         self.assertIn('accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"', self.html)
         self.assertNotIn('/sc-api/v1/imports', self.html)
 
     def test_excel_preview_does_not_mutate_inventory(self):
-        self.assertIn('CSV UTF-8 va Excel .xlsx fayllar brauzerda tahlil qilinadi', self.html)
-        self.assertIn('Hech qanday import, ombor yangilanishi yoki avtomatik buyurtma bajarilmaydi', self.html)
-        self.assertNotIn('method:"POST"', self.html.replace('method: "POST"', 'method:"POST"').replace('method: \"POST\"', 'method:"POST"')[self.html.find('function renderExcelPreview'):])
+        self.assertIn('CSV UTF-8 va Excel .xlsx fayllar brauzerda tekshiriladi', self.html)
+        self.assertIn('id="excel-import-confirm"', self.html)
+        self.assertIn('id="excel-confirm-check"', self.html)
+        preview = self.html[self.html.find('function renderExcelPreview'):self.html.find('async function renderImportDiff')]
+        self.assertNotIn('method:"POST"', preview)
+        self.assertIn('renderImportDiff(valid)', preview)
+
+    def test_import_endpoint_is_owner_authenticated_bounded_and_versioned(self):
+        self.assertIn('"/sc-api/v1/inventory/import"', self.bot)
+        self.assertIn('_SC_IMPORT_LIMITER = sc_api.RateLimiter(max_requests=3, window_seconds=60)', self.bot)
+        self.assertIn('_SC_SESSIONS.authenticate(self._sc_bearer(), OWNER_CHAT_ID)', self.bot)
+        self.assertIn('else 8_000_000', self.bot)
+        self.assertIn('sc_import.commit_inventory_import(_get_sc_commit_adapter(), payload)', self.bot)
+        self.assertIn('version_conflict', self.bot)
+        self.assertIn('outcome_unknown', self.bot)
 
     def test_excel_workspace_reads_xlsx_locally_and_supports_multiple_sheets(self):
         self.assertIn('cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js', self.html)
