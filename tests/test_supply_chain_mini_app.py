@@ -96,7 +96,7 @@ class SupplyChainMiniAppShellTests(unittest.TestCase):
         self.assertIn('ch==="\\r"', self.html)
         self.assertIn(r'/\s/g', self.html)
         self.assertIn(r'/^\uFEFF/', self.html)
-        self.assertIn('faqat tasdiqdan keyin serverga yuboriladi', self.html)
+        self.assertIn('Saqlash faqat alohida tasdiqdan keyin bajariladi', self.html)
         self.assertNotIn('/sc-api/v1/imports', self.html)
 
     def test_reports_export_only_uses_read_endpoints_and_csv_download(self):
