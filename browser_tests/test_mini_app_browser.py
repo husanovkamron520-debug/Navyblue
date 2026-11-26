@@ -258,6 +258,7 @@ class MiniAppBrowserTests(unittest.TestCase):
         self.assertEqual(download.suggested_filename, "supply-chain-inventory.csv")
 
         self.page.locator("#export-inventory-pdf").click()
+        self.page.locator("#report-status").filter(has_text="Chop etish oynasi ochiladi").wait_for(timeout=10000)
         self.assertTrue(self.page.evaluate("window.__printCalled === true"))
         self.assertIn("Ombor hisoboti", self.page.locator("#print-title").inner_text())
         self.assertIn("SKU-001", self.page.locator("#print-body").inner_text())
