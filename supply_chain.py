@@ -1927,8 +1927,11 @@ async def _callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if action == "inventory":
             stats = _inventory_summary(data)
             rows = [[InlineKeyboardButton(f"🔴 Buyurtma kerak ({len(stats['low'])})", callback_data="sc:low_stock")],
-                    [InlineKeyboardButton("🔍 Mahsulot qidirish", switch_inline_query_current_chat=""),
-                     InlineKeyboardButton("📱 To‘liq ombor (Mini App)", web_app=__import__("telegram").WebAppInfo(url=(os.environ.get("RENDER_EXTERNAL_URL") or "").rstrip("/") + "/supply-chain"))]]
+                    [InlineKeyboardButton("🔍 Mahsulot qidirish", switch_inline_query_current_chat="")]]
+            base_url = (os.environ.get("RENDER_EXTERNAL_URL") or "").strip().rstrip("/")
+            if base_url.startswith("https://"):
+                from telegram import WebAppInfo
+                rows.append([InlineKeyboardButton("📱 To‘liq ombor (Mini App)", web_app=WebAppInfo(url=base_url + "/supply-chain"))])
             await _edit(q, _inventory_summary_text(data), InlineKeyboardMarkup(rows))
         else:
             await _edit(q, text_fn(data), _back_keyboard(parent))
@@ -2305,6 +2308,57 @@ async def _inline_inventory_search(update: Update, context: ContextTypes.DEFAULT
         if len(results) >= 20:
             break
     await query.answer(results, cache_time=3, is_personal=True)
+
+
+async def daily_report_loop(app: Application) -> None:
+    """Send one idempotent 09:00 Uzbekistan-time inventory digest to the owner."""
+    tz = timezone(timedelta(hours=5))
+    while True:
+        now = datetime.now(tz)
+        target = now.replace(hour=9, minute=0, second=0, microsecond=0)
+        if target <= now:
+            target += timedelta(days=1)
+        await asyncio.sleep(max(1, (target - now).total_seconds()))
+        today = datetime.now(tz).date().isoformat()
+        try:
+            state = _LOAD("supply_chain_daily_report_state.json", {}) if _LOAD else {}
+            if isinstance(state, dict) and state.get("sent_date") == today:
+                continue
+            data = _data()
+            stats = _inventory_summary(data)
+            yesterday = datetime.now(tz).date() - timedelta(days=1)
+            movements = []
+            for movement in data.get("movements", []):
+                try:
+                    stamp = datetime.fromisoformat(str(movement.get("created_at", "")).replace("Z", "+00:00"))
+                    if stamp.tzinfo is None:
+                        stamp = stamp.replace(tzinfo=timezone.utc)
+                    if stamp.astimezone(tz).date() == yesterday:
+                        movements.append(movement)
+                except (TypeError, ValueError, OverflowError):
+                    continue
+            incoming = [m for m in movements if m.get("type") == "in"]
+            outgoing = [m for m in movements if m.get("type") == "out"]
+            in_qty = sum(_safe_num(m.get("quantity")) for m in incoming)
+            out_qty = sum(_safe_num(m.get("quantity")) for m in outgoing)
+            report = (
+                f"☀️ **ERTALABKI OMBOR HISOBOTI** · {today}\n"
+                f"🔴 Buyurtma kerak: **{len(stats['low'])} ta**\n"
+                f"📥 Kechagi kirim: **{len(incoming)} operatsiya / {_f(in_qty)} birlik**\n"
+                f"📤 Kechagi chiqim: **{len(outgoing)} operatsiya / {_f(out_qty)} birlik**"
+            )
+            keyboard = InlineKeyboardMarkup([
+                [InlineKeyboardButton(f"🛒 {len(stats['low'])} ta mahsulotni ko‘rish", callback_data="sc:low_stock")]
+            ])
+            if _OWNER_ID is not None:
+                await app.bot.send_message(chat_id=_OWNER_ID, text=report, reply_markup=keyboard, parse_mode="Markdown")
+                if _SAVE:
+                    await asyncio.to_thread(_SAVE, "supply_chain_daily_report_state.json", {"sent_date": today})
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            # A failed send is not marked as delivered; retry after a short delay.
+            await asyncio.sleep(60)
 
 
 async def _notify_persistence_error(update: Update, exc: Exception) -> None:
