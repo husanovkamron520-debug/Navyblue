@@ -265,3 +265,9 @@ Phase 6 — Hardening and rollout:
 - CSV parser newline, carriage-return, whitespace and UTF-8 BOM handling was corrected.
 - Column mapping validates duplicate SKUs and non-negative quantity, optional unit cost and reorder point values.
 - No workbook bytes are uploaded, no import/apply endpoint is called, and inventory remains unchanged. The SheetJS library is loaded from a version-pinned CDN, so XLSX preview requires that CDN to be reachable.
+
+
+### Excel report exports progress (2026-11-26)
+- Reports view now offers both CSV and XLSX downloads for inventory, purchase orders and shipments.
+- XLSX files are generated in the browser using the same version-pinned SheetJS library; report data is still read from authenticated, read-only API endpoints.
+- No report export writes back to the server or changes inventory.
