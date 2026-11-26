@@ -1837,7 +1837,7 @@ async def _magic_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> boo
             scratch["movements"].append({"id": uuid.uuid4().hex[:12], "sku": sku, "type": direction, "quantity": quantity, "note": segment, "created_at": _now()})
             proposals.append({
                 "sku": sku, "name": str(product.get("name") or sku),
-                "direction": direction, "quantity": _safe_num(movement.get("quantity")),
+                "direction": direction, "quantity": quantity,
                 "unit": product_unit, "before": before, "after": after,
             })
         if not proposals:
