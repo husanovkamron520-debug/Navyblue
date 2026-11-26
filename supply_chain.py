@@ -2069,19 +2069,45 @@ async def _text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     return True
 
 
+async def _notify_persistence_error(update: Update, exc: Exception) -> None:
+    message = update.effective_message
+    if message is None and update.callback_query:
+        message = update.callback_query.message
+    if isinstance(exc, sc_persistence.VersionConflict):
+        text = ("Ma'lumotlar boshqa sessiyada yangilangan. Hech narsa ustidan yozilmadi. "
+                "Bo'limni qayta ochib, amalni yangilangan ma'lumot bilan takrorlang.")
+    elif isinstance(exc, sc_persistence.CommitOutcomeUnknown):
+        text = ("Saqlash javobining holati noaniq. Amalni hozircha qayta yubormang; "
+                "avval ombor holatini yangilang va o'zgarish saqlanganini tekshiring.")
+    else:
+        text = "Ma'lumotni bazaga xavfsiz saqlab bo'lmadi. Hech qanday muvaffaqiyat tasdiqlanmadi."
+    if message:
+        await message.reply_text("⚠️ " + text)
+
+
 async def _serialized_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     async with _SC_MUTATION_LOCK:
-        await _callback(update, context)
+        try:
+            await _callback(update, context)
+        except sc_persistence.PersistenceError as exc:
+            await _notify_persistence_error(update, exc)
 
 
 async def _serialized_excel_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     async with _SC_MUTATION_LOCK:
-        await _handle_excel_document(update, context)
+        try:
+            await _handle_excel_document(update, context)
+        except sc_persistence.PersistenceError as exc:
+            await _notify_persistence_error(update, exc)
 
 
 async def _serialized_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     async with _SC_MUTATION_LOCK:
-        return await _text(update, context)
+        try:
+            return await _text(update, context)
+        except sc_persistence.PersistenceError as exc:
+            await _notify_persistence_error(update, exc)
+            return True
 
 
 def install(app: Application, load_json: Callable[[str, Any], Any], save_json: Callable[[str, Any], Any], owner_id: int | None, ai_client: Any = None, ai_model: str | None = None) -> None:
