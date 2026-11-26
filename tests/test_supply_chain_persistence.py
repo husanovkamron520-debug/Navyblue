@@ -177,6 +177,17 @@ class SerializedCommitAdapterTests(unittest.TestCase):
 
 
 
+
+    def test_programming_error_is_not_misreported_as_ambiguous_commit(self):
+        def broken_persist(candidate, expected_version, new_version):
+            raise ValueError("local serialization bug")
+        adapter = SerializedCommitAdapter(self.store.load, broken_persist)
+        with self.assertRaises(PersistenceError) as caught:
+            adapter.commit(expected_version=1, operation_id="op-bug",
+                           request_hash=digest("x"), mutate=self.change_quantity(1))
+        self.assertNotIsInstance(caught.exception, CommitOutcomeUnknown)
+        self.assertEqual(self.store.load()["version"], 1)
+
 class SnapshotWriteQueueTests(unittest.TestCase):
     def test_newer_snapshot_is_not_replaced_when_older_inflight_write_fails(self):
         queue = SnapshotWriteQueue()
@@ -217,6 +228,55 @@ class SnapshotWriteQueueTests(unittest.TestCase):
         key2, retry = queue.take()
         self.assertEqual(retry, {"version": 1})
         queue.finish(key2, retry, saved=True)
+
+
+
+    def test_second_worker_cannot_take_same_key_while_first_is_inflight(self):
+        queue = SnapshotWriteQueue()
+        queue.enqueue("supply_chain_data", {"version": 1})
+        key, first = queue.take()
+        queue.enqueue("supply_chain_data", {"version": 2})
+        taken = []
+        ready = threading.Event()
+
+        def worker():
+            taken.append(queue.take())
+            ready.set()
+
+        thread = threading.Thread(target=worker)
+        thread.start()
+        self.assertFalse(ready.wait(0.05))
+        queue.finish(key, first, saved=True)
+        self.assertTrue(ready.wait(1))
+        thread.join(timeout=1)
+        next_key, newest = taken[0]
+        self.assertEqual(next_key, "supply_chain_data")
+        self.assertEqual(newest, {"version": 2})
+        queue.finish(next_key, newest, saved=True)
+        self.assertTrue(queue.wait_empty(0.05))
+
+    def test_failed_write_uses_backoff_until_a_newer_snapshot_arrives(self):
+        queue = SnapshotWriteQueue()
+        queue.enqueue("k", {"version": 1})
+        key, snapshot = queue.take()
+        queue.finish(key, snapshot, saved=False)
+        self.assertGreater(queue._retry_after["k"], __import__("time").monotonic())
+        taken = []
+        ready = threading.Event()
+
+        def worker():
+            taken.append(queue.take())
+            ready.set()
+
+        thread = threading.Thread(target=worker)
+        thread.start()
+        self.assertFalse(ready.wait(0.05))
+        queue.enqueue("k", {"version": 2})
+        self.assertTrue(ready.wait(1))
+        thread.join(timeout=1)
+        next_key, newest = taken[0]
+        self.assertEqual(newest, {"version": 2})
+        queue.finish(next_key, newest, saved=True)
 
 
 

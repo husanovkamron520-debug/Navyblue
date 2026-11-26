@@ -17,10 +17,13 @@ import supply_chain_persistence as sc_persistence
 import uuid
 import math
 import asyncio
+import contextvars
+import hashlib
 import json
 import io
 import zipfile
 import re
+from types import SimpleNamespace
 from xml.sax.saxutils import escape as xml_escape
 from datetime import datetime, timezone, date, timedelta
 from typing import Any, Callable
@@ -35,6 +38,7 @@ _SC_MUTATION_LOCK = asyncio.Lock()
 _OWNER_ID: int | None = None
 _LOAD: Callable[[str, Any], Any] | None = None
 _SAVE: Callable[[str, Any], Any] | None = None
+_SC_OPERATION_CONTEXT = contextvars.ContextVar("supply_chain_operation_context", default=None)
 _AI_CLIENT: Any = None
 _AI_MODEL: str = "gemini-3.5-flash-lite"
 _WAIT_SECONDS = 900
@@ -61,13 +65,32 @@ def _data() -> dict[str, Any]:
         return raw
 
 
+def _update_operation_identity(update: Update) -> tuple[str, str]:
+    callback = getattr(update, "callback_query", None)
+    message = getattr(update, "effective_message", None)
+    if callback is not None:
+        source = "callback:" + str(getattr(callback, "id", "")) + ":" + str(getattr(callback, "data", ""))
+    elif message is not None:
+        chat = getattr(message, "chat", None)
+        source = "message:" + str(getattr(chat, "id", "")) + ":" + str(getattr(message, "message_id", ""))
+        source += ":" + str(getattr(message, "text", None) or getattr(message, "caption", None) or "")
+    else:
+        source = "update:" + str(getattr(update, "update_id", ""))
+    digest = hashlib.sha256(source.encode("utf-8")).hexdigest()
+    return "tg-" + digest[:48], digest
+
+
 async def _save(data: dict[str, Any]) -> None:
     if _SAVE is None:
         return
+    operation = _SC_OPERATION_CONTEXT.get()
 
     def persist() -> None:
         with _LOCK:
-            _SAVE(DATA_FILE, data)
+            if operation:
+                _SAVE(DATA_FILE, data, operation_id=operation[0], request_hash=operation[1])
+            else:
+                _SAVE(DATA_FILE, data)
 
     # Supabase CAS is synchronous HTTP; keep it off the Telegram event loop.
     await asyncio.to_thread(persist)
@@ -1947,35 +1970,49 @@ def _magic_preview_text(proposals: list[dict[str, Any]], source: str) -> str:
 
 
 async def _serialized_magic_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    async with _SC_MUTATION_LOCK:
-        message = update.effective_message
-        if not message or not _allowed(update) or not message.photo:
+    # Vision/network work is read-only; do not hold the mutation gate while waiting for AI.
+    message = update.effective_message
+    if not message or not _allowed(update) or not message.photo:
+        return
+    status = await message.reply_text("🖼 Hujjatni o‘qiyapman…")
+    try:
+        photo = message.photo[-1]
+        if (getattr(photo, "file_size", 0) or 0) > 10 * 1024 * 1024:
+            await status.edit_text("Rasm 10 MB dan kichik bo‘lishi kerak.")
             return
-        status = await message.reply_text("🖼 Hujjatni o‘qiyapman…")
-        try:
-            photo = message.photo[-1]
-            if (getattr(photo, "file_size", 0) or 0) > 10 * 1024 * 1024:
-                await status.edit_text("Rasm 10 MB dan kichik bo‘lishi kerak.")
-                return
-            remote = await photo.get_file()
-            raw = bytes(await remote.download_as_bytearray())
-            if len(raw) > 10 * 1024 * 1024:
-                await status.edit_text("Rasm 10 MB dan kichik bo‘lishi kerak.")
-                return
-            entries = await asyncio.wait_for(
-                asyncio.to_thread(_vision_extract_movements_sync, raw, "image/jpeg", message.caption or "", _data().get("products", {})),
-                timeout=60,
-            )
-            doc = _magic_prepare_document(_data(), entries)
-            if not any(doc.values()):
-                raise ValueError("Rasmdan tekshiriladigan qator topilmadi.")
-            context.user_data["_sc_magic_pending_doc"] = {
-                "created_at": datetime.now(timezone.utc).isoformat(),
-                **doc,
-            }
-            await status.edit_text(_magic_document_text(doc), reply_markup=_magic_document_keyboard(doc))
-        except Exception as exc:
-            await status.edit_text("⚠️ " + str(exc)[:800] + "\n\nMa’lumot saqlanmadi. Rasmni tiniqroq yuborib ko‘ring.")
+        remote = await photo.get_file()
+        raw = bytes(await remote.download_as_bytearray())
+        if len(raw) > 10 * 1024 * 1024:
+            await status.edit_text("Rasm 10 MB dan kichik bo‘lishi kerak.")
+            return
+        snapshot = await asyncio.to_thread(_data)
+        entries = await asyncio.wait_for(
+            asyncio.to_thread(_vision_extract_movements_sync, raw, "image/jpeg", message.caption or "", snapshot.get("products", {})),
+            timeout=60,
+        )
+        doc = _magic_prepare_document(snapshot, entries)
+        if not any(doc.values()):
+            raise ValueError("Rasmdan tekshiriladigan qator topilmadi.")
+        context.user_data["_sc_magic_pending_doc"] = {
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            **doc,
+        }
+        await status.edit_text(_magic_document_text(doc), reply_markup=_magic_document_keyboard(doc))
+    except Exception as exc:
+        await status.edit_text("⚠️ " + str(exc)[:800] + "\n\nMa’lumot saqlanmadi. Rasmni tiniqroq yuborib ko‘ring.")
+
+
+def _transcript_update(update: Update, message: Any, transcript: str) -> Any:
+    """Build a minimal update facade without mutating/copying PTB Update internals."""
+    synthetic_message = SimpleNamespace(
+        text=transcript,
+        reply_text=message.reply_text,
+    )
+    return SimpleNamespace(
+        effective_message=synthetic_message,
+        effective_chat=update.effective_chat,
+        effective_user=update.effective_user,
+    )
 
 
 async def _magic_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
@@ -2100,22 +2137,20 @@ async def _serialized_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             await status.edit_text("Ovozli xabar 15 MB dan kichik bo‘lishi kerak.")
             return
         mime = getattr(media, "mime_type", None) or ("audio/ogg" if message.voice else "audio/mpeg")
-        async with _SC_MUTATION_LOCK:
-            transcript = await asyncio.wait_for(asyncio.to_thread(_voice_transcribe_sync, raw, mime), timeout=75)
-            tokens = set(_words(transcript))
-            if tokens & (_IN_WORDS | _OUT_WORDS):
-                import copy
-                synthetic_update = copy.copy(update)
-                synthetic_message = copy.copy(message)
-                object.__setattr__(synthetic_message, "text", transcript)
-                object.__setattr__(synthetic_update, "message", synthetic_message)
-                await status.edit_text("🗣 Ovozdan kirim-chiqim matni ajratildi. Tekshirish uchun quyidagi taklifga qarang.")
+        # Transcription and Gemini calls are network-bound; keep them outside the mutation gate.
+        transcript = await asyncio.wait_for(asyncio.to_thread(_voice_transcribe_sync, raw, mime), timeout=75)
+        tokens = set(_words(transcript))
+        if tokens & (_IN_WORDS | _OUT_WORDS):
+            synthetic_update = _transcript_update(update, message, transcript)
+            await status.edit_text("🗣 Ovozdan kirim-chiqim matni ajratildi. Tekshirish uchun quyidagi taklifga qarang.")
+            async with _SC_MUTATION_LOCK:
                 if await _magic_text(synthetic_update, context):
                     return
-            answer = await asyncio.wait_for(asyncio.to_thread(
-                _ask_gemini_quick_sync, _AI_CLIENT, _AI_MODEL, transcript, _ai_snapshot(_data()), _ai_history_text(context)), timeout=45)
+        snapshot = await asyncio.to_thread(_data)
+        answer = await asyncio.wait_for(asyncio.to_thread(
+            _ask_gemini_quick_sync, _AI_CLIENT, _AI_MODEL, transcript, _ai_snapshot(snapshot), _ai_history_text(context)), timeout=45)
         _ai_history_add(context, transcript, answer)
-        await status.edit_text("🗣 **Savolingiz:** " + transcript[:700] + "\n\n🤖 **Javob:**\n" + answer)
+        await status.edit_text("🗣 Savolingiz:\n" + transcript[:700] + "\n\n🤖 Javob:\n" + answer)
     except Exception:
         await status.edit_text("⚠️ Ovozli savolni qayta ishlay olmadim. Birozdan keyin yana urinib ko‘ring.")
 
@@ -2916,6 +2951,10 @@ async def _callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         pending = context.user_data.get("_sc_magic_pending") or {}
         proposals = pending.get("proposals") or []
         created_at = pending.get("created_at")
+        if not pending or not proposals or not created_at:
+            await _edit(q, "Bu tasdiqlash allaqachon bajarilgan yoki eskirgan. Omborni yangilab tekshiring.", _home_keyboard())
+            return
+        committed = False
         try:
             stamp = datetime.fromisoformat(str(created_at))
             if stamp.tzinfo is None:
@@ -2944,14 +2983,26 @@ async def _callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                     "note": "Tasdiqlangan Magic Input (matn/rasm)", "created_at": _now(),
                 })
             await _save(current)
+            committed = True
             context.user_data.pop("_sc_magic_pending", None)
             lines = ["✅ **Ombor harakatlari saqlandi**", ""]
             lines.extend(f"• {x['name']}: {_f(x['quantity'])} {x['unit']} — qoldiq {_f(x['after'])} {x['unit']}" for x in proposals)
             await _edit(q, "\n".join(lines), _home_keyboard())
+        except sc_persistence.CommitOutcomeUnknown:
+            # Do not invite a second mutation: the database may already have committed.
+            context.user_data.pop("_sc_magic_pending", None)
+            await _edit(q, "⚠️ Saqlash natijasi noaniq. Ombor o‘zgargan bo‘lishi ham mumkin. Amalni qayta yubormang; avval omborni yangilab, qoldiq va harakatlar tarixini tekshiring.", _home_keyboard())
+        except sc_persistence.PersistenceError as exc:
+            context.user_data.pop("_sc_magic_pending", None)
+            await _edit(q, "⚠️ Saqlash tasdiqlanmadi: " + str(exc) + ". Omborni yangilab holatini tekshiring.", _home_keyboard())
         except Exception as exc:
-            await _edit(q, "⚠️ " + str(exc) + "\n\nOmbor o‘zgartirilmagan.", InlineKeyboardMarkup([
-                [_btn("⬅️ Menyu", "home")]
-            ]))
+            if committed:
+                context.user_data.pop("_sc_magic_pending", None)
+                await _edit(q, "⚠️ Ombor saqlandi, lekin tasdiq xabarini yuborishda xato yuz berdi. Qoldiq va harakatlar tarixini tekshiring. Tafsilot: " + str(exc), _home_keyboard())
+            else:
+                await _edit(q, "⚠️ " + str(exc) + "\n\nOmbor o‘zgartirilmagan.", InlineKeyboardMarkup([
+                    [_btn("⬅️ Menyu", "home")]
+                ]))
     elif action == "magic_cancel":
         context.user_data.pop("_sc_magic_pending", None)
         context.user_data.pop("_sc_magic_pending_doc", None)
@@ -3523,31 +3574,52 @@ async def _notify_persistence_error(update: Update, exc: Exception) -> None:
 
 
 async def _serialized_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    async with _SC_MUTATION_LOCK:
-        try:
-            await _callback(update, context)
-        except sc_persistence.PersistenceError as exc:
-            await _notify_persistence_error(update, exc)
+    operation_token = _SC_OPERATION_CONTEXT.set(_update_operation_identity(update))
+    try:
+        async with _SC_MUTATION_LOCK:
+            try:
+                await _callback(update, context)
+            except sc_persistence.PersistenceError as exc:
+                await _notify_persistence_error(update, exc)
+    finally:
+        _SC_OPERATION_CONTEXT.reset(operation_token)
 
 
 async def _serialized_excel_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    async with _SC_MUTATION_LOCK:
-        try:
-            await _handle_excel_document(update, context)
-        except sc_persistence.PersistenceError as exc:
-            await _notify_persistence_error(update, exc)
+    operation_token = _SC_OPERATION_CONTEXT.set(_update_operation_identity(update))
+    try:
+        async with _SC_MUTATION_LOCK:
+            try:
+                await _handle_excel_document(update, context)
+            except sc_persistence.PersistenceError as exc:
+                await _notify_persistence_error(update, exc)
+    finally:
+        _SC_OPERATION_CONTEXT.reset(operation_token)
 
 
 async def _serialized_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
-    async with _SC_MUTATION_LOCK:
+    # A free-form AI question is read-only; it must not block inventory mutations.
+    user_data = getattr(context, "user_data", {}) or {}
+    wait = user_data.get("_sc_wait") or {}
+    if wait.get("action") == "ai_ask":
         try:
-            handled = await _text(update, context)
-            if handled:
-                return True
-            return await _magic_text(update, context)
+            return await _text(update, context)
         except sc_persistence.PersistenceError as exc:
             await _notify_persistence_error(update, exc)
             return True
+    operation_token = _SC_OPERATION_CONTEXT.set(_update_operation_identity(update))
+    try:
+        async with _SC_MUTATION_LOCK:
+            try:
+                handled = await _text(update, context)
+                if handled:
+                    return True
+                return await _magic_text(update, context)
+            except sc_persistence.PersistenceError as exc:
+                await _notify_persistence_error(update, exc)
+                return True
+    finally:
+        _SC_OPERATION_CONTEXT.reset(operation_token)
 
 
 def install(app: Application, load_json: Callable[[str, Any], Any], save_json: Callable[[str, Any], Any], owner_id: int | None, ai_client: Any = None, ai_model: str | None = None) -> None:

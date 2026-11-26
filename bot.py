@@ -888,7 +888,7 @@ def load_json(filepath, default):
         return copy.deepcopy(_cache[key])
 
 
-def save_json(filepath, data):
+def save_json(filepath, data, *, operation_id=None, request_hash=None):
     if not USE_DB:
         return _file_save(filepath, data)
     key = _storage_key(filepath)
@@ -904,7 +904,7 @@ def save_json(filepath, data):
                 name: value for name, value in snapshot.items()
                 if name not in protected
             }
-            request_hash = hashlib.sha256(json.dumps(
+            request_hash = request_hash or hashlib.sha256(json.dumps(
                 business_snapshot,
                 ensure_ascii=False,
                 sort_keys=True,
@@ -923,7 +923,7 @@ def save_json(filepath, data):
             try:
                 committed = _get_sc_commit_adapter().commit(
                     expected_version=expected_version,
-                    operation_id=secrets.token_urlsafe(24),
+                    operation_id=operation_id or secrets.token_urlsafe(24),
                     request_hash=request_hash,
                     mutate=apply_business_snapshot,
                 )

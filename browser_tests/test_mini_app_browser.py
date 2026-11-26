@@ -46,6 +46,7 @@ class MiniAppBrowserTests(unittest.TestCase):
               configurable: true,
               value: () => { window.__printCalled = true; }
             });
+            window.XLSX = {read(){throw new Error("XLSX parser stub reached");}, utils:{}};
         """)
         self.page = self.context.new_page()
         self.page.on("pageerror", lambda error: self.fail(f"Browser JavaScript error: {error}"))
@@ -53,11 +54,6 @@ class MiniAppBrowserTests(unittest.TestCase):
             status=200, content_type="application/javascript",
             body="""window.Telegram={WebApp:{initData:"browser-test-init-data",
               initDataUnsafe:{user:{first_name:"QA"}},ready(){},expand(){}}};"""
-        ))
-        self.page.route("https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js", lambda route: route.fulfill(
-            status=200, content_type="application/javascript",
-            body="""window.XLSX={read(){throw new Error("XLSX parser stub reached");},
-              utils:{}};"""
         ))
         self.page.route("**/sc-api/v1/**", self._mock_api)
 
@@ -142,7 +138,7 @@ class MiniAppBrowserTests(unittest.TestCase):
         self.page.goto(self.base_url + "/supply_chain_mini_app.html", wait_until="load")
         self.page.locator("#connection").filter(has_text="Ulangan").wait_for(timeout=10000)
         self.page.locator("#kpis .kpi-value").first.wait_for()
-        self.page.wait_for_function("document.querySelector('#kpis .kpi-value')?.textContent?.trim() !== '—'")
+        self.page.locator("#kpis .kpi-value").filter(has_not_text="—").first.wait_for(timeout=10000)
 
     def test_dashboard_auth_inventory_detail_and_responsive_layout(self):
         self._open_app()
@@ -155,7 +151,7 @@ class MiniAppBrowserTests(unittest.TestCase):
         self.assertEqual(self.page.locator("#inventory-view .table-wrap").first.evaluate("(e)=>getComputedStyle(e).display"), "none")
         self.page.locator("#inventory-mobile .product-card").first.click()
         self.page.locator("#inventory-detail:not([hidden])").wait_for()
-        self.page.wait_for_function("document.querySelector('#detail-name')?.textContent === 'Test Product'")
+        self.page.locator("#detail-name").filter(has_text="Test Product").wait_for(timeout=10000)
         self.assertIn("Test Product", self.page.locator("#detail-name").inner_text())
         self.assertIn("Initial stock", self.page.locator("#detail-movements").inner_text())
 
@@ -181,13 +177,17 @@ class MiniAppBrowserTests(unittest.TestCase):
 
     def test_local_csv_preview_and_invalid_xlsx_archive_guard(self):
         self._open_app()
+        sheetjs = self.page.locator('script[src*="xlsx.full.min.js"]')
+        self.assertTrue((sheetjs.get_attribute("integrity") or "").startswith("sha384-"))
+        csp = self.page.locator('meta[http-equiv="Content-Security-Policy"]').get_attribute("content") or ""
+        self.assertNotIn("unsafe-eval", csp)
         self.page.get_by_role("button", name="Excel Workspace").click()
         self.page.get_by_text("Hozircha import tarixi yo‘q.").wait_for()
         csv_bytes = b"SKU,Product,Quantity,Unit,Unit Cost,Reorder Point\nSKU-100,Local Item,7,kg,12,3\nSKU-101,Second Item,4,pcs,5,2\n"
         self.page.locator("#excel-file").set_input_files({
             "name": "sample.csv", "mimeType": "text/csv", "buffer": csv_bytes
         })
-        self.page.wait_for_function("document.querySelector('#excel-rows').textContent.trim() === '2'")
+        self.page.locator("#excel-rows").filter(has_text="2").wait_for(timeout=10000)
         self.assertEqual(self.page.locator("#excel-valid").inner_text(), "2")
         self.assertIn("Local Item", self.page.locator("#excel-preview").inner_text())
         self.assertFalse(any(method != "GET" and path != "/sc-api/v1/session" for method, path, _query, _auth in self.api_calls))
@@ -207,7 +207,7 @@ class MiniAppBrowserTests(unittest.TestCase):
         self.page.locator("#excel-file").set_input_files({
             "name": "inventory.csv", "mimeType": "text/csv", "buffer": csv_bytes
         })
-        self.page.wait_for_function("document.querySelector('#excel-diff').textContent.includes('Yangi SKU')")
+        self.page.locator("#excel-diff").filter(has_text="Yangi SKU").wait_for(timeout=10000)
         confirm = self.page.locator("#excel-import-confirm")
         self.assertTrue(confirm.is_disabled())
         self.assertFalse(any(method == "POST" and path == "/sc-api/v1/inventory/import"
@@ -218,7 +218,9 @@ class MiniAppBrowserTests(unittest.TestCase):
         confirm.click()
         self.assertTrue(self.page.locator("#excel-file").is_disabled())
         self.assertTrue(self.page.locator("#excel-reset").is_disabled())
-        self.page.wait_for_function("document.querySelector('#excel-import-status').textContent.includes('Saqlandi') && !document.querySelector('#excel-file').disabled && !document.querySelector('#excel-reset').disabled")
+        self.page.locator("#excel-import-status").filter(has_text="Saqlandi").wait_for(timeout=10000)
+        self.page.locator("#excel-file:not([disabled])").wait_for(timeout=10000)
+        self.page.locator("#excel-reset:not([disabled])").wait_for(timeout=10000)
         self.assertFalse(self.page.locator("#excel-file").is_disabled())
         self.assertFalse(self.page.locator("#excel-reset").is_disabled())
         self.assertEqual(self.import_payload["expected_version"], 1)
@@ -240,7 +242,7 @@ class MiniAppBrowserTests(unittest.TestCase):
         self._open_app()
         self.page.get_by_role("button", name="Excel Workspace").click()
         history = self.page.locator("#excel-history")
-        self.page.wait_for_function("document.querySelector('#excel-history').textContent.includes('stock.xlsx')")
+        self.page.locator("#excel-history").filter(has_text="stock.xlsx").wait_for(timeout=10000)
         self.assertIn("stock.xlsx", history.inner_text())
         self.assertIn("Warehouse", history.inner_text())
         self.assertIn("1 yangi", history.inner_text())
@@ -256,7 +258,8 @@ class MiniAppBrowserTests(unittest.TestCase):
         self.assertEqual(download.suggested_filename, "supply-chain-inventory.csv")
 
         self.page.locator("#export-inventory-pdf").click()
-        self.page.wait_for_function("window.__printCalled === true")
+        self.page.locator("#report-status").filter(has_text="Chop etish oynasi ochiladi").wait_for(timeout=10000)
+        self.assertTrue(self.page.evaluate("window.__printCalled === true"))
         self.assertIn("Ombor hisoboti", self.page.locator("#print-title").inner_text())
         self.assertIn("SKU-001", self.page.locator("#print-body").inner_text())
         self.assertTrue(all(method == "GET" or path == "/sc-api/v1/session"

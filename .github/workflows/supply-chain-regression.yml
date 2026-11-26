@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - docs/supply-chain-mini-app-blueprint
+      - supply-chain-integrity-fixes-2026-11-26
   pull_request:
     branches:
       - main

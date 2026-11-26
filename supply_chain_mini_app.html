@@ -4,9 +4,10 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#10233f">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://telegram.org https://cdn.sheetjs.com; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data: blob:; font-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self'">
   <title>Supply Chain — Mini App</title>
-  <script src="https://telegram.org/js/telegram-web-app.js"></script>
-  <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+  <script src="https://telegram.org/js/telegram-web-app.js" referrerpolicy="no-referrer"></script>
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js" integrity="sha384-EnyY0/GSHQGSxSgMwaIPzSESbqoOLSexfnSMN2AP+39Ckmn92stwABZynq1JyzdT" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
   <style>
     :root{color-scheme:light;--navy:#10233f;--navy2:#18395e;--ink:#182638;--muted:#718096;--line:#e4eaf1;--paper:#f4f7fb;--white:#fff;--blue:#2e6ca4;--green:#21835b;--amber:#bd7b18;--red:#bd4a4a;--radius:16px}
     *{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif}
@@ -154,6 +155,8 @@
   const $ = id => document.getElementById(id);
   let token = "", page = 1, totalPages = 1, searchTimer = null, currentView = "dashboard";
   let inventoryBaseline = null, importVersion = null, importRows = [], importPreviewSeq = 0;
+  let inventoryVersion = null, pendingImportOperationId = null, pendingImportFingerprint = null;
+  const pendingArchiveOperations = new Map();
   const fmt = (n, digits=0) => n == null || !Number.isFinite(Number(n)) ? "—" : new Intl.NumberFormat("uz-UZ",{maximumFractionDigits:digits}).format(Number(n));
   const money = n => n == null ? "—" : fmt(n,0) + " UZS";
   const el = (tag, cls, value) => { const node=document.createElement(tag); if(cls)node.className=cls; if(value!==undefined)node.textContent=value; return node; };
@@ -173,7 +176,11 @@
     }
     let body={}; try{body=await response.json();}catch(_){}
     if(!response.ok) throw new Error(body.error?.message || ("HTTP "+response.status));
-    return body.data;
+    const data=body.data;
+    if(data&&typeof data==="object"&&body.meta?.data_version!=null&&data.data_version==null){
+      data.data_version=Number(body.meta.data_version);
+    }
+    return data;
   }
   async function authenticate() {
     if(!tg || !tg.initData){ 
@@ -256,15 +263,25 @@
   async function archiveInventoryProduct(sku,name){
     if(!confirm("\""+name+"\" ("+sku+") mahsulotini faol ombordan arxivga o‘tkazamizmi?\n\nMahsulot o‘chib ketmaydi: arxivda saqlanadi."))return;
     try{
-      const boot=await api("/sc-api/v1/bootstrap");
-      const result=await api("/sc-api/v1/inventory/"+encodeURIComponent(sku),{method:"DELETE",headers:{"Content-Type":"application/json"},body:JSON.stringify({sku,expected_version:Number(boot.data_version||1),operation_id:"archive-"+Date.now()+"-"+Math.random().toString(36).slice(2,10)})});
+      let operation=pendingArchiveOperations.get(sku);
+      if(!operation){
+        if(!Number.isInteger(inventoryVersion)||inventoryVersion<1)throw new Error("Avval ombor ro‘yxatini yangilang.");
+        operation={expectedVersion:inventoryVersion,operationId:(window.crypto&&crypto.randomUUID)?crypto.randomUUID():("archive-"+Date.now()+"-"+Math.random().toString(36).slice(2,10))};
+        pendingArchiveOperations.set(sku,operation);
+      }
+      await api("/sc-api/v1/inventory/"+encodeURIComponent(sku),{method:"DELETE",headers:{"Content-Type":"application/json"},body:JSON.stringify({sku,expected_version:operation.expectedVersion,operation_id:operation.operationId})});
+      pendingArchiveOperations.delete(sku);
       $("inventory-detail").hidden=true;await refreshAll();if(currentView==="inventory")await loadInventory();
       alert("Mahsulot arxivga o'tkazildi. Faol ombor ro'yxatidan olib tashlandi.");
-    }catch(error){showNotice("Arxivlash bajarilmadi",error.message,true);}
+    }catch(error){
+      if(/Preview eskirgan|Ma'lumotlar o'zgargan|version/i.test(error.message))pendingArchiveOperations.delete(sku);
+      showNotice("Arxivlash bajarilmadi",error.message,true);
+    }
   }
   async function loadInventory() {
     const qs=new URLSearchParams({page:String(page),page_size:"10",search:$("search").value,status:$("status").value,sort:$("sort").value});
     const result=await api("/sc-api/v1/inventory?"+qs.toString()), data=result;
+    inventoryVersion=Number(data.data_version||1);
     totalPages=Math.max(1,data.pagination.pages||1);$("inventory-count").textContent=fmt(data.pagination.total)+" ta mahsulot";
     $("page-info").textContent="Sahifa "+page+" / "+totalPages+" · "+fmt(data.pagination.total)+" ta";
     $("prev").disabled=page<=1;$("next").disabled=page>=totalPages;
@@ -596,6 +613,7 @@
       const products=await fetchAllPages("/sc-api/v1/inventory");
       if(seq!==importPreviewSeq)return;
       importVersion=Number(bootstrap.data_version||1);
+      pendingImportOperationId=null;pendingImportFingerprint=null;
       renderImportHistory(bootstrap.recent_imports||[]);
       inventoryBaseline=new Map(products.map(p=>[String(p.sku).toLocaleLowerCase(),p]));
       const diffs=importRows.map(row=>{
@@ -636,28 +654,38 @@
     $("excel-file").disabled=true;
     $("excel-reset").disabled=true;
     $("excel-import-status").textContent="Server qatorlarni qayta tekshirib, versiya nazorati bilan saqlamoqda.";
-    const operationId=(window.crypto&&crypto.randomUUID)?crypto.randomUUID():("excel-"+Date.now()+"-"+Math.random().toString(36).slice(2));
+    const importFingerprint=JSON.stringify({expected_version:importVersion,source_name:csvState.fileName||"inventory-import",source_sheet:csvState.workbook?$("excel-sheet").value:"",rows:importRows});
+    if(!pendingImportOperationId||pendingImportFingerprint!==importFingerprint){
+      pendingImportOperationId=(window.crypto&&crypto.randomUUID)?crypto.randomUUID():("excel-"+Date.now()+"-"+Math.random().toString(36).slice(2));
+      pendingImportFingerprint=importFingerprint;
+    }
     try{
       const result=await api("/sc-api/v1/inventory/import",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
-        operation_id:operationId,expected_version:importVersion,
+        operation_id:pendingImportOperationId,expected_version:importVersion,
         source_name:csvState.fileName||"inventory-import",
         source_sheet:csvState.workbook?$("excel-sheet").value:"",
         rows:importRows
       })});
       $("excel-import-status").textContent="Saqlandi: "+fmt(result.result?.processed)+" qator · yangi "+fmt(result.result?.created)+" · yangilandi "+fmt(result.result?.updated)+" · o‘zgarishsiz "+fmt(result.result?.unchanged)+" · versiya "+fmt(result.version)+".";
       $("excel-confirm-check").checked=false;
-      importRows=[];inventoryBaseline=null;importVersion=null;
+      importRows=[];inventoryBaseline=null;importVersion=null;pendingImportOperationId=null;pendingImportFingerprint=null;
       await refreshAll();
       await loadImportHistory();
       $("excel-diff").replaceChildren(el("div","alert good","Import saqlandi va ombor yangilandi."));
       $("excel-import-confirm").disabled=true;
     }catch(error){
-      $("excel-confirm-check").checked=false;
-      $("excel-import-confirm").disabled=true;
-      $("excel-import-status").textContent="Import bajarilmadi: "+error.message+" Sahifani yangilab, faylni qayta tekshiring.";
-      if(/outcome|tasdiqlanmadi|Preview eskirgan/i.test(error.message)){
-        importVersion=null;inventoryBaseline=null;
-        $("excel-import-status").textContent+=" Takroran import qilishdan oldin omborni yangilab, farqlarni qayta tekshiring.";
+      const outcomeUnknown=/natija.*(tasdiqlanmadi|noaniq)|15 soniya ichida javob bermadi|failed to fetch|network/i.test(error.message);
+      if(outcomeUnknown){
+        // Keep the exact payload, preview version and operation ID for a safe retry.
+        $("excel-confirm-check").checked=true;
+        $("excel-import-status").textContent="Saqlash natijasi noaniq. Takroriy urinish ayni operation ID bilan yuboriladi: "+error.message;
+      }else{
+        $("excel-confirm-check").checked=false;
+        $("excel-import-status").textContent="Import bajarilmadi: "+error.message+" Sahifani yangilab, faylni qayta tekshiring.";
+        if(/Preview eskirgan|Ma'lumotlar o'zgargan|version_conflict/i.test(error.message)){
+          importVersion=null;inventoryBaseline=null;pendingImportOperationId=null;pendingImportFingerprint=null;
+          $("excel-import-status").textContent+=" Preview eskirgan. Omborni yangilang va farqlarni qayta tekshiring.";
+        }
       }
     }finally{
       $("excel-file").disabled=false;
@@ -681,7 +709,7 @@
   }
   $("excel-file").addEventListener("change",async event=>{
     const file=event.target.files?.[0];if(!file)return;
-    importRows=[];importVersion=null;inventoryBaseline=null;importPreviewSeq++;
+    importRows=[];importVersion=null;inventoryBaseline=null;pendingImportOperationId=null;pendingImportFingerprint=null;importPreviewSeq++;
     $("excel-import-confirm").disabled=true;$("excel-confirm-check").checked=false;
     $("excel-import-status").textContent="Yangi fayl tekshirilmoqda…";
     try{
@@ -725,7 +753,7 @@
     $("excel-diff").replaceChildren(el("div","muted","Fayl yuklangandan keyin ombor bilan solishtiriladi."));
     $("excel-import-confirm").disabled=true;$("excel-confirm-check").checked=false;
     $("excel-import-status").textContent="Hozircha hech narsa saqlanmadi.";
-    importRows=[];inventoryBaseline=null;importVersion=null;importPreviewSeq++;
+    importRows=[];inventoryBaseline=null;importVersion=null;pendingImportOperationId=null;pendingImportFingerprint=null;importPreviewSeq++;
   });
   $("excel-confirm-check").addEventListener("change",event=>{
     const hasErrors=Number($("excel-errors").textContent.replace(/\D/g,""))>0;
