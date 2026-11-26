@@ -3583,7 +3583,8 @@ async def _serialized_excel_document(update: Update, context: ContextTypes.DEFAU
 
 async def _serialized_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     # A free-form AI question is read-only; it must not block inventory mutations.
-    wait = context.user_data.get("_sc_wait") or {}
+    user_data = getattr(context, "user_data", {}) or {}
+    wait = user_data.get("_sc_wait") or {}
     if wait.get("action") == "ai_ask":
         try:
             return await _text(update, context)
