@@ -19,6 +19,20 @@ Observed behavior in `bot.py`:
 
 The current read API is deliberately read-only. Keep it that way until the requirements below are implemented and tested.
 
+
+## 1.1 Additional persistence findings from code review
+
+A focused review of the current writer implementation confirms several details that must be handled before adding acknowledged commits:
+
+- `_writer_loop()` removes a key from `_pending` before the Supabase request starts. That write is then in-flight but is no longer represented in the pending map.
+- `save_json()` can enqueue a newer snapshot for the same key while the older snapshot is in-flight. The single writer thread currently preserves order for its own queue, but a future synchronous commit must coordinate with both the in-flight write and the pending replacement; simply adding a second direct `_db_save()` call would introduce a stale-overwrite race.
+- `flush_storage()` copies and clears the pending map, then calls `_db_save()` outside the writer thread. It does not wait for or coordinate with a write already in-flight for the same key. Shutdown flushing therefore is not a safe commit primitive.
+- The `timeout` argument to `flush_storage(timeout=15)` is currently unused. The function makes one attempt per copied item and logs failures; it does not provide a bounded wait or durable completion signal.
+- `_db_save()` uses Supabase `return=minimal`. A successful HTTP response confirms that the REST upsert request succeeded, but the application currently has no commit receipt, revision identifier or read-back verification tied to a particular queued snapshot.
+- In local-file fallback mode, `save_json()` writes synchronously using a temporary file and `os.replace()`, but it does not fsync the file or containing directory. That may be acceptable for ordinary local development, but it should not be described as crash-durable without an explicit durability decision.
+
+**Implementation consequence:** do not build an acknowledged Mini App write endpoint by calling `_db_save()` directly, by waiting for `_pending` to become empty, or by using `flush_storage()`. None of those methods can prove that the exact requested revision was durably committed without racing the current writer. The adapter must own queueing, in-flight tracking, ordering and per-revision completion under one synchronization protocol.
+
 ## 2. Required invariants
 
 Every future write path must preserve all of these invariants:
