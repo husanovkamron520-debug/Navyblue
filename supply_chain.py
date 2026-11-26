@@ -2127,7 +2127,7 @@ async def _callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 for item in valid:
                     lines.append(f"• {item['name']} — {_f(item['quantity'])} {item['unit']}")
                 lines.extend(["", "Buyurtmalar hali yetkazib beruvchiga yuborilmadi. Ularni «Buyurtmalar» bo‘limida tekshirishingiz mumkin."])
-                await _edit(q, "\\n".join(lines),
+                await _edit(q, "\n".join(lines),
                             InlineKeyboardMarkup([[_btn("🧾 Buyurtmalarni ko‘rish", "orders")],
                                                   [_btn("↩️ Boshqa savol", "ai")], [_btn("⬅️ Menyu", "home")]]))
             except Exception as exc:
