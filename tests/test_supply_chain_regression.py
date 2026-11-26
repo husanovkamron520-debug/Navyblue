@@ -361,5 +361,55 @@ class SupplyChainAIContextRegressionTests(unittest.TestCase):
         self.assertIn("2 000", text)
         self.assertIn("qoralama", text.lower())
 
+    def test_magic_input_builds_confirm_first_proposals_without_mutating_stock(self):
+        data = empty_data()
+        data["products"]["SUGAR"] = {
+            "sku": "SUGAR", "name": "Shakar", "quantity": 100, "reorder_point": 20,
+            "unit": "qop", "unit_cost": 500000,
+        }
+        proposals = supply_chain._magic_prepare_movements(data, [{
+            "product": "Shakar", "direction": "out", "quantity": 4,
+            "unit": "qop", "confidence": 0.99,
+        }])
+        self.assertEqual(proposals[0]["before"], 100)
+        self.assertEqual(proposals[0]["after"], 96)
+        self.assertEqual(data["products"]["SUGAR"]["quantity"], 100)
+        self.assertEqual(data["movements"], [])
+
+    def test_magic_input_rejects_unit_mismatch_and_insufficient_stock(self):
+        data = empty_data()
+        data["products"]["SUGAR"] = {
+            "sku": "SUGAR", "name": "Shakar", "quantity": 10, "reorder_point": 5,
+            "unit": "kg", "unit_cost": 5000,
+        }
+        with self.assertRaisesRegex(ValueError, "birlik"):
+            supply_chain._magic_prepare_movements(data, [{
+                "product": "Shakar", "direction": "in", "quantity": 4,
+                "unit": "qop", "confidence": 0.99,
+            }])
+        with self.assertRaisesRegex(ValueError, "omborda"):
+            supply_chain._magic_prepare_movements(data, [{
+                "product": "Shakar", "direction": "out", "quantity": 40,
+                "unit": "kg", "confidence": 0.99,
+            }])
+        self.assertEqual(data["products"]["SUGAR"]["quantity"], 10)
+
+    def test_magic_input_ignores_low_confidence_and_requires_exact_product(self):
+        data = empty_data()
+        data["products"]["SUGAR"] = {
+            "sku": "SUGAR", "name": "Shakar", "quantity": 10, "reorder_point": 5,
+            "unit": "kg", "unit_cost": 5000,
+        }
+        with self.assertRaisesRegex(ValueError, "aniq mos"):
+            supply_chain._magic_prepare_movements(data, [{
+                "product": "Shakarga o‘xshash mahsulot", "direction": "in",
+                "quantity": 4, "unit": "kg", "confidence": 0.99,
+            }])
+        with self.assertRaisesRegex(ValueError, "Aniq mahsulot"):
+            supply_chain._magic_prepare_movements(data, [{
+                "product": "Shakar", "direction": "in",
+                "quantity": 4, "unit": "kg", "confidence": 0.2,
+            }])
+
 if __name__ == "__main__":
     unittest.main()
