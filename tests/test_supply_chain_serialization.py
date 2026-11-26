@@ -85,5 +85,26 @@ class SupplyChainMutationSerializationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(calls, [("supply_chain_data.json", "tg-operation-1", "a" * 64)])
 
 
+    async def test_voice_transcript_facade_avoids_mutating_cached_ptb_update(self):
+        from types import SimpleNamespace
+
+        async def reply_text(*_args, **_kwargs):
+            return None
+
+        original_message = SimpleNamespace(text=None, reply_text=reply_text)
+        original_update = SimpleNamespace(
+            effective_message=original_message,
+            effective_chat=SimpleNamespace(id=7),
+            effective_user=SimpleNamespace(id=7),
+        )
+        synthetic = supply_chain._transcript_update(
+            original_update, original_message, "kirim 5 kg shakar"
+        )
+        self.assertEqual(synthetic.effective_message.text, "kirim 5 kg shakar")
+        self.assertIs(synthetic.effective_chat, original_update.effective_chat)
+        self.assertIs(synthetic.effective_user, original_update.effective_user)
+        self.assertIsNone(original_update.effective_message.text)
+
+
 if __name__ == "__main__":
     unittest.main()
