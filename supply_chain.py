@@ -1438,7 +1438,8 @@ def _ai_draft_candidates(data: dict[str, Any]) -> list[dict[str, Any]]:
             continue
         metric = metrics.get(str(sku), {})
         qty = (_safe_num(metric.get("recommended_purchase_quantity"))
-               if metric.get("forecast_status") == "available" else max(0.0, minimum - stock))
+               if metric.get("forecast_status") == "available"
+               else max(0.0, minimum - stock - _safe_num(metric.get("open_order_quantity"))))
         if qty <= 0:
             continue
         supplier_id = str(product.get("supplier_id") or "").strip()
