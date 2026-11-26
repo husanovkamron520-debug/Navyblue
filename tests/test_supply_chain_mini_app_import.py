@@ -106,6 +106,16 @@ class MiniAppImportCommitTests(unittest.TestCase):
         self.assertEqual(saved["movements"][0]["type"], "in")
         self.assertEqual(saved["movements"][1]["type"], "in")
 
+    def test_optional_unit_is_applied_to_new_products(self):
+        rows = [{"sku": "SKU-2", "name": "Wheat", "quantity": 5, "unit": "kg"}]
+        importer.commit_inventory_import(self.adapter, payload(rows))
+        self.assertEqual(self.store.load()["products"]["SKU-2"]["unit"], "kg")
+
+    def test_non_string_unit_is_rejected(self):
+        rows = [{"sku": "SKU-2", "name": "Wheat", "quantity": 5, "unit": 123}]
+        with self.assertRaises(importer.ImportValidationError):
+            importer.commit_inventory_import(self.adapter, payload(rows))
+
     def test_import_history_records_source_file_and_sheet(self):
         body = payload(source_name="inventory.xlsx", source_sheet="Warehouse")
         importer.commit_inventory_import(self.adapter, body)
