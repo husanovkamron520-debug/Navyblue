@@ -112,11 +112,11 @@
       </div>
     </section>
     <section id="reports-view" hidden>
-      <div class="section-head"><div><h2>Hisobotlar va eksport</h2><p>Joriy saqlangan ma’lumotlardan CSV hisobotlar yaratish</p></div><button class="retry" id="reports-refresh">Yangilash</button></div>
+      <div class="section-head"><div><h2>Hisobotlar va eksport</h2><p>Joriy ma’lumotlardan CSV yoki Excel hisobotlar yaratish</p></div><button class="retry" id="reports-refresh">Yangilash</button></div>
       <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr))">
-        <div class="card"><div class="chart-title">Ombor hisoboti</div><div class="chart-sub">Barcha SKU, miqdor, qayta buyurtma chegarasi va birlik narxi</div><button class="retry" id="export-inventory" style="margin-top:14px;width:100%">CSV yuklab olish</button></div>
-        <div class="card"><div class="chart-title">Xarid hisoboti</div><div class="chart-sub">Xarid buyurtmalari, yetkazib beruvchi, miqdor va holat</div><button class="retry" id="export-orders" style="margin-top:14px;width:100%">CSV yuklab olish</button></div>
-        <div class="card"><div class="chart-title">Logistika hisoboti</div><div class="chart-sub">Jo‘natmalar, manzil, transport, masofa va holat</div><button class="retry" id="export-shipments" style="margin-top:14px;width:100%">CSV yuklab olish</button></div>
+        <div class="card"><div class="chart-title">Ombor hisoboti</div><div class="chart-sub">Barcha SKU, miqdor, qayta buyurtma chegarasi va birlik narxi</div><div style="display:flex;gap:8px;margin-top:14px"><button class="retry" id="export-inventory" style="flex:1">CSV</button><button class="retry" id="export-inventory-xlsx" style="flex:1">Excel</button></div></div>
+        <div class="card"><div class="chart-title">Xarid hisoboti</div><div class="chart-sub">Xarid buyurtmalari, yetkazib beruvchi, miqdor va holat</div><div style="display:flex;gap:8px;margin-top:14px"><button class="retry" id="export-orders" style="flex:1">CSV</button><button class="retry" id="export-orders-xlsx" style="flex:1">Excel</button></div></div>
+        <div class="card"><div class="chart-title">Logistika hisoboti</div><div class="chart-sub">Jo‘natmalar, manzil, transport, masofa va holat</div><div style="display:flex;gap:8px;margin-top:14px"><button class="retry" id="export-shipments" style="flex:1">CSV</button><button class="retry" id="export-shipments-xlsx" style="flex:1">Excel</button></div></div>
       </div>
       <div class="card" style="margin-top:12px"><div class="chart-title">Eksport holati</div><div id="report-status" class="muted" style="margin-top:8px">Hisobot yaratish uchun yuqoridagi tugmalardan foydalaning.</div><div class="muted" style="font-size:12px;margin-top:10px">Hisobotlar brauzerda yaratiladi. Ma’lumotlar serverga qayta yozilmaydi; eksport faqat o‘qish amalidir.</div></div>
     </section>
@@ -272,19 +272,30 @@
     const link=document.createElement("a");link.href=url;link.download=filename;document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
     $("report-status").textContent=filename+" · "+fmt(rows.length)+" qator eksport qilindi.";
   }
-  async function exportReport(kind){
+  function downloadXLSX(filename,headers,rows){
+    if(!window.XLSX)throw new Error("Excel eksport kutubxonasi yuklanmagan.");
+    const workbook=XLSX.utils.book_new();
+    const sheet=XLSX.utils.aoa_to_sheet([headers,...rows]);
+    XLSX.utils.book_append_sheet(workbook,sheet,"Report");
+    XLSX.writeFile(workbook,filename);
+    $("report-status").textContent=filename+" · "+fmt(rows.length)+" qator Excel formatida eksport qilindi.";
+  }
+  async function exportReport(kind,format="csv"){
     $("report-status").textContent="Ma’lumotlar tayyorlanmoqda…";
     try{
+      let filename,headers,rows,path;
       if(kind==="inventory"){
-        const items=await fetchAllPages("/sc-api/v1/inventory");
-        downloadCSV("supply-chain-inventory.csv",["SKU","Mahsulot","Miqdor","Birlik","Reorder point","Birlik narxi"],items.map(x=>[x.sku,x.name,x.quantity,x.unit,x.reorder_point,x.unit_cost]));
+        path="/sc-api/v1/inventory";filename="supply-chain-inventory";headers=["SKU","Mahsulot","Miqdor","Birlik","Reorder point","Birlik narxi"];
+        const items=await fetchAllPages(path);rows=items.map(x=>[x.sku,x.name,x.quantity,x.unit,x.reorder_point,x.unit_cost]);
       }else if(kind==="orders"){
-        const items=await fetchAllPages("/sc-api/v1/procurement/orders");
-        downloadCSV("supply-chain-purchase-orders.csv",["Buyurtma ID","Mahsulot","Yetkazib beruvchi","Miqdor","Kutilgan sana","Holat"],items.map(x=>[x.id,x.product_name,x.supplier_name,x.quantity,x.expected_date,x.status]));
+        path="/sc-api/v1/procurement/orders";filename="supply-chain-purchase-orders";headers=["Buyurtma ID","Mahsulot","Yetkazib beruvchi","Miqdor","Kutilgan sana","Holat"];
+        const items=await fetchAllPages(path);rows=items.map(x=>[x.id,x.product_name,x.supplier_name,x.quantity,x.expected_date,x.status]);
       }else{
-        const items=await fetchAllPages("/sc-api/v1/logistics/shipments");
-        downloadCSV("supply-chain-shipments.csv",["Jo‘natma ID","Mahsulot","Miqdor","Manzil","Transport","Masofa km","Taxminiy xarajat","Holat"],items.map(x=>[x.id,x.product_name,x.quantity,x.destination,x.vehicle_name,x.distance_km,x.estimated_cost,x.status]));
+        path="/sc-api/v1/logistics/shipments";filename="supply-chain-shipments";headers=["Jo‘natma ID","Mahsulot","Miqdor","Manzil","Transport","Masofa km","Taxminiy xarajat","Holat"];
+        const items=await fetchAllPages(path);rows=items.map(x=>[x.id,x.product_name,x.quantity,x.destination,x.vehicle_name,x.distance_km,x.estimated_cost,x.status]);
       }
+      if(format==="xlsx")downloadXLSX(filename+".xlsx",headers,rows);
+      else downloadCSV(filename+".csv",headers,rows);
     }catch(err){$("report-status").textContent="Eksport bajarilmadi: "+err.message;}
   }
   const csvState={headers:[],rows:[],fileName:"",workbook:null};
@@ -445,6 +456,9 @@
   $("export-inventory").addEventListener("click",()=>exportReport("inventory"));
   $("export-orders").addEventListener("click",()=>exportReport("orders"));
   $("export-shipments").addEventListener("click",()=>exportReport("shipments"));
+  $("export-inventory-xlsx").addEventListener("click",()=>exportReport("inventory","xlsx"));
+  $("export-orders-xlsx").addEventListener("click",()=>exportReport("orders","xlsx"));
+  $("export-shipments-xlsx").addEventListener("click",()=>exportReport("shipments","xlsx"));
   $("prev").addEventListener("click",()=>{if(page>1){page--;loadInventory().catch(e=>showNotice("Xatolik",e.message,true));}});
   $("next").addEventListener("click",()=>{if(page<totalPages){page++;loadInventory().catch(e=>showNotice("Xatolik",e.message,true));}});
   ["search","status","sort"].forEach(id=>$(id).addEventListener(id==="search"?"input":"change",()=>{page=1;clearTimeout(searchTimer);searchTimer=setTimeout(()=>loadInventory().catch(e=>showNotice("Xatolik",e.message,true)),id==="search"?250:0);}));
