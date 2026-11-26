@@ -538,13 +538,23 @@ def list_inventory(snapshot: dict, search: str = "", status: str = "all",
     data = copy.deepcopy(snapshot) if isinstance(snapshot, dict) else {}
     products = data.get("products") if isinstance(data.get("products"), dict) else {}
     rows = [_product_row(str(sku), p) for sku, p in products.items() if isinstance(p, dict)]
+    # A high-stock signal is a review flag, not proof of overstock: reorder point is a minimum, not a maximum.
+    for row in rows:
+        qty, reorder = row["quantity"], row["reorder_point"]
+        row["stock_level"] = ("unknown" if qty is None or reorder is None or reorder <= 0
+                              else "low" if qty <= reorder
+                              else "high" if qty >= reorder * 5
+                              else "healthy")
+        row["reorder_multiple"] = round(qty / reorder, 2) if qty is not None and reorder is not None and reorder > 0 else None
     query = str(search or "").strip().casefold()
     if query:
         rows = [r for r in rows if query in r["sku"].casefold() or query in r["name"].casefold()]
     if status == "low":
         rows = [r for r in rows if r["quantity"] is not None and r["reorder_point"] is not None and r["quantity"] <= r["reorder_point"]]
     elif status == "healthy":
-        rows = [r for r in rows if r["quantity"] is not None and r["reorder_point"] is not None and r["quantity"] > r["reorder_point"]]
+        rows = [r for r in rows if r["stock_level"] == "healthy"]
+    elif status == "high":
+        rows = [r for r in rows if r["stock_level"] == "high"]
     sort_keys = {
         "name": lambda r: r["name"].casefold(),
         "quantity": lambda r: (r["quantity"] is None, r["quantity"] or 0),
