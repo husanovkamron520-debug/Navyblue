@@ -251,7 +251,7 @@ Phase 6 — Hardening and rollout:
 - The preview/analysis stage remains local and read-only; it fetches current inventory/version only to calculate before/after differences.
 - The explicit apply flow sends normalized rows (not workbook bytes) only after a separate confirmation checkbox and button.
 - The server independently validates all rows and commits through the existing JSONB-CAS adapter with expected-version checks, idempotency and audit metadata. Sanitized source filename/worksheet metadata and a bounded 100-entry import history are stored in the existing JSONB document; workbook bytes are not uploaded. No schema change is required.
-- Existing SKU quantities are set to the imported value; new products default to unit `pcs`; optional cost/reorder fields preserve saved values when omitted. Quantity changes append inbound/outbound movement records.
+- Existing SKU quantities are set to the imported value; optional unit, cost and reorder fields update only when present; new products default to unit `pcs` if no unit is mapped. Quantity changes append inbound/outbound movement records.
 - The exact PostgREST behavior has not yet been tested against a disposable staging row/project; do not merge/deploy until that gate is complete.
 
 
