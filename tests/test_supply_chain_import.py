@@ -234,5 +234,42 @@ class SupplyChainImportTests(unittest.TestCase):
                 supply_chain_import.read_workbook(raw)
 
 
+    def test_order_import_respects_supported_status_and_expected_date(self):
+        raw = make_xlsx([
+            ["Product", "Supplier", "Order Quantity", "Status", "Expected Date"],
+            ["Sugar", "Supplier A", "5", "ordered", "2026-12-01"],
+        ], sheet_name="Orders")
+        preview = supply_chain_import.inspect_workbook(raw)
+        validated = supply_chain_import.validate_records(preview)
+        self.assertEqual(validated["valid_count"], 1)
+        data = {
+            "products": {"SKU-1": {"sku": "SKU-1", "name": "Sugar", "quantity": 10}},
+            "suppliers": {"SUP-1": {"id": "SUP-1", "name": "Supplier A"}},
+            "orders": [],
+        }
+        result = supply_chain_import.apply_import(data, validated)
+        self.assertEqual(result["orders"], 1)
+        self.assertEqual(data["orders"][0]["status"], "ordered")
+        self.assertEqual(data["orders"][0]["expected_date"], "2026-12-01")
+
+    def test_received_order_status_is_rejected_to_prevent_unrecorded_stock_receipt(self):
+        raw = make_xlsx([
+            ["Product", "Supplier", "Order Quantity", "Status"],
+            ["Sugar", "Supplier A", "5", "received"],
+        ], sheet_name="Orders")
+        validated = supply_chain_import.validate_records(supply_chain_import.inspect_workbook(raw))
+        self.assertEqual(validated["valid_count"], 0)
+        self.assertTrue(any("kirim qilish jarayoni" in e["message"] for e in validated["errors"]))
+
+    def test_invalid_expected_date_is_rejected(self):
+        raw = make_xlsx([
+            ["Product", "Supplier", "Order Quantity", "Expected Date"],
+            ["Sugar", "Supplier A", "5", "tomorrow"],
+        ], sheet_name="Orders")
+        validated = supply_chain_import.validate_records(supply_chain_import.inspect_workbook(raw))
+        self.assertEqual(validated["valid_count"], 0)
+        self.assertTrue(any("YYYY-MM-DD" in e["message"] for e in validated["errors"]))
+
+
 if __name__ == "__main__":
     unittest.main()
