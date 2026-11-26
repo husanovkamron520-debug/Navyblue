@@ -96,6 +96,18 @@ _MONTH_RE = re.compile(r"\b(\d{4})-(\d{2})\b")
 _UNITS = {"kg": "kg", "kilo": "kg", "kilogramm": "kg", "g": "g", "gr": "g", "gramm": "g", "t": "t", "tonna": "t", "tn": "t",
           "dona": "dona", "ta": "dona", "sht": "dona", "litr": "litr", "l": "litr", "metr": "m", "m": "m", "quti": "quti",
           "paket": "paket", "rulon": "rulon", "pachka": "pachka", "qop": "qop", "bochka": "bochka", "palet": "palet"}
+_MASS_TO_KG = {"g": 0.001, "kg": 1.0, "t": 1000.0}
+
+
+def _convert_movement_quantity(quantity: float, input_unit: str | None, product_unit: str) -> float:
+    """Convert mass units to the product's stock unit; reject unrelated unit changes."""
+    source = _UNITS.get(_norm(input_unit), _norm(input_unit)) if input_unit else _UNITS.get(_norm(product_unit), _norm(product_unit))
+    target = _UNITS.get(_norm(product_unit), _norm(product_unit))
+    if source == target:
+        return quantity
+    if source in _MASS_TO_KG and target in _MASS_TO_KG:
+        return quantity * _MASS_TO_KG[source] / _MASS_TO_KG[target]
+    raise ValueError(f"Birlik mos emas: kiritilgan «{input_unit}», ombordagi «{product_unit}». Faqat kg/g/tonna kabi massa birliklari avtomatik aylantiriladi.")
 _MONTHS = {"yanvar": 1, "fevral": 2, "mart": 3, "aprel": 4, "may": 5, "iyun": 6, "iyul": 7, "avgust": 8,
            "sentabr": 9, "sentyabr": 9, "oktabr": 10, "oktyabr": 10, "noyabr": 11, "dekabr": 12}
 _OUT_WORDS = {"ketdi", "ketildi", "chiqdi", "chiqim", "berildi", "sotildi", "ishlatildi", "yuborildi", "jo'natildi", "jonatildi",
@@ -1719,13 +1731,7 @@ def _magic_prepare_movements(data: dict[str, Any], entries: list[dict[str, Any]]
             raise ValueError(f"{product_name}: miqdor noto‘g‘ri.")
         product_unit = str(product.get("unit") or "dona")
         input_unit = str(entry.get("unit") or "").strip()
-        if input_unit:
-            canonical_input = _UNITS.get(_norm(input_unit), _norm(input_unit))
-            canonical_product = _UNITS.get(_norm(product_unit), _norm(product_unit))
-            if canonical_input != canonical_product:
-                raise ValueError(
-                    f"{product_name}: hujjatdagi birlik «{input_unit}», ombordagi birlik «{product_unit}»."
-                )
+        quantity = _convert_movement_quantity(quantity, input_unit or None, product_unit)
         before = _safe_num(product.get("quantity"))
         after = before + quantity if direction == "in" else before - quantity
         if after < -1e-9:
@@ -1816,17 +1822,19 @@ async def _magic_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> boo
             seen.add(sku)
             input_unit, _rest = _take_unit(segment)
             product_unit = str(product.get("unit") or "dona")
-            if input_unit:
-                canonical_input = _UNITS.get(_norm(input_unit), _norm(input_unit))
-                canonical_product = _UNITS.get(_norm(product_unit), _norm(product_unit))
-                if canonical_input != canonical_product:
-                    raise ValueError(
-                        f"{product.get('name')}: siz «{input_unit}» deb yozdingiz, omborda esa «{product_unit}» hisoblanadi."
-                    )
+            # Quantity in the message may use a compatible mass unit (e.g. 10 t -> 10,000 kg).
+            rest = _remove_words(segment, _hits | {_norm(sku)})
+            raw_quantity, _rest = _first_number(rest)
+            if raw_quantity is None or not math.isfinite(raw_quantity) or raw_quantity <= 0:
+                raise ValueError(f"{product.get('name')}: miqdorni aniqlab bo‘lmadi.")
+            quantity = _convert_movement_quantity(raw_quantity, input_unit, product_unit)
             before = _safe_num(product.get("quantity"))
-            _parse_move(scratch, segment, direction)
-            movement = scratch["movements"][-1]
-            after = _safe_num(scratch["products"][sku].get("quantity"))
+            after = before + quantity if direction == "in" else before - quantity
+            if after < -1e-9:
+                raise ValueError(f"Omborda yetarli emas: {product.get('name')} — {_f(before)} {product_unit} bor, {_f(quantity)} {product_unit} so‘raldi.")
+            product["quantity"] = after
+            product["updated_at"] = _now()
+            scratch["movements"].append({"id": uuid.uuid4().hex[:12], "sku": sku, "type": direction, "quantity": quantity, "note": segment, "created_at": _now()})
             proposals.append({
                 "sku": sku, "name": str(product.get("name") or sku),
                 "direction": direction, "quantity": _safe_num(movement.get("quantity")),
