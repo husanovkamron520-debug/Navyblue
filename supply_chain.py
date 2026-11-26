@@ -1697,6 +1697,132 @@ def _magic_resolve_product(data: dict[str, Any], label: str) -> tuple[str, dict[
     )
 
 
+
+
+def _magic_prepare_document(data: dict[str, Any], entries: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    """Classify every extracted document row without discarding valid neighboring rows."""
+    result: dict[str, list[dict[str, Any]]] = {"matched": [], "new_in": [], "unknown_out": [], "blocked": []}
+    seen: set[str] = set()
+    for index, entry in enumerate(entries, start=1):
+        if not isinstance(entry, dict):
+            result["blocked"].append({"index": index, "name": f"{index}-qator", "reason": "Yozuv tuzilishi noto‘g‘ri."})
+            continue
+        label = str(entry.get("product") or "").strip()
+        confidence = _safe_num(entry.get("confidence", 0))
+        direction = str(entry.get("direction") or "").casefold().strip()
+        direction = {"kirim": "in", "keldi": "in", "qabul": "in", "chiqim": "out", "ketdi": "out", "sotildi": "out"}.get(direction, direction)
+        try:
+            qty = float(entry.get("quantity"))
+        except (TypeError, ValueError):
+            qty = math.nan
+        unit = str(entry.get("unit") or "").strip()
+        row = {"index": index, "name": label or f"{index}-qator", "direction": direction, "quantity": qty, "input_unit": unit}
+        if not label or confidence < 0.85 or direction not in {"in", "out"} or not math.isfinite(qty) or qty <= 0:
+            row["reason"] = "Mahsulot nomi, amal, miqdor yoki OCR ishonchliligi yetarli emas."
+            result["blocked"].append(row)
+            continue
+        try:
+            sku, product = _magic_resolve_product(data, label)
+        except ValueError as exc:
+            if "bir nechta" in str(exc).casefold() or "o‘xshaydi" in str(exc).casefold():
+                row["reason"] = str(exc)
+                result["blocked"].append(row)
+                continue
+            if direction == "out":
+                row["reason"] = "Bazadagi mahsulot topilmadi; mavjud zaxiradan chiqim qilib bo‘lmaydi."
+                result["unknown_out"].append(row)
+                continue
+            canonical_unit = _UNITS.get(_norm(unit), _norm(unit)) if unit else ""
+            if not canonical_unit:
+                row["reason"] = "Yangi mahsulot uchun birlik ko‘rsatilmagan. Birlikni aniqlashtiring."
+                result["blocked"].append(row)
+                continue
+            result["new_in"].append({
+                **row, "unit": canonical_unit, "after": qty,
+                "reason": "Kirim yangi SKU sifatida qo‘shilishi mumkin.",
+            })
+            continue
+        if sku in seen:
+            row["reason"] = "Hujjatda ayni mahsulot takrorlangan; qatorlarni alohida tekshiring."
+            result["blocked"].append(row)
+            continue
+        seen.add(sku)
+        product_unit = str(product.get("unit") or "dona")
+        try:
+            converted = _convert_movement_quantity(qty, unit or None, product_unit)
+        except ValueError as exc:
+            row["reason"] = str(exc)
+            result["blocked"].append(row)
+            continue
+        before = _safe_num(product.get("quantity"))
+        after = before + converted if direction == "in" else before - converted
+        if after < -1e-9:
+            row["reason"] = f"Qoldiq yetarli emas: {_f(before)} {product_unit} mavjud."
+            result["blocked"].append(row)
+            continue
+        result["matched"].append({
+            "sku": sku, "name": str(product.get("name") or label),
+            "direction": direction, "quantity": converted, "unit": product_unit,
+            "before": before, "after": after, "index": index,
+        })
+    return result
+
+
+def _magic_document_text(doc: dict[str, Any]) -> str:
+    lines = ["📋 **Hujjat tahlili**", ""]
+    if doc.get("matched"):
+        lines.extend(["✅ **Bazadan topildi — saqlashga tayyor:**"])
+        for x in doc["matched"]:
+            action = "+" if x["direction"] == "in" else "−"
+            lines.append(f"• {x['name']} — {action}{_f(x['quantity'])} {x['unit']} (qoldiq: {_f(x['after'])})")
+        lines.append("")
+    if doc.get("new_in"):
+        lines.extend(["🆕 **Bazadagi yangi kirim — yangi SKU taklifi:**"])
+        for x in doc["new_in"]:
+            lines.append(f"• {x['name']} — +{_f(x['quantity'])} {x['unit']} (yangi mahsulot sifatida qo‘shiladi)")
+        lines.append("")
+    if doc.get("unknown_out"):
+        lines.extend(["⚠️ **Bazadagi mavjud bo‘lmagan mahsulot chiqimi — bloklangan:**"])
+        for x in doc["unknown_out"]:
+            lines.append(f"• {x['name']} — −{_f(x['quantity'])} {x['input_unit'] or 'birlik'}: {x['reason']}")
+        lines.append("")
+    if doc.get("blocked"):
+        lines.extend(["⛔ **Aniqlashtirish kerak:**"])
+        for x in doc["blocked"]:
+            lines.append(f"• {x['name']}: {x['reason']}")
+        lines.append("")
+    lines.append("Hozircha ombor o‘zgarmadi. Tanlangan qatorlargina bitta saqlash amali bilan yoziladi.")
+    return "\n".join(lines)
+
+
+def _magic_document_keyboard(doc: dict[str, Any]) -> InlineKeyboardMarkup:
+    rows = []
+    if doc.get("matched") or doc.get("new_in"):
+        rows.append([_btn(f"✅ Topilgan + yangi ({len(doc.get('matched', [])) + len(doc.get('new_in', []))}) ni saqlash", "magic_save_all")])
+    if doc.get("matched"):
+        rows.append([_btn(f"➕ Faqat topilgan ({len(doc['matched'])}) ni saqlash", "magic_save_matched")])
+    for x in doc.get("unknown_out", []):
+        idx = int(x["index"])
+        rows.append([_btn(f"🗑 «{x['name'][:24]}»ni olib tashlash", f"magic_remove:{idx}"),
+                     _btn("🔗 Bog‘lash", f"magic_link:{idx}")])
+    for x in doc.get("blocked", []):
+        rows.append([_btn(f"🗑 {x['name'][:20]} qatorini olib tashlash", f"magic_remove:{int(x['index'])}")])
+    rows.append([_btn("❌ Hammasini bekor qilish", "magic_cancel")])
+    return InlineKeyboardMarkup(rows)
+
+
+def _magic_new_product(data: dict[str, Any], row: dict[str, Any]) -> dict[str, Any]:
+    sku = _next_id(data.get("products", {}), "P")
+    product = {
+        "sku": sku, "name": str(row["name"]), "quantity": 0.0,
+        "unit": str(row["unit"]), "reorder_point": 0.0, "unit_cost": 0.0,
+        "annual_demand": 0.0, "order_cost": 0.0, "holding_cost": 0.0,
+        "created_at": _now(), "updated_at": _now(),
+    }
+    data.setdefault("products", {})[sku] = product
+    return product
+
+
 def _magic_prepare_movements(data: dict[str, Any], entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
     proposals = []
     seen: set[str] = set()
@@ -1776,18 +1902,14 @@ async def _serialized_magic_photo(update: Update, context: ContextTypes.DEFAULT_
                 asyncio.to_thread(_vision_extract_movements_sync, raw, "image/jpeg", message.caption or "", _data().get("products", {})),
                 timeout=60,
             )
-            proposals = _magic_prepare_movements(_data(), entries)
-            context.user_data["_sc_magic_pending"] = {
+            doc = _magic_prepare_document(_data(), entries)
+            if not any(doc.values()):
+                raise ValueError("Rasmdan tekshiriladigan qator topilmadi.")
+            context.user_data["_sc_magic_pending_doc"] = {
                 "created_at": datetime.now(timezone.utc).isoformat(),
-                "proposals": proposals,
+                **doc,
             }
-            await status.edit_text(
-                _magic_preview_text(proposals, "Rasmdan aniqlangan kirim-chiqim"),
-                reply_markup=InlineKeyboardMarkup([[
-                    _btn("✅ Tasdiqlash", "magic_confirm"),
-                    _btn("❌ Bekor qilish", "magic_cancel"),
-                ]]),
-            )
+            await status.edit_text(_magic_document_text(doc), reply_markup=_magic_document_keyboard(doc))
         except Exception as exc:
             await status.edit_text("⚠️ " + str(exc)[:800] + "\n\nMa’lumot saqlanmadi. Rasmni tiniqroq yuborib ko‘ring.")
 
@@ -1798,60 +1920,40 @@ async def _magic_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> boo
     if not message or not raw or raw.startswith("/") or not _allowed(update):
         return False
     try:
-        import copy
         data = _data()
-        scratch = copy.deepcopy(data)
-        # Separate multiple entries by newline or a comma followed by whitespace and a new quantity.
         segments = [x.strip() for x in re.split(r",\s+(?=\d)|\n+", raw) if x.strip()]
-        proposals = []
-        seen: set[str] = set()
-        for segment in segments:
-            try:
-                direction = _movement_direction(segment, "")
-            except ValueError as exc:
-                await message.reply_text("⚠️ " + str(exc))
-                return True
+        entries = []
+        for index, segment in enumerate(segments, start=1):
+            direction = _movement_direction(segment, "")
             if direction not in {"in", "out"}:
                 if len(segments) == 1:
                     return False
-                raise ValueError("Har bir qator uchun «keldi» yoki «sotildi/ketdi» kabi amalni aniq yozing.")
-            product, _hits = _need_product(scratch, segment)
-            sku = str(product.get("sku") or next((k for k, v in scratch["products"].items() if v is product), ""))
-            if not sku or sku in seen:
-                raise ValueError("Bir mahsulot bir necha marta kiritilgan. Har bir mahsulotni alohida tekshiring.")
-            seen.add(sku)
-            input_unit, _rest = _take_unit(segment)
-            product_unit = str(product.get("unit") or "dona")
-            # Quantity in the message may use a compatible mass unit (e.g. 10 t -> 10,000 kg).
-            rest = _remove_words(segment, _hits | {_norm(sku)})
-            raw_quantity, _rest = _first_number(rest)
-            if raw_quantity is None or not math.isfinite(raw_quantity) or raw_quantity <= 0:
-                raise ValueError(f"{product.get('name')}: miqdorni aniqlab bo‘lmadi.")
-            quantity = _convert_movement_quantity(raw_quantity, input_unit, product_unit)
-            before = _safe_num(product.get("quantity"))
-            after = before + quantity if direction == "in" else before - quantity
-            if after < -1e-9:
-                raise ValueError(f"Omborda yetarli emas: {product.get('name')} — {_f(before)} {product_unit} bor, {_f(quantity)} {product_unit} so‘raldi.")
-            product["quantity"] = after
-            product["updated_at"] = _now()
-            scratch["movements"].append({"id": uuid.uuid4().hex[:12], "sku": sku, "type": direction, "quantity": quantity, "note": segment, "created_at": _now()})
-            proposals.append({
-                "sku": sku, "name": str(product.get("name") or sku),
-                "direction": direction, "quantity": quantity,
-                "unit": product_unit, "before": before, "after": after,
+                entries.append({"product": "", "direction": "", "quantity": None, "unit": "", "confidence": 0})
+                continue
+            qty, _without_qty = _first_number(segment)
+            unit, _without_unit = _take_unit(segment)
+            product, ambiguous, _hits = _find_item(data.get("products", {}), segment)
+            if product:
+                label = str(product.get("name") or "")
+            else:
+                cleaned = _remove_words(segment, _IN_WORDS | _OUT_WORDS | {"boldi", "bo'ldi", "buldi"})
+                cleaned = _first_number(cleaned)[1]
+                _u, cleaned = _take_unit(cleaned)
+                label = _clean_name(cleaned)
+            entries.append({
+                "product": label, "direction": direction, "quantity": qty,
+                "unit": unit or "", "confidence": 1.0,
             })
-        if not proposals:
+        doc = _magic_prepare_document(data, entries)
+        if not any(doc.values()):
             return False
-        context.user_data["_sc_magic_pending"] = {
+        context.user_data["_sc_magic_pending_doc"] = {
             "created_at": datetime.now(timezone.utc).isoformat(),
-            "proposals": proposals,
+            **doc,
         }
         await message.reply_text(
-            _magic_preview_text(proposals, "Matndan aniqlangan harakat"),
-            reply_markup=InlineKeyboardMarkup([[
-                _btn("✅ Tasdiqlash", "magic_confirm"),
-                _btn("❌ Bekor qilish", "magic_cancel"),
-            ]]),
+            _magic_document_text(doc),
+            reply_markup=_magic_document_keyboard(doc),
         )
         return True
     except ValueError as exc:
@@ -2633,6 +2735,118 @@ async def _callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             context.user_data.pop("_sc_wait", None)
             context.user_data.pop("_sc_ai_draft_candidates", None)
             await _edit(q, "🤖 **AI MASLAHATCHI**\n\nQaysi masalada yordam kerak?", _ai_quick_keyboard())
+    elif action in ("magic_save_all", "magic_save_matched"):
+        pending = context.user_data.get("_sc_magic_pending_doc") or {}
+        try:
+            stamp = datetime.fromisoformat(str(pending.get("created_at")))
+            if stamp.tzinfo is None:
+                stamp = stamp.replace(tzinfo=timezone.utc)
+            if datetime.now(timezone.utc) - stamp > timedelta(minutes=15):
+                raise ValueError("Tasdiqlash vaqti tugagan. Hujjatni qayta yuboring.")
+            import copy
+            current = copy.deepcopy(_data())
+            rows_to_save = list(pending.get("matched") or [])
+            new_rows = list(pending.get("new_in") or []) if action == "magic_save_all" else []
+            if not rows_to_save and not new_rows:
+                raise ValueError("Saqlash uchun tayyor qator yo‘q.")
+            summary = []
+            for item in rows_to_save:
+                product = current.get("products", {}).get(item.get("sku"))
+                if not product:
+                    raise ValueError(f"{item.get('name')}: mahsulot endi topilmadi.")
+                before = _safe_num(product.get("quantity"))
+                if abs(before - _safe_num(item.get("before"))) > 1e-8:
+                    raise ValueError(f"{item.get('name')}: qoldiq boshqa sessiyada o‘zgargan. Hujjatni qayta tekshiring.")
+                qty = _safe_num(item.get("quantity"))
+                direction = item.get("direction")
+                after = before + qty if direction == "in" else before - qty
+                if qty <= 0 or after < -1e-9:
+                    raise ValueError(f"{item.get('name')}: miqdor yoki qoldiq noto‘g‘ri.")
+                product["quantity"] = after
+                product["updated_at"] = _now()
+                current.setdefault("movements", []).append({
+                    "id": uuid.uuid4().hex[:12], "sku": item["sku"],
+                    "type": direction, "quantity": qty,
+                    "note": "Tasdiqlangan hujjat (qisman tasdiqlash)", "created_at": _now(),
+                })
+                summary.append(f"• {item['name']}: {_f(qty)} {item['unit']} — qoldiq {_f(after)} {item['unit']}")
+            for row in new_rows:
+                product = _magic_new_product(current, row)
+                qty = _safe_num(row.get("quantity"))
+                product["quantity"] = qty
+                product["updated_at"] = _now()
+                current.setdefault("movements", []).append({
+                    "id": uuid.uuid4().hex[:12], "sku": product["sku"],
+                    "type": "in", "quantity": qty,
+                    "note": "Yangi SKU — tasdiqlangan hujjat", "created_at": _now(),
+                })
+                summary.append(f"• {product['name']} ({product['sku']}): +{_f(qty)} {product['unit']}")
+            await _save(current)
+            context.user_data.pop("_sc_magic_pending_doc", None)
+            skipped = len(pending.get("unknown_out") or []) + len(pending.get("blocked") or [])
+            message = ["✅ **Hujjat saqlandi**", "", *summary]
+            if skipped:
+                message.extend(["", f"⚠️ {skipped} ta muammoli qator saqlanmadi."])
+            if action == "magic_save_matched" and pending.get("new_in"):
+                message.append(f"🆕 {len(pending['new_in'])} ta yangi kirim hozircha saqlanmadi.")
+            await _edit(q, "\n".join(message), _home_keyboard())
+        except Exception as exc:
+            await _edit(q, "⚠️ " + str(exc) + "\n\nOmbor o‘zgartirilmagan.", InlineKeyboardMarkup([[_btn("⬅️ Menyu", "home")]]))
+    elif action == "magic_remove":
+        pending = context.user_data.get("_sc_magic_pending_doc") or {}
+        idx = int(bits[2]) if len(bits) > 2 else -1
+        for key in ("matched", "new_in", "unknown_out", "blocked"):
+            pending[key] = [x for x in pending.get(key, []) if int(x.get("index", -2)) != idx]
+        if not any(pending.get(k) for k in ("matched", "new_in", "unknown_out", "blocked")):
+            context.user_data.pop("_sc_magic_pending_doc", None)
+            await _edit(q, "Hujjatdagi barcha qatorlar olib tashlandi. Ombor o‘zgarmadi.", _home_keyboard())
+        else:
+            context.user_data["_sc_magic_pending_doc"] = pending
+            await _edit(q, _magic_document_text(pending), _magic_document_keyboard(pending))
+    elif action == "magic_link":
+        pending = context.user_data.get("_sc_magic_pending_doc") or {}
+        idx = int(bits[2]) if len(bits) > 2 else -1
+        row = next((x for x in pending.get("unknown_out", []) if int(x.get("index", -2)) == idx), None)
+        if not row:
+            await alert("Bog‘lanadigan qator topilmadi.")
+        else:
+            from difflib import SequenceMatcher
+            candidates = []
+            for sku, product in _data().get("products", {}).items():
+                name = str(product.get("name") or "")
+                score = SequenceMatcher(None, _norm(row["name"]), _norm(name)).ratio()
+                if score >= 0.15:
+                    candidates.append((score, str(sku), name))
+            candidates.sort(reverse=True)
+            choices = [[_btn(f"{name[:30]} ({sku})", f"magic_map:{idx}:{sku}")] for _, sku, name in candidates[:3]]
+            choices.append([_btn("⬅️ Hujjatga qaytish", "magic_back_doc")])
+            prompt = f"«{row['name']}» qaysi mahsulotga bog‘lansin?" if candidates else "O‘xshash mahsulot topilmadi. Hujjatga qaytib, qatorni olib tashlashingiz mumkin."
+            await _edit(q, prompt, InlineKeyboardMarkup(choices))
+    elif action == "magic_map":
+        pending = context.user_data.get("_sc_magic_pending_doc") or {}
+        idx = int(bits[2]) if len(bits) > 2 else -1
+        sku = bits[3] if len(bits) > 3 else ""
+        row = next((x for x in pending.get("unknown_out", []) if int(x.get("index", -2)) == idx), None)
+        product = _data().get("products", {}).get(sku)
+        if not row or not product:
+            await alert("Mahsulot yoki qator topilmadi.")
+        else:
+            try:
+                if any(str(x.get("sku")) == sku for x in pending.get("matched", [])):
+                    raise ValueError("Bu mahsulot hujjatda allaqachon bor. Takroriy chiqimni alohida tekshiring.")
+                qty = _convert_movement_quantity(_safe_num(row["quantity"]), row.get("input_unit") or None, str(product.get("unit") or "dona"))
+                before = _safe_num(product.get("quantity"))
+                if before - qty < -1e-9:
+                    raise ValueError(f"Qoldiq yetarli emas: {_f(before)} {product.get('unit')}.")
+                pending["matched"].append({"sku": sku, "name": str(product.get("name") or sku), "direction": "out", "quantity": qty, "unit": str(product.get("unit") or "dona"), "before": before, "after": before-qty, "index": idx})
+                pending["unknown_out"] = [x for x in pending["unknown_out"] if int(x.get("index", -2)) != idx]
+                context.user_data["_sc_magic_pending_doc"] = pending
+                await _edit(q, _magic_document_text(pending), _magic_document_keyboard(pending))
+            except Exception as exc:
+                await alert(str(exc))
+    elif action == "magic_back_doc":
+        pending = context.user_data.get("_sc_magic_pending_doc") or {}
+        await _edit(q, _magic_document_text(pending), _magic_document_keyboard(pending))
     elif action == "magic_confirm":
         pending = context.user_data.get("_sc_magic_pending") or {}
         proposals = pending.get("proposals") or []
@@ -2675,6 +2889,7 @@ async def _callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             ]))
     elif action == "magic_cancel":
         context.user_data.pop("_sc_magic_pending", None)
+        context.user_data.pop("_sc_magic_pending_doc", None)
         await _edit(q, "❌ Kiritish bekor qilindi. Ombor qoldig‘i o‘zgarmadi.", _home_keyboard())
     elif action == "ai_cart":
         candidates = _ai_draft_candidates(data)
