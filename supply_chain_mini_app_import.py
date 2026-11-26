@@ -32,6 +32,15 @@ def normalize_payload(payload):
     expected = payload.get("expected_version")
     if isinstance(expected, bool) or not isinstance(expected, int) or expected < 1:
         raise ImportValidationError("Ma'lumot versiyasi noto'g'ri.")
+    source_name = payload.get("source_name", "inventory-import")
+    source_sheet = payload.get("source_sheet", "")
+    if not isinstance(source_name, str) or not isinstance(source_sheet, str):
+        raise ImportValidationError("Import fayl metama'lumoti noto'g'ri.")
+    source_name = source_name.replace("\\", "/").split("/")[-1].strip()
+    source_name = "".join(ch for ch in source_name if ord(ch) >= 32 and ord(ch) != 127)[:180]
+    source_sheet = "".join(ch for ch in source_sheet if ord(ch) >= 32 and ord(ch) != 127).strip()[:120]
+    if not source_name:
+        source_name = "inventory-import"
     rows = payload.get("rows")
     if not isinstance(rows, list) or not rows or len(rows) > MAX_ROWS:
         raise ImportValidationError("1 dan 10 000 tagacha qator yuborilishi kerak.")
@@ -71,15 +80,16 @@ def normalize_payload(payload):
             "reorder_point": number("reorder_point", optional=True),
         })
 
-    canonical = {"expected_version": expected, "rows": clean}
+    canonical = {"expected_version": expected, "source_name": source_name,
+                 "source_sheet": source_sheet, "rows": clean}
     digest = hashlib.sha256(json.dumps(
         canonical, ensure_ascii=False, sort_keys=True,
         separators=(",", ":"), allow_nan=False,
     ).encode("utf-8")).hexdigest()
-    return operation_id, expected, clean, digest
+    return operation_id, expected, clean, digest, source_name, source_sheet
 
 
-def mutate_inventory(snapshot, rows):
+def mutate_inventory(snapshot, rows, source_name="inventory-import", source_sheet=""):
     products = snapshot.get("products")
     if not isinstance(products, dict):
         raise ImportValidationError("Saqlangan mahsulotlar ro'yxati noto'g'ri.")
@@ -151,18 +161,29 @@ def mutate_inventory(snapshot, rows):
             })
 
     snapshot["movements"] = movements[-50_000:]
-    return {
+    result = {
         "processed": len(rows), "created": created, "updated": updated,
         "unchanged_quantity": unchanged, "changes": changes[:100],
         "changes_truncated": len(changes) > 100,
+        "source_name": source_name, "source_sheet": source_sheet,
     }
+    history = snapshot.get("import_history", [])
+    if not isinstance(history, list):
+        raise ImportValidationError("Import tarixi noto'g'ri.")
+    history.append({
+        "file_name": source_name, "sheet": source_sheet, "created_at": now,
+        "processed": len(rows), "created": created, "updated": updated,
+        "unchanged_quantity": unchanged,
+    })
+    snapshot["import_history"] = history[-100:]
+    return result
 
 
 def commit_inventory_import(adapter, payload):
-    operation_id, expected, rows, request_hash = normalize_payload(payload)
+    operation_id, expected, rows, request_hash, source_name, source_sheet = normalize_payload(payload)
 
     def apply(snapshot):
-        return mutate_inventory(snapshot, rows)
+        return mutate_inventory(snapshot, rows, source_name, source_sheet)
 
     return adapter.commit(
         expected_version=expected,
