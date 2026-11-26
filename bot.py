@@ -999,12 +999,12 @@ def _is_private_callback_owner(query):
 
 
 def make_teacher_code(chat_id, teachers):
-    digits = str(chat_id)
-    for n in range(4, len(digits) + 1):
-        code = f"T_{digits[-n:]}"
-        if code not in teachers or teachers[code].get("chat_id") == chat_id:
+    """Yangi ustozlar uchun taxmin qilish qiyin bo'lgan tasodifiy guruh kodi."""
+    for _ in range(20):
+        code = "T_" + secrets.token_hex(5).upper()
+        if code not in teachers:
             return code
-    return f"T_{digits}"
+    raise RuntimeError("Ustoz kodi yaratilmadi; qayta urinib ko'ring.")
 
 
 def find_case(t_code, case_id):
@@ -1919,61 +1919,35 @@ async def role_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # Pending ariza takroran yuborilmaydi.
         if existing_code and (existing_info or {}).get("status") == "pending":
-            await query.edit_message_text(
-                "⏳ Ustozlik arizangiz ko'rib chiqilmoqda. Administrator tasdiqlagach, "
-                "ustoz kodingiz shu chatga yuboriladi."
-            )
-            return
-
-        # Yangi ariza. Kod tasdiqlanmaguncha shogirdlarga ishlamaydi va ko'rsatilmaydi.
-        teacher_code = existing_code or make_teacher_code(chat_id, teachers)
-        teachers[teacher_code] = {
-            **(existing_info or {}),
-            "chat_id": chat_id,
-            "name": query.from_user.full_name,
-            "username": query.from_user.username or "",
-            "active_role": "pending",
-            "status": "pending",
-            "requested_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        }
-        save_teachers(teachers)
-
-        await query.edit_message_text(
-            "📨 Ustozlik arizangiz yuborildi.\n\n"
-            "Administrator arizangizni tekshiradi. Tasdiqlangandan keyingina "
-            "ustoz paneli va shaxsiy guruh kodingiz ochiladi."
-        )
-
-        if OWNER_CHAT_ID is not None:
-            keyboard = InlineKeyboardMarkup([[
-                InlineKeyboardButton("✅ Tasdiqlash", callback_data=f"teacher_approval:approve:{chat_id}"),
-                InlineKeyboardButton("❌ Rad etish", callback_data=f"teacher_approval:reject:{chat_id}"),
-            ]])
-            username = f"@{query.from_user.username}" if query.from_user.username else "username yo'q"
-            try:
-                await context.bot.send_message(
-                    chat_id=OWNER_CHAT_ID,
-                    text=(
-                        "🆕 USTOZLIK ARIZASI\n\n"
-                        f"👤 Ism: {query.from_user.full_name}\n"
-                        f"🔗 Telegram: {username}\n"
-                        f"🆔 ID: {chat_id}\n"
-                        "Holat: tekshiruv kutilmoqda."
-                    ),
-                    reply_markup=keyboard,
+            if (existing_info or {}).get("application_details"):
+                await query.edit_message_text(
+                    "⏳ Ustozlik arizangiz administrator ko'rib chiqishi uchun yuborilgan. "
+                    "Natija shu chatga keladi."
                 )
-            except Exception:
-                logger.exception("Ustozlik arizasi haqida administratorga xabar yuborilmadi")
-                await context.bot.send_message(
-                    chat_id=chat_id,
-                    text="⚠️ Ariza saqlandi, ammo administratorga xabar yuborilmadi. Keyinroq qayta urinib ko'ring."
-                )
+                return
+            teacher_code = existing_code
         else:
-            logger.error("OWNER_CHAT_ID sozlanmagan: ustozlik arizasi administratorga yuborilmadi")
-            await context.bot.send_message(
-                chat_id=chat_id,
-                text="⚠️ Ariza saqlandi, lekin administrator ID sozlanmagani sababli tekshiruv xabari yuborilmadi."
-            )
+            # Yangi ariza. Kod tasdiqlanmaguncha shogirdlarga ishlamaydi va ko'rsatilmaydi.
+            teacher_code = existing_code or make_teacher_code(chat_id, teachers)
+            teachers[teacher_code] = {
+                **(existing_info or {}),
+                "chat_id": chat_id,
+                "name": query.from_user.full_name,
+                "username": query.from_user.username or "",
+                "active_role": "pending",
+                "status": "pending",
+                "requested_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            }
+            save_teachers(teachers)
+
+        context.user_data["awaiting_teacher_application"] = True
+        await query.edit_message_text(
+            "📝 Ustozlik arizasi uchun quyidagi ma'lumotlarni bitta xabarda yuboring:\n\n"
+            "1. Ishlaydigan yoki o'qiydigan muassasangiz;\n"
+            "2. Qaysi fan yoki yo'nalishdan dars bermoqchisiz;\n"
+            "3. Tajribangiz yoki nima sababdan ustoz bo'lmoqchisiz.\n\n"
+            "Kamida 20 belgi yozing. Arizani administrator ko'rib chiqadi."
+        )
 
     elif query.data == "role_student":
         existing_student = students.get(user_id) or {}
@@ -11971,6 +11945,59 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     disable_web_page_preview=True,
                 )
             return
+
+    if context.user_data.get("awaiting_teacher_application"):
+        if text in (BTN_ROLE, BTN_EDU_BACK, BTN_EDU, BTN_MAIN_MENU):
+            context.user_data.pop("awaiting_teacher_application", None)
+            await update.message.reply_text("Ustozlik arizasi bekor qilindi.")
+            return
+        if text.startswith("/") or len(text) < 20 or len(text) > 1200:
+            await update.message.reply_text(
+                "Ma'lumot 20–1200 belgi bo'lsin. Muassasa, fan/yo'nalish va tajribangizni yozing."
+            )
+            return
+        teachers = get_teachers()
+        teacher_code = _registered_teacher_code(chat_id, teachers)
+        info = teachers.get(teacher_code) if teacher_code else None
+        if not info or info.get("status") != "pending":
+            context.user_data.pop("awaiting_teacher_application", None)
+            await update.message.reply_text("Ariza holati topilmadi. «Rolni o'zgartirish» orqali qayta boshlang.")
+            return
+        info["application_details"] = text[:1200]
+        info["application_submitted_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        save_teachers(teachers)
+        context.user_data.pop("awaiting_teacher_application", None)
+
+        await update.message.reply_text(
+            "✅ Arizangiz administratorga yuborildi. Tekshiruv yakunlangach, javob shu chatga keladi."
+        )
+        if OWNER_CHAT_ID is not None:
+            keyboard = InlineKeyboardMarkup([[
+                InlineKeyboardButton("✅ Tasdiqlash", callback_data=f"teacher_approval:approve:{chat_id}"),
+                InlineKeyboardButton("❌ Rad etish", callback_data=f"teacher_approval:reject:{chat_id}"),
+            ]])
+            username = f"@{update.effective_user.username}" if update.effective_user.username else "username yo'q"
+            try:
+                await context.bot.send_message(
+                    chat_id=OWNER_CHAT_ID,
+                    text=(
+                        "🆕 USTOZLIK ARIZASI — TEKSHIRUV\n\n"
+                        f"👤 Ism: {update.effective_user.full_name}\n"
+                        f"🔗 Telegram: {username}\n"
+                        f"🆔 ID: {chat_id}\n\n"
+                        f"📚 Ariza ma'lumotlari:\n{text[:1200]}"
+                    ),
+                    reply_markup=keyboard,
+                )
+            except Exception:
+                logger.exception("Ustozlik arizasi administratorga yuborilmadi")
+                await update.message.reply_text(
+                    "⚠️ Ariza saqlandi, ammo administratorga xabar yuborilmadi. Keyinroq administratorga murojaat qiling."
+                )
+        else:
+            logger.error("OWNER_CHAT_ID sozlanmagan: ustozlik arizasi administratorga yuborilmadi")
+            await update.message.reply_text("⚠️ Administrator ID sozlanmagan. Ariza tekshiruvga yuborilmadi.")
+        return
 
     _is_btn = text in {v for k, v in globals().items() if k.startswith("BTN_") and isinstance(v, str)}
     if _is_btn:
