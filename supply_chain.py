@@ -2318,9 +2318,15 @@ async def daily_report_loop(app: Application) -> None:
     tz = timezone(timedelta(hours=5))
     while True:
         now = datetime.now(tz)
+        today = now.date().isoformat()
+        state = _LOAD("supply_chain_daily_report_state.json", {}) if _LOAD else {}
+        already_sent = isinstance(state, dict) and state.get("sent_date") == today
         target = now.replace(hour=9, minute=0, second=0, microsecond=0)
         if target <= now:
-            target += timedelta(days=1)
+            if already_sent:
+                target += timedelta(days=1)
+            else:
+                target = now
         await asyncio.sleep(max(1, (target - now).total_seconds()))
         today = datetime.now(tz).date().isoformat()
         try:
