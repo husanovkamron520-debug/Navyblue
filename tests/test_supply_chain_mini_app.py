@@ -109,6 +109,7 @@ class SupplyChainMiniAppShellTests(unittest.TestCase):
         self.assertIn('id="export-shipments-pdf"', self.html)
         self.assertIn('async function printReport(kind)', self.html)
         self.assertIn('window.print()', self.html)
+        self.assertIn("rows.length>5000", self.html)
         self.assertIn('id="print-area"', self.html)
         self.assertIn('@media print', self.html)
         self.assertIn('window.addEventListener("afterprint"', self.html)
