@@ -87,6 +87,11 @@ class ReadOnlyApiServiceTests(unittest.TestCase):
         self.assertEqual(result["pagination"]["total"], 1)
         self.assertEqual(result["items"][0]["sku"], "SKU-1")
         self.assertNotIn("secret", result["items"][0])
+        self.snapshot["products"]["SKU-2"]["quantity"] = 100
+        high = api.list_inventory(self.snapshot, status="high")["data"]
+        self.assertEqual(high["items"][0]["stock_level"], "high")
+        self.assertEqual(high["items"][0]["reorder_multiple"], 10.0)
+        self.assertEqual(api.list_inventory(self.snapshot, status="healthy")["data"]["pagination"]["total"], 0)
 
     def test_read_services_do_not_mutate_snapshot(self):
         import copy
