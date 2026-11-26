@@ -1518,7 +1518,7 @@ async def _proactive_alert_job(context: ContextTypes.DEFAULT_TYPE) -> None:
             minimum = _safe_num(product.get("reorder_point"))
             metric = metrics.get(str(sku), {})
             cover = metric.get("days_of_stock_cover") if metric.get("forecast_status") == "available" else None
-            critical = (minimum > 0 and stock <= minimum) or (cover is not None and _safe_num(cover, 999999) <= 3)
+            critical = (minimum > 0 and stock <= minimum) or (cover is not None and float(cover) <= 3)
             if not critical:
                 if sku in states:
                     states.pop(sku, None)
@@ -2365,7 +2365,7 @@ async def _callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 await _edit(q, "⚠️ " + str(exc), InlineKeyboardMarkup([
                     [_btn("↻ Savatchani yangilash", "ai_cart")], [_btn("⬅️ AI yordamchi", "ai")]
                 ]))
-    elif action.startswith("alert_snooze:"):
+    elif action == "alert_snooze":
         sku = bits[2] if len(bits) > 2 else ""
         state = data.setdefault("alert_state", {}).get(sku)
         if not isinstance(state, dict):
