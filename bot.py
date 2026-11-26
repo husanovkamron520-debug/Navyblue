@@ -703,6 +703,61 @@ def _sc_commit_inventory_import(payload):
         return result
 
 
+
+
+def _sc_delete_inventory_product(payload):
+    """Archive one SKU using the same serialized JSONB-CAS writer as imports."""
+    if not USE_DB:
+        raise sc_persistence.PersistenceError("Mahsulotni arxivlash uchun Supabase saqlash xizmati kerak.")
+    if not isinstance(payload, dict):
+        raise ValueError("JSON object talab qilinadi.")
+    sku = payload.get("sku")
+    expected = payload.get("expected_version")
+    operation_id = payload.get("operation_id")
+    if not isinstance(sku, str) or not sku.strip() or len(sku.strip()) > 128:
+        raise ValueError("SKU noto'g'ri.")
+    if isinstance(expected, bool) or not isinstance(expected, int) or expected < 1:
+        raise ValueError("Ma'lumot versiyasi noto'g'ri.")
+    if not isinstance(operation_id, str) or not re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", operation_id):
+        raise ValueError("Amal identifikatori noto'g'ri.")
+    sku = sku.strip()
+    request_hash = hashlib.sha256(json.dumps(
+        {"action": "archive_inventory_product", "sku": sku, "expected_version": expected},
+        sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    ).encode("utf-8")).hexdigest()
+
+    def mutate(snapshot):
+        products = snapshot.get("products")
+        if not isinstance(products, dict):
+            raise ValueError("Mahsulotlar ro'yxati noto'g'ri.")
+        matches = [key for key in products if str(key).casefold() == sku.casefold()]
+        if len(matches) != 1:
+            raise KeyError("Mahsulot topilmadi yoki SKU takrorlangan.")
+        key = matches[0]
+        archived = snapshot.setdefault("deleted_products", [])
+        if not isinstance(archived, list) or len(archived) >= 10000:
+            raise ValueError("Arxiv limiti to'lgan; administrator tekshiruvi kerak.")
+        archived.append({"sku": str(key), "product": copy.deepcopy(products[key]),
+                          "archived_at": datetime.now(timezone.utc).isoformat(),
+                          "archived_by": "owner-mini-app"})
+        del products[key]
+        return {"sku": str(key), "archived": True}
+
+    with _storage_save_lock:
+        result = _get_sc_commit_adapter().commit(
+            expected_version=expected, operation_id=operation_id,
+            request_hash=request_hash, mutate=mutate)
+        try:
+            latest = _sc_storage_load()
+        except Exception:
+            with _cache_lock:
+                _cache.pop(_SC_STORAGE_KEY, None)
+        else:
+            with _cache_lock:
+                _cache[_SC_STORAGE_KEY] = copy.deepcopy(latest)
+        return result
+
+
 def _writer_loop():
     """Single ordered writer: only this thread sends queued snapshots to Supabase."""
     while True:
@@ -1288,6 +1343,50 @@ def run_health_server():
                 result = sc_api.build_replenishment(snapshot)
             self._sc_json(result)
 
+        def _sc_api_delete(self, parsed):
+            prefix = "/sc-api/v1/inventory/"
+            if not parsed.path.startswith(prefix) or not parsed.path[len(prefix):].strip("/"):
+                self._sc_error("not_found", "DELETE endpoint topilmadi.", 404)
+                return
+            if not _SC_STORAGE_READY.is_set():
+                self._sc_error("not_ready", "Ma'lumotlar bazasi hali tayyor emas.", 503)
+                return
+            if not OWNER_CHAT_ID or not _SC_SESSIONS.authenticate(self._sc_bearer(), OWNER_CHAT_ID):
+                self._sc_error("unauthorized", "Sessiya yaroqsiz yoki muddati tugagan.", 401)
+                return
+            if not _SC_API_LIMITER.allow("write"):
+                self._sc_error("rate_limited", "So'rovlar limiti tugadi.", 429)
+                return
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                if length <= 0 or length > 16384 or "application/json" not in self.headers.get("Content-Type", "").lower():
+                    self._sc_error("invalid_request", "JSON so'rov hajmi yoki formati noto'g'ri.", 400)
+                    return
+                raw = self.rfile.read(length)
+                if len(raw) != length:
+                    self._sc_error("invalid_request", "So'rov to'liq kelmadi.", 400)
+                    return
+                payload = json.loads(raw.decode("utf-8"))
+                path_sku = parsed.path[len(prefix):].strip("/")
+                if not isinstance(payload, dict) or payload.get("sku") != path_sku:
+                    self._sc_error("invalid_request", "SKU mos kelmadi.", 400)
+                    return
+                result = _sc_delete_inventory_product(payload)
+                self._sc_json({"data": result, "meta": {"request_id": uuid.uuid4().hex}, "error": None})
+            except sc_persistence.VersionConflict:
+                self._sc_error("version_conflict", "Ma'lumotlar o'zgargan. Sahifani yangilab qayta urinib ko'ring.", 409)
+            except KeyError as exc:
+                self._sc_error("not_found", str(exc).strip("'"), 404)
+            except (ValueError, UnicodeDecodeError, json.JSONDecodeError):
+                self._sc_error("invalid_request", "O'chirish so'rovi noto'g'ri.", 400)
+            except sc_persistence.CommitOutcomeUnknown:
+                self._sc_error("outcome_unknown", "Natija tasdiqlanmadi. Qayta urinishdan oldin omborni yangilang.", 503)
+            except sc_persistence.PersistenceError as exc:
+                self._sc_error("storage_error", str(exc), 503)
+            except Exception:
+                logger.exception("Supply Chain API DELETE endpoint failed")
+                self._sc_error("internal_error", "Ichki server xatosi.", 500)
+
         def _sc_api_post(self, parsed):
             is_session = parsed.path == "/sc-api/v1/session"
             is_import = parsed.path == "/sc-api/v1/inventory/import"
@@ -1406,6 +1505,19 @@ def run_health_server():
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
+
+        def do_DELETE(self):
+            try:
+                from urllib.parse import urlparse
+                u = urlparse(self.path)
+                if u.path.startswith("/sc-api/v1/"):
+                    self._sc_api_delete(u)
+                    return
+            except Exception:
+                logger.exception("Health server DELETE so'rovida xato")
+            self.send_response(404)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
 
         def do_POST(self):
             # 3D muzey: rasm yuklash (POST /museum/put)
