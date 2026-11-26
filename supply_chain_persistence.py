@@ -1,8 +1,8 @@
-"""Isolated acknowledged-commit adapter prototype for Supply Chain writes.
+"""Acknowledged-commit primitives used by the Supply Chain storage path.
 
-This module is intentionally NOT wired into bot.py or the Mini App.
-The persistence callback must perform an atomic durable compare-and-swap,
-including the candidate document's audit and idempotency records.
+The bot wires SerializedCommitAdapter and JsonbCompareAndSwap to the existing
+bot_storage JSONB row. The conditional PostgREST PATCH must atomically compare
+the embedded version and persist the complete candidate document.
 """
 from __future__ import annotations
 
