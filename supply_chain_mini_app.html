@@ -376,12 +376,15 @@
     if(rows.length<2)throw new Error("Sarlavha va kamida bitta ma’lumot qatori kerak.");
     if(rows.length>10001)throw new Error("Faylda 10 000 qatordan ko‘p ma’lumot bor.");
     const headers=rows[0].map((v,i)=>(i===0?v.replace(/^\uFEFF/,""):v).trim()||("Column "+(i+1)));
+    if(headers.length>100)throw new Error("CSV faylda 100 tadan ko‘p ustun bor; faylni qisqartiring.");
     return {headers,rows:rows.slice(1).map(r=>headers.map((_,i)=>(r[i]||"").trim()))};
   }
   function workbookSheetRows(sheetName){
     if(!window.XLSX||!csvState.workbook)throw new Error("Excel o‘qish moduli yuklanmagan yoki fayl ochilmagan.");
     const sheet=csvState.workbook.Sheets[sheetName];
     if(!sheet)throw new Error("Tanlangan Excel varag‘i topilmadi.");
+    const range=sheet["!ref"]?XLSX.utils.decode_range(sheet["!ref"]):null;
+    if(range&&range.e.c>=100)throw new Error("Excel varag‘ida 100 tadan ko‘p ustun bor; varaqni qisqartiring.");
     const rows=XLSX.utils.sheet_to_json(sheet,{header:1,defval:"",raw:false,blankrows:false});
     if(rows.length<2)throw new Error("Tanlangan varaqda sarlavha va kamida bitta ma’lumot qatori bo‘lishi kerak.");
     if(rows.length>10001)throw new Error("Excel varag‘ida 10 000 qatordan ko‘p ma’lumot bor.");
