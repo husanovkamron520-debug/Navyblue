@@ -547,7 +547,10 @@
     const operationId=(window.crypto&&crypto.randomUUID)?crypto.randomUUID():("excel-"+Date.now()+"-"+Math.random().toString(36).slice(2));
     try{
       const result=await api("/sc-api/v1/inventory/import",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
-        operation_id:operationId,expected_version:importVersion,rows:importRows
+        operation_id:operationId,expected_version:importVersion,
+        source_name:csvState.fileName||"inventory-import",
+        source_sheet:csvState.workbook?$("excel-sheet").value:"",
+        rows:importRows
       })});
       $("excel-import-status").textContent="Saqlandi: "+fmt(result.result?.processed)+" qator · yangi "+fmt(result.result?.created)+" · yangilandi "+fmt(result.result?.updated)+" · versiya "+fmt(result.version)+".";
       $("excel-confirm-check").checked=false;
