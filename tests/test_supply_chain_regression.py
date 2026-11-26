@@ -313,5 +313,53 @@ class SupplyChainAIContextRegressionTests(unittest.TestCase):
         self.assertIn("YAKUNIY TAVSIYA SAQLANDI", chunks[-1])
 
 
+    def test_auto_cart_groups_products_by_their_own_supplier(self):
+        data = empty_data()
+        data["suppliers"] = {
+            "SUP-A": {"id": "SUP-A", "name": "Supplier A", "lead_time_days": 3},
+            "SUP-B": {"id": "SUP-B", "name": "Supplier B", "lead_time_days": 5},
+        }
+        data["products"] = {
+            "P-001": {"sku": "P-001", "name": "Milk", "quantity": 5, "reorder_point": 20,
+                     "unit": "dona", "unit_cost": 100, "supplier_id": "SUP-A"},
+            "P-002": {"sku": "P-002", "name": "Rice", "quantity": 2, "reorder_point": 10,
+                     "unit": "kg", "unit_cost": 50, "supplier_id": "SUP-B"},
+        }
+        candidates = supply_chain._ai_draft_candidates(data)
+        self.assertEqual({x["supplier_id"] for x in candidates}, {"SUP-A", "SUP-B"})
+        ids = supply_chain._create_ai_draft_orders(data, candidates)
+        self.assertEqual(len(ids), 2)
+        self.assertEqual({x["supplier_id"] for x in data["orders"]}, {"SUP-A", "SUP-B"})
+        self.assertTrue(all(x["status"] == "draft" for x in data["orders"]))
+        self.assertEqual(data["products"]["P-001"]["quantity"], 5)
+        self.assertEqual(data["products"]["P-002"]["quantity"], 2)
+
+    def test_auto_cart_skips_products_without_unambiguous_supplier(self):
+        data = empty_data()
+        data["suppliers"] = {
+            "SUP-A": {"id": "SUP-A", "name": "Supplier A"},
+            "SUP-B": {"id": "SUP-B", "name": "Supplier B"},
+        }
+        data["products"]["P-001"] = {
+            "sku": "P-001", "name": "Milk", "quantity": 5, "reorder_point": 20,
+            "unit": "dona", "unit_cost": 100,
+        }
+        self.assertEqual(supply_chain._ai_draft_candidates(data), [])
+        self.assertEqual(data["orders"], [])
+
+    def test_auto_cart_preview_groups_supplier_names_and_shows_estimate(self):
+        text = supply_chain._ai_cart_text([
+            {"sku": "P-001", "name": "Milk", "quantity": 10, "unit": "dona",
+             "supplier_id": "SUP-A", "supplier_name": "Supplier A", "unit_price": 100,
+             "estimated_total": 1000},
+            {"sku": "P-002", "name": "Rice", "quantity": 5, "unit": "kg",
+             "supplier_id": "SUP-B", "supplier_name": "Supplier B", "unit_price": 200,
+             "estimated_total": 1000},
+        ])
+        self.assertIn("Supplier A", text)
+        self.assertIn("Supplier B", text)
+        self.assertIn("2 000", text)
+        self.assertIn("qoralama", text.lower())
+
 if __name__ == "__main__":
     unittest.main()
