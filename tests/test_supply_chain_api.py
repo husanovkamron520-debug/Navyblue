@@ -199,11 +199,19 @@ class ReadOnlyApiServiceTests(unittest.TestCase):
             {"sku": "SKU-1", "month": "2026-02", "quantity": 20},
             {"sku": "SKU-1", "month": "2026-03", "quantity": 30},
         ]
-        self.snapshot["orders"] = [{"sku": "SKU-1", "quantity": 5, "status": "ordered"}]
+        self.snapshot["orders"] = [
+            {"sku": "SKU-1", "quantity": 3, "status": "draft"},
+            {"sku": "SKU-1", "quantity": 5, "status": "ordered"},
+            {"sku": "SKU-1", "quantity": 90, "status": "received"},
+            {"sku": "SKU-1", "quantity": 90, "status": "cancelled"},
+        ]
         result = api.build_replenishment(self.snapshot)["data"]["items"]
         first = next(x for x in result if x["sku"] == "SKU-1")
-        self.assertEqual(first["open_order_quantity"], 5)
-        self.assertEqual(first["suggested_order_quantity"], 23.33)
+        self.assertEqual(first["draft_order_quantity"], 3)
+        self.assertEqual(first["ordered_quantity"], 5)
+        self.assertEqual(first["inbound_quantity"], 5)
+        self.assertEqual(first["open_order_quantity"], 8)
+        self.assertEqual(first["suggested_order_quantity"], 20.33)
 
     def test_inventory_detail_is_read_only_and_scoped_to_sku(self):
         self.snapshot["movements"] = [
