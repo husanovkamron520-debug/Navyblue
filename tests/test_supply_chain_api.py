@@ -114,6 +114,33 @@ class ReadOnlyApiServiceTests(unittest.TestCase):
         self.assertFalse(limiter.allow("one", now=101))
         self.assertTrue(limiter.allow("two", now=101))
 
+    def test_rate_limiter_bounds_unique_client_buckets_and_prunes_expired(self):
+        limiter = api.RateLimiter(max_requests=1, window_seconds=10, max_buckets=1)
+        self.assertTrue(limiter.allow("client-a", now=100))
+        self.assertFalse(limiter.allow("client-b", now=101))
+        self.assertTrue(limiter.allow("client-b", now=111))
+        self.assertEqual(len(limiter._events), 1)
+
+    def test_malformed_nested_records_and_history_arrays_do_not_crash_views(self):
+        snapshot = {
+            "version": "not-a-version",
+            "products": {"SKU-1": {"name": "Valid"}, "BROKEN": "not-an-object"},
+            "orders": [{"sku": "BROKEN", "supplier_id": "BAD", "status": "ordered"}],
+            "suppliers": {"BAD": ["not", "an", "object"]},
+            "shipments": [{"sku": "BROKEN", "vehicle_id": "BAD", "status": "planned"}],
+            "vehicles": [{"id": "BAD", "name": "Bad vehicle"}],
+            "movements": "not-a-list",
+            "demand_history": {"not": "a-list"},
+        }
+        dashboard = api.build_dashboard(snapshot)["data"]["kpis"]
+        self.assertEqual(dashboard["product_count"], 1)
+        self.assertEqual(api.list_purchase_orders(snapshot)["data"]["items"][0]["supplier_name"], "")
+        self.assertEqual(api.list_shipments(snapshot)["data"]["items"][0]["product_name"], "BROKEN")
+        detail = api.get_inventory_detail(snapshot, "SKU-1")["data"]
+        self.assertEqual(detail["recent_movements"], [])
+        self.assertEqual(detail["demand_history"], [])
+        self.assertEqual(api.build_dashboard(snapshot)["meta"]["data_version"], 1)
+
     def test_demand_analytics_weighted_forecast_and_minimum_history(self):
         self.snapshot["demand_history"] = [
             {"sku": "SKU-1", "month": "2026-01", "quantity": 10},
