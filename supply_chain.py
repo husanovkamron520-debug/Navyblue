@@ -1672,7 +1672,7 @@ def _magic_prepare_movements(data: dict[str, Any], entries: list[dict[str, Any]]
             canonical_product = _UNITS.get(_norm(product_unit), _norm(product_unit))
             if canonical_input != canonical_product:
                 raise ValueError(
-                    f"{product_name}: hujjatdagi birlik «{input_unit}», ombordagi birlik «{product_unit)»."
+                    f"{product_name}: hujjatdagi birlik «{input_unit}», ombordagi birlik «{product_unit}»."
                 )
         before = _safe_num(product.get("quantity"))
         after = before + quantity if direction == "in" else before - quantity
