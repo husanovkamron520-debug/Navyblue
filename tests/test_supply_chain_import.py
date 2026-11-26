@@ -164,5 +164,75 @@ class SupplyChainImportTests(unittest.TestCase):
         self.assertEqual(validated["valid"][0]["quantity"], 50.0)
 
 
+    def test_uzbek_cyrillic_letters_are_preserved_in_normalization(self):
+        self.assertNotEqual(supply_chain_import._norm("Ғалла"), supply_chain_import._norm("Алла"))
+        self.assertNotEqual(supply_chain_import._norm("Қанд"), supply_chain_import._norm("Канд"))
+        self.assertNotEqual(supply_chain_import._norm("Ҳисоб"), supply_chain_import._norm("Исоб"))
+
+    def test_product_sku_never_matches_another_products_name(self):
+        data = {"products": {
+            "SKU-1": {"sku": "SKU-1", "name": "Existing product", "quantity": 10}
+        }, "suppliers": {}}
+        validated = {"valid": [{
+            "kind": "products", "product_name": "SKU-1", "sku": "SKU-2",
+            "quantity": 25, "unit": "kg", "unit_cost": None,
+            "reorder_point": None, "annual_demand": None,
+            "order_cost": None, "holding_cost": None,
+            "sheet": "Products", "source_row": 2,
+        }], "errors": []}
+        result = supply_chain_import.apply_import(data, validated)
+        self.assertEqual(result["products"], 1)
+        self.assertEqual(data["products"]["SKU-1"]["quantity"], 10)
+        self.assertEqual(data["products"]["SKU-2"]["quantity"], 25)
+
+    def test_cyrillic_product_names_do_not_merge(self):
+        data = {"products": {
+            "SKU-1": {"sku": "SKU-1", "name": "Алла", "quantity": 10}
+        }, "suppliers": {}}
+        validated = {"valid": [{
+            "kind": "products", "product_name": "Ғалла", "sku": "",
+            "quantity": 25, "unit": "kg", "unit_cost": None,
+            "reorder_point": None, "annual_demand": None,
+            "order_cost": None, "holding_cost": None,
+            "sheet": "Products", "source_row": 2,
+        }], "errors": []}
+        supply_chain_import.apply_import(data, validated)
+        self.assertEqual(data["products"]["SKU-1"]["quantity"], 10)
+        self.assertEqual(len(data["products"]), 2)
+
+    def test_explicit_zero_cost_and_reorder_values_overwrite_existing_values(self):
+        data = {"products": {
+            "SKU-1": {"sku": "SKU-1", "name": "Sugar", "quantity": 10,
+                      "unit_cost": 500, "reorder_point": 25}
+        }, "suppliers": {}}
+        validated = {"valid": [{
+            "kind": "products", "product_name": "Sugar", "sku": "SKU-1",
+            "quantity": 12, "unit": "kg", "unit_cost": 0,
+            "reorder_point": 0, "annual_demand": None,
+            "order_cost": None, "holding_cost": None,
+            "sheet": "Products", "source_row": 2,
+        }], "errors": []}
+        supply_chain_import.apply_import(data, validated)
+        self.assertEqual(data["products"]["SKU-1"]["unit_cost"], 0)
+        self.assertEqual(data["products"]["SKU-1"]["reorder_point"], 0)
+
+    def test_xlsx_cell_reference_has_bounded_row_and_column(self):
+        self.assertEqual(supply_chain_import._column_index("A1"), 0)
+        self.assertEqual(supply_chain_import._column_index("CV1"), 99)
+        with self.assertRaises(ValueError):
+            supply_chain_import._column_index("CW1")
+        with self.assertRaises(ValueError):
+            supply_chain_import._column_index("ZZZZZZZ1")
+        with self.assertRaises(ValueError):
+            supply_chain_import._column_index("A99999999")
+
+    def test_xlsx_uncompressed_size_is_bounded(self):
+        from unittest.mock import patch
+        raw = make_xlsx([["Tovar"], ["X" * 2000]])
+        with patch.object(supply_chain_import, "MAX_XLSX_UNCOMPRESSED", 1024):
+            with self.assertRaisesRegex(ValueError, "64 MB"):
+                supply_chain_import.read_workbook(raw)
+
+
 if __name__ == "__main__":
     unittest.main()
