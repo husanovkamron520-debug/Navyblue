@@ -1947,35 +1947,36 @@ def _magic_preview_text(proposals: list[dict[str, Any]], source: str) -> str:
 
 
 async def _serialized_magic_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    async with _SC_MUTATION_LOCK:
-        message = update.effective_message
-        if not message or not _allowed(update) or not message.photo:
+    # Vision/network work is read-only; do not hold the mutation gate while waiting for AI.
+    message = update.effective_message
+    if not message or not _allowed(update) or not message.photo:
+        return
+    status = await message.reply_text("🖼 Hujjatni o‘qiyapman…")
+    try:
+        photo = message.photo[-1]
+        if (getattr(photo, "file_size", 0) or 0) > 10 * 1024 * 1024:
+            await status.edit_text("Rasm 10 MB dan kichik bo‘lishi kerak.")
             return
-        status = await message.reply_text("🖼 Hujjatni o‘qiyapman…")
-        try:
-            photo = message.photo[-1]
-            if (getattr(photo, "file_size", 0) or 0) > 10 * 1024 * 1024:
-                await status.edit_text("Rasm 10 MB dan kichik bo‘lishi kerak.")
-                return
-            remote = await photo.get_file()
-            raw = bytes(await remote.download_as_bytearray())
-            if len(raw) > 10 * 1024 * 1024:
-                await status.edit_text("Rasm 10 MB dan kichik bo‘lishi kerak.")
-                return
-            entries = await asyncio.wait_for(
-                asyncio.to_thread(_vision_extract_movements_sync, raw, "image/jpeg", message.caption or "", _data().get("products", {})),
-                timeout=60,
-            )
-            doc = _magic_prepare_document(_data(), entries)
-            if not any(doc.values()):
-                raise ValueError("Rasmdan tekshiriladigan qator topilmadi.")
-            context.user_data["_sc_magic_pending_doc"] = {
-                "created_at": datetime.now(timezone.utc).isoformat(),
-                **doc,
-            }
-            await status.edit_text(_magic_document_text(doc), reply_markup=_magic_document_keyboard(doc))
-        except Exception as exc:
-            await status.edit_text("⚠️ " + str(exc)[:800] + "\n\nMa’lumot saqlanmadi. Rasmni tiniqroq yuborib ko‘ring.")
+        remote = await photo.get_file()
+        raw = bytes(await remote.download_as_bytearray())
+        if len(raw) > 10 * 1024 * 1024:
+            await status.edit_text("Rasm 10 MB dan kichik bo‘lishi kerak.")
+            return
+        snapshot = await asyncio.to_thread(_data)
+        entries = await asyncio.wait_for(
+            asyncio.to_thread(_vision_extract_movements_sync, raw, "image/jpeg", message.caption or "", snapshot.get("products", {})),
+            timeout=60,
+        )
+        doc = _magic_prepare_document(snapshot, entries)
+        if not any(doc.values()):
+            raise ValueError("Rasmdan tekshiriladigan qator topilmadi.")
+        context.user_data["_sc_magic_pending_doc"] = {
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            **doc,
+        }
+        await status.edit_text(_magic_document_text(doc), reply_markup=_magic_document_keyboard(doc))
+    except Exception as exc:
+        await status.edit_text("⚠️ " + str(exc)[:800] + "\n\nMa’lumot saqlanmadi. Rasmni tiniqroq yuborib ko‘ring.")
 
 
 async def _magic_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
@@ -2100,20 +2101,22 @@ async def _serialized_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             await status.edit_text("Ovozli xabar 15 MB dan kichik bo‘lishi kerak.")
             return
         mime = getattr(media, "mime_type", None) or ("audio/ogg" if message.voice else "audio/mpeg")
-        async with _SC_MUTATION_LOCK:
-            transcript = await asyncio.wait_for(asyncio.to_thread(_voice_transcribe_sync, raw, mime), timeout=75)
-            tokens = set(_words(transcript))
-            if tokens & (_IN_WORDS | _OUT_WORDS):
-                import copy
-                synthetic_update = copy.copy(update)
-                synthetic_message = copy.copy(message)
-                object.__setattr__(synthetic_message, "text", transcript)
-                object.__setattr__(synthetic_update, "message", synthetic_message)
-                await status.edit_text("🗣 Ovozdan kirim-chiqim matni ajratildi. Tekshirish uchun quyidagi taklifga qarang.")
+        # Transcription and Gemini calls are network-bound; keep them outside the mutation gate.
+        transcript = await asyncio.wait_for(asyncio.to_thread(_voice_transcribe_sync, raw, mime), timeout=75)
+        tokens = set(_words(transcript))
+        if tokens & (_IN_WORDS | _OUT_WORDS):
+            import copy
+            synthetic_update = copy.copy(update)
+            synthetic_message = copy.copy(message)
+            object.__setattr__(synthetic_message, "text", transcript)
+            object.__setattr__(synthetic_update, "message", synthetic_message)
+            await status.edit_text("🗣 Ovozdan kirim-chiqim matni ajratildi. Tekshirish uchun quyidagi taklifga qarang.")
+            async with _SC_MUTATION_LOCK:
                 if await _magic_text(synthetic_update, context):
                     return
-            answer = await asyncio.wait_for(asyncio.to_thread(
-                _ask_gemini_quick_sync, _AI_CLIENT, _AI_MODEL, transcript, _ai_snapshot(_data()), _ai_history_text(context)), timeout=45)
+        snapshot = await asyncio.to_thread(_data)
+        answer = await asyncio.wait_for(asyncio.to_thread(
+            _ask_gemini_quick_sync, _AI_CLIENT, _AI_MODEL, transcript, _ai_snapshot(snapshot), _ai_history_text(context)), timeout=45)
         _ai_history_add(context, transcript, answer)
         await status.edit_text("🗣 **Savolingiz:** " + transcript[:700] + "\n\n🤖 **Javob:**\n" + answer)
     except Exception:
@@ -2916,6 +2919,9 @@ async def _callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         pending = context.user_data.get("_sc_magic_pending") or {}
         proposals = pending.get("proposals") or []
         created_at = pending.get("created_at")
+        if not pending or not proposals or not created_at:
+            await _edit(q, "Bu tasdiqlash allaqachon bajarilgan yoki eskirgan. Omborni yangilab tekshiring.", _home_keyboard())
+            return
         try:
             stamp = datetime.fromisoformat(str(created_at))
             if stamp.tzinfo is None:
@@ -2948,6 +2954,13 @@ async def _callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             lines = ["✅ **Ombor harakatlari saqlandi**", ""]
             lines.extend(f"• {x['name']}: {_f(x['quantity'])} {x['unit']} — qoldiq {_f(x['after'])} {x['unit']}" for x in proposals)
             await _edit(q, "\n".join(lines), _home_keyboard())
+        except sc_persistence.CommitOutcomeUnknown:
+            # Do not invite a second mutation: the database may already have committed.
+            context.user_data.pop("_sc_magic_pending", None)
+            await _edit(q, "⚠️ Saqlash natijasi noaniq. Ombor o‘zgargan bo‘lishi ham mumkin. Amalni qayta yubormang; avval omborni yangilab, qoldiq va harakatlar tarixini tekshiring.", _home_keyboard())
+        except sc_persistence.PersistenceError as exc:
+            context.user_data.pop("_sc_magic_pending", None)
+            await _edit(q, "⚠️ Saqlash tasdiqlanmadi: " + str(exc) + ". Omborni yangilab holatini tekshiring.", _home_keyboard())
         except Exception as exc:
             await _edit(q, "⚠️ " + str(exc) + "\n\nOmbor o‘zgartirilmagan.", InlineKeyboardMarkup([
                 [_btn("⬅️ Menyu", "home")]
@@ -3539,6 +3552,14 @@ async def _serialized_excel_document(update: Update, context: ContextTypes.DEFAU
 
 
 async def _serialized_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    # A free-form AI question is read-only; it must not block inventory mutations.
+    wait = context.user_data.get("_sc_wait") or {}
+    if wait.get("action") == "ai_ask":
+        try:
+            return await _text(update, context)
+        except sc_persistence.PersistenceError as exc:
+            await _notify_persistence_error(update, exc)
+            return True
     async with _SC_MUTATION_LOCK:
         try:
             handled = await _text(update, context)
