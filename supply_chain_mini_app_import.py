@@ -107,7 +107,10 @@ def mutate_inventory(snapshot, rows, source_name="inventory-import", source_shee
     changes = []
     for row in rows:
         sku = row["sku"]
-        existing_key = next((key for key in products if str(key).casefold() == sku.casefold()), None)
+        matching_keys = [key for key in products if str(key).casefold() == sku.casefold()]
+        if len(matching_keys) > 1:
+            raise ImportValidationError(f"{sku} uchun saqlangan omborda takroriy SKU kalitlari bor.")
+        existing_key = matching_keys[0] if matching_keys else None
         if existing_key is None:
             product = {
                 "sku": sku, "name": row["name"], "quantity": row["quantity"],
