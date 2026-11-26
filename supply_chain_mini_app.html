@@ -26,6 +26,10 @@
     .notice{padding:18px;background:white;border:1px solid var(--line);border-radius:14px;color:var(--muted);text-align:center}.notice strong{display:block;color:var(--navy);margin-bottom:5px}.error{color:var(--red)}.loading{opacity:.65}.footer{text-align:center;color:#93a0ae;font-size:11px;padding:24px 0 4px}
     @media(max-width:760px){.grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.kpi-value{font-size:22px}.two{grid-template-columns:1fr}.table-wrap{display:none}.mobile-list{display:grid}.section-head{margin-top:18px}.top h1{font-size:20px}}
     @media(min-width:761px){.shell{padding-left:22px;padding-right:22px}.top{margin-left:-22px;margin-right:-22px;padding-left:24px;padding-right:24px}.nav{margin-bottom:22px}}
+
+    .analytics-controls{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 12px}.analytics-controls label{display:grid;gap:5px;min-width:145px;flex:1;font-size:11px;color:var(--muted);font-weight:650}.analytics-controls select{width:100%;border:1px solid var(--line);background:#fff;border-radius:10px;padding:10px;color:var(--ink)}
+    .analytics-visual-grid{display:grid;grid-template-columns:1.2fr .8fr;gap:12px;margin:12px 0}.analytics-visual-grid.secondary{grid-template-columns:1fr}.viz-svg{display:block;width:100%;height:auto;overflow:visible}.viz-legend{display:flex;gap:7px;flex-wrap:wrap;margin-top:10px}.viz-legend button{border:1px solid var(--line);background:#fff;border-radius:999px;padding:6px 10px;color:var(--muted);font-size:11px;font-weight:700}.viz-legend button.active{background:var(--navy);border-color:var(--navy);color:#fff}.viz-empty{padding:18px 10px;text-align:center;color:var(--muted);font-size:12px;background:#f8fafc;border-radius:11px}.capital-track{display:flex;height:22px;overflow:hidden;border-radius:9px;background:#edf1f5;margin:14px 0 12px}.capital-track button{height:100%;min-width:2px;border:0;padding:0;opacity:.92}.capital-list{display:grid;gap:7px}.capital-item{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;border:1px solid var(--line);border-radius:10px;background:#fff;padding:9px 10px;text-align:left;color:var(--ink)}.capital-item:active,.viz-legend button:active{transform:scale(.99)}.capital-item small{display:block;color:var(--muted);font-size:10px}.capital-item strong{font-size:12px;white-space:nowrap}.viz-clickable{cursor:pointer}.viz-clickable:focus{outline:2px solid var(--blue);outline-offset:3px}
+    @media(max-width:760px){.analytics-visual-grid{grid-template-columns:1fr}.analytics-controls label{min-width:calc(50% - 5px)}}
     #print-area{display:none}
     @media print{body{background:#fff!important;color:#111!important}.shell{display:none!important}#print-area{display:block!important;position:absolute;inset:0;width:100%;padding:20px;font:12px/1.4 Arial,sans-serif;color:#111}#print-area h1{font-size:20px;margin:0 0 4px}#print-area .print-meta{color:#555;margin-bottom:18px}#print-area table{width:100%;border-collapse:collapse}#print-area th,#print-area td{border:1px solid #cbd5e1;padding:7px;text-align:left;overflow-wrap:anywhere}#print-area th{background:#eef2f7!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}#print-area tr{break-inside:avoid}}
   </style>
@@ -70,6 +74,38 @@
     </section>
     <section id="analytics-view" hidden>
       <div class="section-head"><div><h2>Talab va zaxira tahlili</h2><p>Amaldagi Supply Chain hisoblash qoidalari asosida</p></div><button class="retry" id="analytics-refresh">Yangilash</button></div>
+      <div class="analytics-controls">
+        <label>Ombor holati
+          <select id="analytics-stock-filter"><option value="all">Barcha mahsulotlar</option><option value="low">Kam zaxira</option><option value="review">Ortiqcha zaxira signali</option><option value="healthy">Me’yordagi zaxira</option></select>
+        </label>
+        <label>Grafikdagi mahsulotlar
+          <select id="analytics-chart-limit"><option value="6">Top 6</option><option value="10" selected>Top 10</option><option value="15">Top 15</option></select>
+        </label>
+      </div>
+      <div class="analytics-visual-grid">
+        <div class="card">
+          <div class="chart-title">Zaxira va qayta buyurtma nuqtasi</div>
+          <div class="chart-sub">Har bir mahsulot o‘z reorder nuqtasiga nisbatan ko‘rsatiladi. Ustiga bosing — mahsulot tafsilotlari ochiladi.</div>
+          <div id="stock-chart-count" class="muted" style="font-size:11px;margin-top:10px">Ma’lumot yuklanmoqda…</div>
+          <div id="stock-chart" style="margin-top:8px"></div>
+        </div>
+        <div class="card">
+          <div class="chart-title">ABC Pareto taqsimoti</div>
+          <div class="chart-sub">Yillik iste’mol qiymati bo‘yicha A / B / C segmentlari</div>
+          <div id="abc-donut" style="max-width:230px;margin:12px auto 0"></div>
+          <div id="abc-legend" class="viz-legend" style="justify-content:center"></div>
+          <div id="abc-filter-note" class="muted" style="font-size:11px;margin-top:10px;text-align:center">Barcha toifalar</div>
+        </div>
+      </div>
+      <div class="analytics-visual-grid secondary">
+        <div class="card">
+          <div class="chart-title">Ombordagi mablag‘ taqsimoti</div>
+          <div class="chart-sub">Mahsulot tannarxi × joriy miqdor. Segment yoki mahsulotni bosib tafsilotlarni oching.</div>
+          <div id="capital-total" class="muted" style="font-size:11px;margin-top:10px">Hisoblanmoqda…</div>
+          <div id="capital-track" class="capital-track"></div>
+          <div id="capital-list" class="capital-list"></div>
+        </div>
+      </div>
       <div class="two">
         <div class="card"><div class="chart-title">Talab prognozi</div><div class="chart-sub">Oxirgi 6 oygacha bo‘lgan tarixdan og‘irlikli o‘rtacha; kamida 3 oy kerak</div><div class="table-wrap" style="display:block;margin-top:12px"><table class="table" style="min-width:480px"><thead><tr><th>Mahsulot</th><th>Tarix</th><th>Prognoz / oy</th><th>Zaxira qoplashi</th></tr></thead><tbody id="forecast-table"></tbody></table></div><div class="muted" id="forecast-note" style="margin-top:10px;font-size:12px"></div></div>
         <div class="card"><div class="chart-title">ABC Pareto tasnifi</div><div class="chart-sub">Yillik talab × birlik narxi, 80% / 15% / 5% midpoint usuli</div><div id="abc-summary" class="alert-list"></div><div id="abc-bars" style="display:grid;gap:10px;margin-top:16px"></div></div>
@@ -293,11 +329,118 @@
       [p.sku+" · "+p.name,fmt(p.quantity,1)+" "+(p.unit||""),fmt(p.reorder_point,1),money(p.unit_cost),status+(p.reorder_multiple!=null&&p.stock_level==="high"?" · "+fmt(p.reorder_multiple,1)+"x":"")].forEach((v,i)=>{const td=el("td",i===0?"sku":i===4?"stock "+(status==="Kam"?"low":status==="Juda yuqori"?"high":"ok"):"",v);if(i===0){td.tabIndex=0;td.setAttribute("role","button");td.setAttribute("aria-label",p.sku+" tafsilotlarini ochish");td.addEventListener("click",()=>openInventoryDetail(p.sku));td.addEventListener("keydown",event=>{if(event.key==="Enter"||event.key===" "){event.preventDefault();openInventoryDetail(p.sku);}});}tr.append(td);});const actionCell=el("td","");const del=el("button","danger","Arxivlash");del.type="button";del.addEventListener("click",event=>{event.stopPropagation();archiveInventoryProduct(p.sku,p.name||p.sku);});actionCell.append(del);tr.append(actionCell);tr.classList.add("clickable-row");table.append(tr);mobile.append(makeProductCard(p));
     });
   }
+  const analyticsState={abc:null,replenishment:null,abcFilter:"all"};
+  const chartColors={A:"#244d78",B:"#4b8c78",C:"#c58a35"};
+  function svgNode(name,attrs={},value){
+    const node=document.createElementNS("http://www.w3.org/2000/svg",name);
+    Object.entries(attrs).forEach(([key,val])=>node.setAttribute(key,String(val)));
+    if(value!==undefined)node.textContent=String(value);
+    return node;
+  }
+  async function openAnalyticsProduct(sku){
+    switchView("inventory");
+    await loadInventory();
+    await openInventoryDetail(sku);
+  }
+  function renderStockChart(items){
+    const root=$("stock-chart");root.replaceChildren();
+    const filter=$("analytics-stock-filter").value;
+    const limit=Number($("analytics-chart-limit").value)||10;
+    let rows=(items||[]).filter(item=>item.quantity!=null&&item.reorder_point!=null);
+    if(filter==="low")rows=rows.filter(item=>item.status==="low");
+    if(filter==="healthy")rows=rows.filter(item=>item.status==="healthy");
+    if(filter==="review")rows=rows.filter(item=>item.surplus_review_status==="review");
+    rows.sort((a,b)=>{
+      const rank=x=>x.status==="low"?0:x.surplus_review_status==="review"?1:2;
+      return rank(a)-rank(b)||(Number(a.days_of_stock_cover??999999)-Number(b.days_of_stock_cover??999999));
+    });
+    rows=rows.slice(0,limit);
+    $("stock-chart-count").textContent=fmt(rows.length)+" ta mahsulot ko‘rsatilmoqda · "+fmt((items||[]).length)+" ta jami";
+    if(!rows.length){root.append(el("div","viz-empty","Bu filtr bo‘yicha grafik chizish uchun yetarli ma’lumot yo‘q."));return;}
+    const width=720,rowH=48,height=rows.length*rowH+12,svg=svgNode("svg",{viewBox:"0 0 "+width+" "+height,class:"viz-svg",role:"img","aria-label":"Joriy zaxira va qayta buyurtma chegarasi taqqoslanishi"});
+    rows.forEach((item,index)=>{
+      const y=index*rowH+8,qty=Math.max(0,Number(item.quantity)||0),reorder=Math.max(0,Number(item.reorder_point)||0),scale=Math.max(qty,reorder,1),barX=220,barW=340,qtyW=qty/scale*barW,reorderX=barX+reorder/scale*barW;
+      const group=svgNode("g",{class:"viz-clickable",tabindex:"0",role:"button","aria-label":(item.name||item.sku)+", zaxira "+fmt(qty,2)+", reorder "+fmt(reorder,2)});
+      group.append(svgNode("title",{},(item.name||item.sku)+" · Zaxira: "+fmt(qty,2)+" · Reorder: "+fmt(reorder,2)+" · Tafsilotlarni ochish"));
+      group.append(svgNode("text",{x:8,y:y+14,fill:"#18395e","font-size":13,"font-weight":700},String(item.name||item.sku).slice(0,25)));
+      group.append(svgNode("text",{x:8,y:y+29,fill:"#718096","font-size":10},String(item.sku||"").slice(0,26)));
+      group.append(svgNode("rect",{x:barX,y:y+5,width:barW,height:15,rx:7.5,fill:"#edf1f5"}));
+      group.append(svgNode("rect",{x:barX,y:y+5,width:Math.max(qtyW,qty>0?2:0),height:15,rx:7.5,fill:item.status==="low"?"#bd7b18":"#4d9a79"}));
+      group.append(svgNode("line",{x1:reorderX,y1:y+1,x2:reorderX,y2:y+24,stroke:"#18395e","stroke-width":2,"stroke-dasharray":"3 2"}));
+      group.append(svgNode("text",{x:barX+barW+12,y:y+16,fill:"#182638","font-size":11,"font-weight":700},fmt(qty,1)+" / "+fmt(reorder,1)));
+      group.addEventListener("click",()=>openAnalyticsProduct(item.sku).catch(err=>showNotice("Mahsulot ochilmadi",err.message,true)));
+      group.addEventListener("keydown",event=>{if(event.key==="Enter"||event.key===" "){event.preventDefault();group.dispatchEvent(new Event("click"));}});
+      svg.append(group);
+    });
+    const footer=svgNode("text",{x:220,y:height-1,fill:"#718096","font-size":10},"Joriy zaxira / Reorder nuqtasi · birliklar mahsulot turiga qarab farq qiladi");
+    svg.append(footer);root.append(svg);
+  }
+  function renderAbcVisual(abc){
+    const donut=$("abc-donut"),legend=$("abc-legend");donut.replaceChildren();legend.replaceChildren();
+    const groups=abc?.groups||{},keys=["A","B","C"],total=Number(abc?.total_annual_consumption_value)||0;
+    const svg=svgNode("svg",{viewBox:"0 0 180 180",class:"viz-svg",role:"img","aria-label":"ABC tahlili doiraviy diagrammasi"});
+    const circumference=2*Math.PI*54;
+    svg.append(svgNode("circle",{cx:90,cy:90,r:54,fill:"none",stroke:"#edf1f5","stroke-width":22}));
+    let offset=0;
+    keys.forEach(key=>{
+      const share=Math.max(0,Math.min(100,Number(groups[key]?.share_percent)||0));
+      const segment=circumference*share/100;
+      if(segment>0)svg.append(svgNode("circle",{cx:90,cy:90,r:54,fill:"none",stroke:chartColors[key],"stroke-width":22,"stroke-dasharray":segment+" "+(circumference-segment),"stroke-dashoffset":-offset,transform:"rotate(-90 90 90)"}));
+      offset+=segment;
+      const btn=el("button",analyticsState.abcFilter===key?"active":"",key+" · "+fmt(share,1)+"%");
+      btn.type="button";btn.addEventListener("click",()=>{analyticsState.abcFilter=analyticsState.abcFilter===key?"all":key;renderAbcVisual(abc);renderAbcBars(abc.items||[]);});
+      legend.append(btn);
+    });
+    const center=svgNode("text",{x:90,y:86,"text-anchor":"middle",fill:"#18395e","font-size":15,"font-weight":800},fmt(abc?.classified_product_count||0));
+    const sub=svgNode("text",{x:90,y:102,"text-anchor":"middle",fill:"#718096","font-size":9},"mahsulot");
+    svg.append(center,sub);donut.append(svg);
+    const all=el("button",analyticsState.abcFilter==="all"?"active":"", "Barchasi");
+    all.type="button";all.addEventListener("click",()=>{analyticsState.abcFilter="all";renderAbcVisual(abc);renderAbcBars(abc.items||[]);});
+    legend.prepend(all);
+    $("abc-filter-note").textContent=analyticsState.abcFilter==="all"?"Barcha toifalar · jami qiymat "+money(total):analyticsState.abcFilter+" toifasi tanlangan · ro‘yxat quyida filtrlandi";
+  }
+  function renderAbcBars(items){
+    const bars=$("abc-bars");bars.replaceChildren();
+    const filtered=analyticsState.abcFilter==="all"?items:(items||[]).filter(item=>item.category===analyticsState.abcFilter);
+    filtered.slice(0,8).forEach(item=>{
+      const wrap=el("button","capital-item");wrap.type="button";
+      const left=el("span","");left.append(el("span","",item.name),el("small","",item.sku+" · "+item.category+" guruhi"));
+      const right=el("strong","",fmt(item.share_percent,1)+"%");
+      wrap.append(left,right);wrap.addEventListener("click",()=>openAnalyticsProduct(item.sku).catch(err=>showNotice("Mahsulot ochilmadi",err.message,true)));
+      bars.append(wrap);
+    });
+    if(!filtered.length)bars.append(el("div","viz-empty","Tanlangan ABC toifasida ma’lumot yo‘q."));
+  }
+  function renderCapital(items){
+    const track=$("capital-track"),list=$("capital-list");track.replaceChildren();list.replaceChildren();
+    const rows=(items||[]).filter(item=>Number(item.inventory_value)>0).sort((a,b)=>Number(b.inventory_value)-Number(a.inventory_value));
+    const total=rows.reduce((sum,item)=>sum+Number(item.inventory_value||0),0);
+    $("capital-total").textContent=rows.length?fmt(rows.length)+" ta mahsulot · jami "+money(total):"Tannarx va zaxira miqdori mavjud mahsulotlar topilmadi.";
+    if(!rows.length){track.hidden=true;list.append(el("div","viz-empty","Kapital taqsimotini hisoblash uchun mahsulot tannarxi kiritilgan bo‘lishi kerak."));return;}
+    track.hidden=false;
+    const palette=["#244d78","#4b8c78","#c58a35","#7b6ca8","#4f91b8","#b96c62","#6c8795","#9b9a55","#6c6c91","#9a754f"];
+    rows.slice(0,10).forEach((item,index)=>{
+      const share=Number(item.inventory_value)/total*100,color=palette[index%palette.length];
+      const segment=el("button","");segment.type="button";segment.style.width=share+"%";segment.style.background=color;segment.title=(item.name||item.sku)+" · "+fmt(share,1)+"%";
+      segment.setAttribute("aria-label",segment.title);segment.addEventListener("click",()=>openAnalyticsProduct(item.sku).catch(err=>showNotice("Mahsulot ochilmadi",err.message,true)));
+      track.append(segment);
+      const row=el("button","capital-item");row.type="button";
+      const left=el("span","");left.append(el("span","",item.name||item.sku),el("small","",item.sku+" · "+fmt(share,1)+"% ulush"));
+      row.append(left,el("strong","",money(item.inventory_value)));
+      row.addEventListener("click",()=>openAnalyticsProduct(item.sku).catch(err=>showNotice("Mahsulot ochilmadi",err.message,true)));
+      list.append(row);
+    });
+    if(rows.length>10)list.append(el("div","muted","Yana "+fmt(rows.length-10)+" ta mahsulot ro‘yxatda ko‘rsatilmagan."));
+  }
   async function loadAnalytics() {
     const [demand,abc,eoq,replenishment]=await Promise.all([
       api("/sc-api/v1/analytics/demand"),api("/sc-api/v1/analytics/abc"),
       api("/sc-api/v1/analytics/eoq"),api("/sc-api/v1/analytics/replenishment")
     ]);
+    analyticsState.abc=abc;analyticsState.replenishment=replenishment;
+    renderStockChart(replenishment.items||[]);
+    renderAbcVisual(abc);renderAbcBars(abc.items||[]);
+    renderCapital(replenishment.items||[]);
     const ft=$("forecast-table");ft.replaceChildren();
     let available=0;
     demand.items.forEach(item=>{
@@ -311,12 +454,6 @@
     ["A","B","C"].forEach(key=>{
       const g=abc.groups[key],item=el("div","alert");item.append(el("strong","",key+" guruhi · "+g.product_count+" ta"),el("span","pill",fmt(g.share_percent,1)+"%"));summary.append(item);
     });
-    const bars=$("abc-bars");bars.replaceChildren();
-    abc.items.slice(0,8).forEach(item=>{
-      const wrap=el("div","");const top=el("div","product-row");top.append(el("span","",item.name),el("strong","",item.category+" · "+fmt(item.share_percent,1)+"%"));
-      const bar=el("div","barline");bar.style.height="9px";bar.style.margin="6px 0 0";const fill=el("div","bar-good");fill.style.width=Math.min(100,item.share_percent)+"%";bar.append(fill);wrap.append(top,bar);bars.append(wrap);
-    });
-    if(!abc.items.length)bars.append(el("div","muted","ABC tahlili uchun narx va yillik talab ma’lumotlari kerak."));
     const et=$("eoq-table");et.replaceChildren();
     eoq.items.forEach(item=>{const tr=el("tr","");[item.name,item.eoq==null?"Ma’lumot yetarli emas":fmt(item.eoq,2),item.orders_per_year==null?"—":fmt(item.orders_per_year,2),item.holding_cost_assumed?"H saqlash xarajati 20% narxdan olindi":item.status==="available"?"Kiritilgan H":"Kiritmalar yetishmaydi"].forEach((v,i)=>tr.append(el("td",i===0?"sku":"",v)));et.append(tr);});
     const rl=$("replenishment-list");rl.replaceChildren();
@@ -778,6 +915,8 @@
   $("refresh").addEventListener("click",refreshAll);$("inventory-refresh").addEventListener("click",()=>loadInventory().catch(e=>showNotice("Xatolik",e.message,true)));
   $("detail-close").addEventListener("click",()=>{$("inventory-detail").hidden=true;});$("detail-delete").addEventListener("click",()=>archiveInventoryProduct($("detail-sku").textContent,$("detail-name").textContent));
   $("analytics-refresh").addEventListener("click",()=>loadAnalytics().catch(e=>showNotice("Xatolik",e.message,true)));
+  $("analytics-stock-filter").addEventListener("change",()=>renderStockChart(analyticsState.replenishment?.items||[]));
+  $("analytics-chart-limit").addEventListener("change",()=>renderStockChart(analyticsState.replenishment?.items||[]));
   $("procurement-refresh").addEventListener("click",()=>loadProcurement().catch(e=>showNotice("Xatolik",e.message,true)));
   $("logistics-refresh").addEventListener("click",()=>loadLogistics().catch(e=>showNotice("Xatolik",e.message,true)));
   $("reports-refresh").addEventListener("click",()=>$("report-status").textContent="Hisobotlar yangilandi. Eksport paytida eng yangi ma’lumot olinadi.");
