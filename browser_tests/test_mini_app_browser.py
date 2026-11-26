@@ -179,7 +179,7 @@ class MiniAppBrowserTests(unittest.TestCase):
     def test_local_csv_preview_and_invalid_xlsx_archive_guard(self):
         self._open_app()
         self.page.get_by_role("button", name="Excel Workspace").click()
-        csv_bytes = b"SKU,Product,Quantity,Unit Cost,Reorder Point\nSKU-100,Local Item,7,12,3\nSKU-101,Second Item,4,5,2\n"
+        csv_bytes = b"SKU,Product,Quantity,Unit,Unit Cost,Reorder Point\nSKU-100,Local Item,7,kg,12,3\nSKU-101,Second Item,4,pcs,5,2\n"
         self.page.locator("#excel-file").set_input_files({
             "name": "sample.csv", "mimeType": "text/csv", "buffer": csv_bytes
         })
@@ -217,6 +217,7 @@ class MiniAppBrowserTests(unittest.TestCase):
         self.assertEqual(len(self.import_payload["rows"]), 2)
         self.assertEqual(self.import_payload["rows"][0]["sku"], "SKU-100")
         self.assertEqual(self.import_payload["rows"][0]["unit_cost"], 12)
+        self.assertEqual(self.import_payload["rows"][0]["unit"], "kg")
         self.assertEqual(self.import_payload["source_name"], "inventory.csv")
         self.assertEqual(self.import_payload["source_sheet"], "")
         self.assertTrue(any(method == "POST" and path == "/sc-api/v1/inventory/import"
