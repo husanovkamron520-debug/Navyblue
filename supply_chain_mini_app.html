@@ -552,7 +552,8 @@
       $("excel-confirm-check").checked=false;
       importRows=[];inventoryBaseline=null;importVersion=null;
       await refreshAll();
-      if(currentView==="excel")await renderImportDiff([]);
+      $("excel-diff").replaceChildren(el("div","alert good","Import saqlandi va ombor yangilandi."));
+      $("excel-import-confirm").disabled=true;
     }catch(error){
       $("excel-import-status").textContent="Import bajarilmadi: "+error.message+" Sahifani yangilab, faylni qayta tekshiring.";
       if(/outcome|tasdiqlanmadi/i.test(error.message))$("excel-import-status").textContent+=" Takroran import qilishdan oldin omborni tekshiring.";
