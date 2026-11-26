@@ -199,7 +199,7 @@ class MiniAppBrowserTests(unittest.TestCase):
     def test_excel_import_requires_explicit_confirmation_and_posts_preview_version(self):
         self._open_app()
         self.page.get_by_role("button", name="Excel Workspace").click()
-        csv_bytes = b"SKU,Product,Quantity,Unit Cost,Reorder Point\\nSKU-100,Local Item,7,12,3\\nSKU-101,Second Item,4,5,2\\n"
+        csv_bytes = b"SKU,Product,Quantity,Unit Cost,Reorder Point\nSKU-100,Local Item,7,12,3\nSKU-101,Second Item,4,5,2\n"
         self.page.locator("#excel-file").set_input_files({
             "name": "inventory.csv", "mimeType": "text/csv", "buffer": csv_bytes
         })
