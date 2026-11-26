@@ -1623,8 +1623,20 @@ def _vision_extract_movements_sync(raw: bytes, mime: str, caption: str = "") -> 
     return movements[:30]
 
 
+def _magic_resolve_product(data: dict[str, Any], label: str) -> tuple[str, dict[str, Any]]:
+    target = _norm(label)
+    matches = [
+        (str(sku), product) for sku, product in data.get("products", {}).items()
+        if isinstance(product, dict) and target in {str(sku).casefold(), _norm(product.get("name"))}
+    ]
+    if len(matches) == 1:
+        return matches[0]
+    if len(matches) > 1:
+        raise ValueError(f"«{label}» bir nechta mahsulotga mos keldi. SKU yoki to‘liq nomni aniqlashtiring.")
+    raise ValueError(f"«{label}» nomi ombordagi mahsulot bilan aniq mos kelmadi. Mahsulot nomini tekshiring.")
+
+
 def _magic_prepare_movements(data: dict[str, Any], entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    import copy
     proposals = []
     seen: set[str] = set()
     for entry in entries:
@@ -1636,8 +1648,7 @@ def _magic_prepare_movements(data: dict[str, Any], entries: list[dict[str, Any]]
         product_name = str(entry.get("product") or "").strip()
         if not product_name:
             continue
-        product, _hits = _need_product(data, product_name)
-        sku = str(product.get("sku") or next((k for k, v in data["products"].items() if v is product), ""))
+        sku, product = _magic_resolve_product(data, product_name)
         if not sku or sku in seen:
             raise ValueError(f"{product_name}: mahsulot takrorlangan yoki SKU aniqlanmadi. Ro‘yxatni tekshiring.")
         seen.add(sku)
@@ -1739,7 +1750,7 @@ async def _magic_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> boo
     import copy
     try:
         data = _data()
-        product, _hits = _need_product(data, raw)
+        sku, product = _magic_resolve_product(data, raw)
         input_unit, _rest = _take_unit(raw)
         product_unit = str(product.get("unit") or "dona")
         if input_unit:
@@ -1754,7 +1765,7 @@ async def _magic_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> boo
         scratch = copy.deepcopy(data)
         _parse_move(scratch, raw, direction)
         movement = scratch["movements"][-1]
-        sku = str(movement.get("sku") or product.get("sku") or "")
+        sku = str(movement.get("sku") or product.get("sku") or sku)
         before = _safe_num(data["products"][sku].get("quantity"))
         after = _safe_num(scratch["products"][sku].get("quantity"))
         proposal = [{
