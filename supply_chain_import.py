@@ -372,8 +372,8 @@ def validate_records(preview: dict[str, Any]) -> dict[str, Any]:
                         errors.append({"sheet": sheet["name"], "row": rec["_row"], "message": "Kutilgan sana YYYY-MM-DD formatida bo'lishi kerak."})
                         continue
                 status = str(rec.get("status") or "draft").strip().lower()
-                if status not in {"draft", "ordered", "received", "cancelled"}:
-                    errors.append({"sheet": sheet["name"], "row": rec["_row"], "message": "Buyurtma holati draft, ordered, received yoki cancelled bo'lishi kerak."})
+                if status not in {"draft", "ordered", "cancelled"}:
+                    errors.append({"sheet": sheet["name"], "row": rec["_row"], "message": "Buyurtma holati draft, ordered yoki cancelled bo'lishi kerak. received holatini omborga kirim qilish jarayoni orqali rasmiylashtiring."})
                     continue
                 valid.append({**row, "supplier_name": supplier, "quantity": qty, "unit_cost": price,
                               "expected_date": expected_date, "status": status})
