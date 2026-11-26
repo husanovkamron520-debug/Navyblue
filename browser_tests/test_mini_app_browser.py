@@ -46,6 +46,7 @@ class MiniAppBrowserTests(unittest.TestCase):
               configurable: true,
               value: () => { window.__printCalled = true; }
             });
+            window.XLSX = {read(){throw new Error("XLSX parser stub reached");}, utils:{}};
         """)
         self.page = self.context.new_page()
         self.page.on("pageerror", lambda error: self.fail(f"Browser JavaScript error: {error}"))
@@ -53,11 +54,6 @@ class MiniAppBrowserTests(unittest.TestCase):
             status=200, content_type="application/javascript",
             body="""window.Telegram={WebApp:{initData:"browser-test-init-data",
               initDataUnsafe:{user:{first_name:"QA"}},ready(){},expand(){}}};"""
-        ))
-        self.page.route("https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js", lambda route: route.fulfill(
-            status=200, content_type="application/javascript",
-            body="""window.XLSX={read(){throw new Error("XLSX parser stub reached");},
-              utils:{}};"""
         ))
         self.page.route("**/sc-api/v1/**", self._mock_api)
 
@@ -181,6 +177,10 @@ class MiniAppBrowserTests(unittest.TestCase):
 
     def test_local_csv_preview_and_invalid_xlsx_archive_guard(self):
         self._open_app()
+        sheetjs = self.page.locator('script[src*="xlsx.full.min.js"]')
+        self.assertTrue((sheetjs.get_attribute("integrity") or "").startswith("sha384-"))
+        csp = self.page.locator('meta[http-equiv="Content-Security-Policy"]').get_attribute("content") or ""
+        self.assertNotIn("unsafe-eval", csp)
         self.page.get_by_role("button", name="Excel Workspace").click()
         self.page.get_by_text("Hozircha import tarixi yo‘q.").wait_for()
         csv_bytes = b"SKU,Product,Quantity,Unit,Unit Cost,Reorder Point\nSKU-100,Local Item,7,kg,12,3\nSKU-101,Second Item,4,pcs,5,2\n"
@@ -258,7 +258,7 @@ class MiniAppBrowserTests(unittest.TestCase):
         self.assertEqual(download.suggested_filename, "supply-chain-inventory.csv")
 
         self.page.locator("#export-inventory-pdf").click()
-        self.page.locator("#print-title").filter(has_text="Ombor hisoboti").wait_for(timeout=10000)
+        self.assertTrue(self.page.evaluate("window.__printCalled === true"))
         self.assertIn("Ombor hisoboti", self.page.locator("#print-title").inner_text())
         self.assertIn("SKU-001", self.page.locator("#print-body").inner_text())
         self.assertTrue(all(method == "GET" or path == "/sc-api/v1/session"
