@@ -294,7 +294,8 @@ Phase 6 — Hardening and rollout:
 
 ### Chromium browser QA progress (2026-11-26)
 - Added a pinned Playwright 1.55.0 / Chromium job to the existing pull-request CI workflow, using Ubuntu 24.04 for browser compatibility.
-- Added five browser tests against a local static server with mocked Telegram Web App and API responses.
-- Verified dashboard authentication/rendering, inventory detail drill-down, mobile and desktop responsive layouts, Analytics/Procurement/Logistics navigation, local CSV preview, malformed XLSX archive rejection, explicit-confirmation import POST, CSV download and print-preview invocation.
-- Browser QA result on code commit `99c355cf2fb8efc9701b98618d9e429ca99b158f`: **5 tests passed**. The import POST is mocked; no real inventory write is performed by browser QA.
+- Added six browser tests against a local static server with mocked Telegram Web App and API responses.
+- Verified dashboard authentication/rendering, inventory detail drill-down, mobile and desktop responsive layouts, Analytics/Procurement/Logistics navigation, local CSV preview, malformed XLSX archive rejection, explicit-confirmation import POST, in-flight import control locking, recent import-history display, CSV download and print-preview invocation.
+- Browser QA result on code commit `b1819d45d793aaeaa8608fe24149b41ad9730ebf`: **6 tests passed**. The import POST is mocked; no real inventory write is performed by browser QA.
+- The full regression workflow on the same commit passed: **212 tests passed, 11 skipped**. Python compile/syntax checks and both PPTX QA workflows also passed.
 - These are automated Chromium tests with simulated Telegram/API responses, not a live Render deployment test or a real Telegram Android WebView test. PDF printing inside Telegram WebView remains unverified.
