@@ -1920,60 +1920,40 @@ async def _magic_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> boo
     if not message or not raw or raw.startswith("/") or not _allowed(update):
         return False
     try:
-        import copy
         data = _data()
-        scratch = copy.deepcopy(data)
-        # Separate multiple entries by newline or a comma followed by whitespace and a new quantity.
         segments = [x.strip() for x in re.split(r",\s+(?=\d)|\n+", raw) if x.strip()]
-        proposals = []
-        seen: set[str] = set()
-        for segment in segments:
-            try:
-                direction = _movement_direction(segment, "")
-            except ValueError as exc:
-                await message.reply_text("⚠️ " + str(exc))
-                return True
+        entries = []
+        for index, segment in enumerate(segments, start=1):
+            direction = _movement_direction(segment, "")
             if direction not in {"in", "out"}:
                 if len(segments) == 1:
                     return False
-                raise ValueError("Har bir qator uchun «keldi» yoki «sotildi/ketdi» kabi amalni aniq yozing.")
-            product, _hits = _need_product(scratch, segment)
-            sku = str(product.get("sku") or next((k for k, v in scratch["products"].items() if v is product), ""))
-            if not sku or sku in seen:
-                raise ValueError("Bir mahsulot bir necha marta kiritilgan. Har bir mahsulotni alohida tekshiring.")
-            seen.add(sku)
-            input_unit, _rest = _take_unit(segment)
-            product_unit = str(product.get("unit") or "dona")
-            # Quantity in the message may use a compatible mass unit (e.g. 10 t -> 10,000 kg).
-            rest = _remove_words(segment, _hits | {_norm(sku)})
-            raw_quantity, _rest = _first_number(rest)
-            if raw_quantity is None or not math.isfinite(raw_quantity) or raw_quantity <= 0:
-                raise ValueError(f"{product.get('name')}: miqdorni aniqlab bo‘lmadi.")
-            quantity = _convert_movement_quantity(raw_quantity, input_unit, product_unit)
-            before = _safe_num(product.get("quantity"))
-            after = before + quantity if direction == "in" else before - quantity
-            if after < -1e-9:
-                raise ValueError(f"Omborda yetarli emas: {product.get('name')} — {_f(before)} {product_unit} bor, {_f(quantity)} {product_unit} so‘raldi.")
-            product["quantity"] = after
-            product["updated_at"] = _now()
-            scratch["movements"].append({"id": uuid.uuid4().hex[:12], "sku": sku, "type": direction, "quantity": quantity, "note": segment, "created_at": _now()})
-            proposals.append({
-                "sku": sku, "name": str(product.get("name") or sku),
-                "direction": direction, "quantity": quantity,
-                "unit": product_unit, "before": before, "after": after,
+                entries.append({"product": "", "direction": "", "quantity": None, "unit": "", "confidence": 0})
+                continue
+            qty, _without_qty = _first_number(segment)
+            unit, _without_unit = _take_unit(segment)
+            product, ambiguous, _hits = _find_item(data.get("products", {}), segment)
+            if product:
+                label = str(product.get("name") or "")
+            else:
+                cleaned = _remove_words(segment, _IN_WORDS | _OUT_WORDS | {"boldi", "bo'ldi", "buldi"})
+                cleaned = _first_number(cleaned)[1]
+                _u, cleaned = _take_unit(cleaned)
+                label = _clean_name(cleaned)
+            entries.append({
+                "product": label, "direction": direction, "quantity": qty,
+                "unit": unit or "", "confidence": 1.0,
             })
-        if not proposals:
+        doc = _magic_prepare_document(data, entries)
+        if not any(doc.values()):
             return False
-        context.user_data["_sc_magic_pending"] = {
+        context.user_data["_sc_magic_pending_doc"] = {
             "created_at": datetime.now(timezone.utc).isoformat(),
-            "proposals": proposals,
+            **doc,
         }
         await message.reply_text(
-            _magic_preview_text(proposals, "Matndan aniqlangan harakat"),
-            reply_markup=InlineKeyboardMarkup([[
-                _btn("✅ Tasdiqlash", "magic_confirm"),
-                _btn("❌ Bekor qilish", "magic_cancel"),
-            ]]),
+            _magic_document_text(doc),
+            reply_markup=_magic_document_keyboard(doc),
         )
         return True
     except ValueError as exc:
