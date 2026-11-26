@@ -1503,7 +1503,7 @@ def _ai_cart_text(candidates: list[dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
-async def _proactive_alert_job(context: ContextTypes.DEFAULT_TYPE) -> None:
+async def _proactive_alert_job_locked(context: ContextTypes.DEFAULT_TYPE) -> None:
     """Send one-time stock alerts; never alter inventory."""
     if not _OWNER_ID:
         return
@@ -1565,6 +1565,11 @@ async def _proactive_alert_job(context: ContextTypes.DEFAULT_TYPE) -> None:
             await _save(data)
     except Exception:
         return
+
+
+async def _proactive_alert_job(context: ContextTypes.DEFAULT_TYPE) -> None:
+    async with _SC_MUTATION_LOCK:
+        await _proactive_alert_job_locked(context)
 
 
 async def _weekly_supply_summary_job(context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1741,45 +1746,54 @@ async def _magic_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> boo
     if not message or not raw or raw.startswith("/") or not _allowed(update):
         return False
     try:
-        direction = _movement_direction(raw, "")
-    except ValueError as exc:
-        await message.reply_text("⚠️ " + str(exc))
-        return True
-    if direction not in {"in", "out"}:
-        return False
-    import copy
-    try:
+        import copy
         data = _data()
-        product, _hits = _need_product(data, raw)
-        sku = str(product.get("sku") or next((k for k, v in data["products"].items() if v is product), ""))
-        input_unit, _rest = _take_unit(raw)
-        product_unit = str(product.get("unit") or "dona")
-        if input_unit:
-            canonical_input = _UNITS.get(_norm(input_unit), _norm(input_unit))
-            canonical_product = _UNITS.get(_norm(product_unit), _norm(product_unit))
-            if canonical_input != canonical_product:
-                await message.reply_text(
-                    f"⚠️ {product.get('name')}: siz «{input_unit}» deb yozdingiz, omborda esa «{product_unit}» hisoblanadi. "
-                    "Birlikni aniqlashtirmaguncha saqlamayman."
-                )
-                return True
         scratch = copy.deepcopy(data)
-        _parse_move(scratch, raw, direction)
-        movement = scratch["movements"][-1]
-        sku = str(movement.get("sku") or product.get("sku") or sku)
-        before = _safe_num(data["products"][sku].get("quantity"))
-        after = _safe_num(scratch["products"][sku].get("quantity"))
-        proposal = [{
-            "sku": sku, "name": str(product.get("name") or sku),
-            "direction": direction, "quantity": _safe_num(movement.get("quantity")),
-            "unit": product_unit, "before": before, "after": after,
-        }]
+        # Separate multiple entries by newline or a comma followed by whitespace and a new quantity.
+        segments = [x.strip() for x in re.split(r",\s+(?=\d)|\n+", raw) if x.strip()]
+        proposals = []
+        seen: set[str] = set()
+        for segment in segments:
+            try:
+                direction = _movement_direction(segment, "")
+            except ValueError as exc:
+                await message.reply_text("⚠️ " + str(exc))
+                return True
+            if direction not in {"in", "out"}:
+                if len(segments) == 1:
+                    return False
+                raise ValueError("Har bir qator uchun «keldi» yoki «sotildi/ketdi» kabi amalni aniq yozing.")
+            product, _hits = _need_product(scratch, segment)
+            sku = str(product.get("sku") or next((k for k, v in scratch["products"].items() if v is product), ""))
+            if not sku or sku in seen:
+                raise ValueError("Bir mahsulot bir necha marta kiritilgan. Har bir mahsulotni alohida tekshiring.")
+            seen.add(sku)
+            input_unit, _rest = _take_unit(segment)
+            product_unit = str(product.get("unit") or "dona")
+            if input_unit:
+                canonical_input = _UNITS.get(_norm(input_unit), _norm(input_unit))
+                canonical_product = _UNITS.get(_norm(product_unit), _norm(product_unit))
+                if canonical_input != canonical_product:
+                    raise ValueError(
+                        f"{product.get('name')}: siz «{input_unit}» deb yozdingiz, omborda esa «{product_unit}» hisoblanadi."
+                    )
+            before = _safe_num(product.get("quantity"))
+            _parse_move(scratch, segment, direction)
+            movement = scratch["movements"][-1]
+            after = _safe_num(scratch["products"][sku].get("quantity"))
+            proposals.append({
+                "sku": sku, "name": str(product.get("name") or sku),
+                "direction": direction, "quantity": _safe_num(movement.get("quantity")),
+                "unit": product_unit, "before": before, "after": after,
+            })
+        if not proposals:
+            return False
         context.user_data["_sc_magic_pending"] = {
             "created_at": datetime.now(timezone.utc).isoformat(),
-            "proposals": proposal,
+            "proposals": proposals,
         }
         await message.reply_text(
-            _magic_preview_text(proposal, "Matndan aniqlangan harakat"),
+            _magic_preview_text(proposals, "Matndan aniqlangan harakat"),
             parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup([[
                 _btn("✅ Tasdiqlash", "magic_confirm"),
@@ -1869,6 +1883,16 @@ async def _serialized_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         mime = getattr(media, "mime_type", None) or ("audio/ogg" if message.voice else "audio/mpeg")
         async with _SC_MUTATION_LOCK:
             transcript = await asyncio.wait_for(asyncio.to_thread(_voice_transcribe_sync, raw, mime), timeout=75)
+            tokens = set(_words(transcript))
+            if tokens & (_IN_WORDS | _OUT_WORDS):
+                import copy
+                synthetic_update = copy.copy(update)
+                synthetic_message = copy.copy(message)
+                object.__setattr__(synthetic_message, "text", transcript)
+                object.__setattr__(synthetic_update, "message", synthetic_message)
+                await status.edit_text("🗣 Ovozdan kirim-chiqim matni ajratildi. Tekshirish uchun quyidagi taklifga qarang.")
+                if await _magic_text(synthetic_update, context):
+                    return
             answer = await asyncio.wait_for(asyncio.to_thread(
                 _ask_gemini_quick_sync, _AI_CLIENT, _AI_MODEL, transcript, _ai_snapshot(_data())), timeout=45)
         await status.edit_text("🗣 **Savolingiz:** " + transcript[:700] + "\n\n🤖 **Javob:**\n" + answer)
