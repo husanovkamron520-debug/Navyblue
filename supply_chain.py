@@ -23,6 +23,7 @@ import json
 import io
 import zipfile
 import re
+from types import SimpleNamespace
 from xml.sax.saxutils import escape as xml_escape
 from datetime import datetime, timezone, date, timedelta
 from typing import Any, Callable
@@ -2001,6 +2002,19 @@ async def _serialized_magic_photo(update: Update, context: ContextTypes.DEFAULT_
         await status.edit_text("⚠️ " + str(exc)[:800] + "\n\nMa’lumot saqlanmadi. Rasmni tiniqroq yuborib ko‘ring.")
 
 
+def _transcript_update(update: Update, message: Any, transcript: str) -> Any:
+    """Build a minimal update facade without mutating/copying PTB Update internals."""
+    synthetic_message = SimpleNamespace(
+        text=transcript,
+        reply_text=message.reply_text,
+    )
+    return SimpleNamespace(
+        effective_message=synthetic_message,
+        effective_chat=update.effective_chat,
+        effective_user=update.effective_user,
+    )
+
+
 async def _magic_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     message = update.effective_message
     raw = (message.text or "").strip() if message else ""
@@ -2127,11 +2141,7 @@ async def _serialized_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         transcript = await asyncio.wait_for(asyncio.to_thread(_voice_transcribe_sync, raw, mime), timeout=75)
         tokens = set(_words(transcript))
         if tokens & (_IN_WORDS | _OUT_WORDS):
-            import copy
-            synthetic_update = copy.copy(update)
-            synthetic_message = copy.copy(message)
-            object.__setattr__(synthetic_message, "text", transcript)
-            object.__setattr__(synthetic_update, "message", synthetic_message)
+            synthetic_update = _transcript_update(update, message, transcript)
             await status.edit_text("🗣 Ovozdan kirim-chiqim matni ajratildi. Tekshirish uchun quyidagi taklifga qarang.")
             async with _SC_MUTATION_LOCK:
                 if await _magic_text(synthetic_update, context):
