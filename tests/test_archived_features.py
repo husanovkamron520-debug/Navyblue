@@ -1,3 +1,4 @@
+import ast
 import unittest
 from pathlib import Path
 
@@ -13,6 +14,22 @@ class ArchivedFeatureTests(unittest.TestCase):
         self.assertNotIn('CallbackQueryHandler(cw_callback, pattern=r"^cw:")', BOT_SOURCE)
         self.assertNotIn("MessageHandler(filters.StatusUpdate.WEB_APP_DATA, puzzle_webapp_data)", BOT_SOURCE)
         self.assertNotIn("cw_match = re.match(", BOT_SOURCE)
+
+    def test_active_menu_contains_only_logistics_and_education_at_top_level(self):
+        tree = ast.parse(BOT_SOURCE)
+        functions = {
+            node.name: ast.get_source_segment(BOT_SOURCE, node)
+            for node in tree.body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        }
+        collapsed = functions["collapsed_menu"]
+        teacher = functions["teacher_menu"]
+        student = functions["student_menu"]
+        self.assertIn("rows.append([BTN_EDU])", collapsed)
+        self.assertIn("rows.append([BTN_SUPPLY])", collapsed)
+        for menu in (teacher, student):
+            self.assertNotIn("BTN_CROSS", menu)
+            self.assertNotIn("BTN_TASK", menu)
 
     def test_museum_is_not_registered_as_an_active_bot_feature(self):
         self.assertNotIn("museum.install(app)", BOT_SOURCE)
