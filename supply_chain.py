@@ -2815,11 +2815,13 @@ async def _callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             for sku, product in _data().get("products", {}).items():
                 name = str(product.get("name") or "")
                 score = SequenceMatcher(None, _norm(row["name"]), _norm(name)).ratio()
-                candidates.append((score, str(sku), name))
+                if score >= 0.15:
+                    candidates.append((score, str(sku), name))
             candidates.sort(reverse=True)
             choices = [[_btn(f"{name[:30]} ({sku})", f"magic_map:{idx}:{sku}")] for _, sku, name in candidates[:3]]
             choices.append([_btn("⬅️ Hujjatga qaytish", "magic_back_doc")])
-            await _edit(q, f"«{row['name']}» qaysi mahsulotga bog‘lansin?", InlineKeyboardMarkup(choices))
+            prompt = f"«{row['name']}» qaysi mahsulotga bog‘lansin?" if candidates else "O‘xshash mahsulot topilmadi. Hujjatga qaytib, qatorni olib tashlashingiz mumkin."
+            await _edit(q, prompt, InlineKeyboardMarkup(choices))
     elif action == "magic_map":
         pending = context.user_data.get("_sc_magic_pending_doc") or {}
         idx = int(bits[2]) if len(bits) > 2 else -1
@@ -2830,6 +2832,8 @@ async def _callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             await alert("Mahsulot yoki qator topilmadi.")
         else:
             try:
+                if any(str(x.get("sku")) == sku for x in pending.get("matched", [])):
+                    raise ValueError("Bu mahsulot hujjatda allaqachon bor. Takroriy chiqimni alohida tekshiring.")
                 qty = _convert_movement_quantity(_safe_num(row["quantity"]), row.get("input_unit") or None, str(product.get("unit") or "dona"))
                 before = _safe_num(product.get("quantity"))
                 if before - qty < -1e-9:
