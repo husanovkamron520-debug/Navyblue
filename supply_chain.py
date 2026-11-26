@@ -2058,6 +2058,14 @@ async def _text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
             data = copy.deepcopy(_data())
             result = handler(data, raw)
             _save(data)
+        except sc_persistence.VersionConflict:
+            error = ("Ma'lumotlar boshqa sessiyada yangilangan. Hech narsa ustidan yozilmadi. "
+                     "Bo'limni qayta ochib, amalni yangilangan ma'lumot bilan takrorlang.")
+        except sc_persistence.CommitOutcomeUnknown:
+            error = ("Saqlash javobining holati noaniq. Amalni hozircha qayta yubormang; "
+                     "avval ombor holatini yangilang va o'zgarish saqlanganini tekshiring.")
+        except sc_persistence.PersistenceError:
+            error = "Ma'lumotni bazaga xavfsiz saqlab bo'lmadi. Hech qanday muvaffaqiyat tasdiqlanmadi."
         except Exception as exc:  # noqa: BLE001 — foydalanuvchiga tushunarli xabar beramiz
             error = _friendly_error(exc)
     done_kb = InlineKeyboardMarkup([[_btn("✅ Tayyor — orqaga", parent)]])
