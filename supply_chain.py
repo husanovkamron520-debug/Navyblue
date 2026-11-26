@@ -17,6 +17,8 @@ import supply_chain_persistence as sc_persistence
 import uuid
 import math
 import asyncio
+import contextvars
+import hashlib
 import json
 import io
 import zipfile
@@ -35,6 +37,7 @@ _SC_MUTATION_LOCK = asyncio.Lock()
 _OWNER_ID: int | None = None
 _LOAD: Callable[[str, Any], Any] | None = None
 _SAVE: Callable[[str, Any], Any] | None = None
+_SC_OPERATION_CONTEXT = contextvars.ContextVar("supply_chain_operation_context", default=None)
 _AI_CLIENT: Any = None
 _AI_MODEL: str = "gemini-3.5-flash-lite"
 _WAIT_SECONDS = 900
@@ -61,13 +64,32 @@ def _data() -> dict[str, Any]:
         return raw
 
 
+def _update_operation_identity(update: Update) -> tuple[str, str]:
+    callback = getattr(update, "callback_query", None)
+    message = getattr(update, "effective_message", None)
+    if callback is not None:
+        source = "callback:" + str(getattr(callback, "id", "")) + ":" + str(getattr(callback, "data", ""))
+    elif message is not None:
+        chat = getattr(message, "chat", None)
+        source = "message:" + str(getattr(chat, "id", "")) + ":" + str(getattr(message, "message_id", ""))
+        source += ":" + str(getattr(message, "text", None) or getattr(message, "caption", None) or "")
+    else:
+        source = "update:" + str(getattr(update, "update_id", ""))
+    digest = hashlib.sha256(source.encode("utf-8")).hexdigest()
+    return "tg-" + digest[:48], digest
+
+
 async def _save(data: dict[str, Any]) -> None:
     if _SAVE is None:
         return
+    operation = _SC_OPERATION_CONTEXT.get()
 
     def persist() -> None:
         with _LOCK:
-            _SAVE(DATA_FILE, data)
+            if operation:
+                _SAVE(DATA_FILE, data, operation_id=operation[0], request_hash=operation[1])
+            else:
+                _SAVE(DATA_FILE, data)
 
     # Supabase CAS is synchronous HTTP; keep it off the Telegram event loop.
     await asyncio.to_thread(persist)
@@ -3536,19 +3558,27 @@ async def _notify_persistence_error(update: Update, exc: Exception) -> None:
 
 
 async def _serialized_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    async with _SC_MUTATION_LOCK:
-        try:
-            await _callback(update, context)
-        except sc_persistence.PersistenceError as exc:
-            await _notify_persistence_error(update, exc)
+    operation_token = _SC_OPERATION_CONTEXT.set(_update_operation_identity(update))
+    try:
+        async with _SC_MUTATION_LOCK:
+            try:
+                await _callback(update, context)
+            except sc_persistence.PersistenceError as exc:
+                await _notify_persistence_error(update, exc)
+    finally:
+        _SC_OPERATION_CONTEXT.reset(operation_token)
 
 
 async def _serialized_excel_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    async with _SC_MUTATION_LOCK:
-        try:
-            await _handle_excel_document(update, context)
-        except sc_persistence.PersistenceError as exc:
-            await _notify_persistence_error(update, exc)
+    operation_token = _SC_OPERATION_CONTEXT.set(_update_operation_identity(update))
+    try:
+        async with _SC_MUTATION_LOCK:
+            try:
+                await _handle_excel_document(update, context)
+            except sc_persistence.PersistenceError as exc:
+                await _notify_persistence_error(update, exc)
+    finally:
+        _SC_OPERATION_CONTEXT.reset(operation_token)
 
 
 async def _serialized_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
@@ -3560,15 +3590,19 @@ async def _serialized_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         except sc_persistence.PersistenceError as exc:
             await _notify_persistence_error(update, exc)
             return True
-    async with _SC_MUTATION_LOCK:
-        try:
-            handled = await _text(update, context)
-            if handled:
+    operation_token = _SC_OPERATION_CONTEXT.set(_update_operation_identity(update))
+    try:
+        async with _SC_MUTATION_LOCK:
+            try:
+                handled = await _text(update, context)
+                if handled:
+                    return True
+                return await _magic_text(update, context)
+            except sc_persistence.PersistenceError as exc:
+                await _notify_persistence_error(update, exc)
                 return True
-            return await _magic_text(update, context)
-        except sc_persistence.PersistenceError as exc:
-            await _notify_persistence_error(update, exc)
-            return True
+    finally:
+        _SC_OPERATION_CONTEXT.reset(operation_token)
 
 
 def install(app: Application, load_json: Callable[[str, Any], Any], save_json: Callable[[str, Any], Any], owner_id: int | None, ai_client: Any = None, ai_model: str | None = None) -> None:
