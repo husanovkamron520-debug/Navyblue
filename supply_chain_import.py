@@ -43,7 +43,7 @@ _CANONICAL = {
 _ALIAS_TO_FIELD = {}
 for _field, _aliases in _CANONICAL.items():
     for _alias in _aliases:
-        _ALIAS_TO_FIELD[re.sub(r"[^\\w]+", "", _alias.casefold().replace("ё", "е"), flags=re.UNICODE).replace("_", "")] = _field
+        _ALIAS_TO_FIELD[re.sub(r"[^\w]+", "", _alias.casefold().replace("ё", "е"), flags=re.UNICODE).replace("_", "")] = _field
 
 _REQUIRED = {
     "products": {"product_name", "quantity"},
