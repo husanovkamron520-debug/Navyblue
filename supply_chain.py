@@ -2944,6 +2944,7 @@ async def _callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not pending or not proposals or not created_at:
             await _edit(q, "Bu tasdiqlash allaqachon bajarilgan yoki eskirgan. Omborni yangilab tekshiring.", _home_keyboard())
             return
+        committed = False
         try:
             stamp = datetime.fromisoformat(str(created_at))
             if stamp.tzinfo is None:
@@ -2972,6 +2973,7 @@ async def _callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                     "note": "Tasdiqlangan Magic Input (matn/rasm)", "created_at": _now(),
                 })
             await _save(current)
+            committed = True
             context.user_data.pop("_sc_magic_pending", None)
             lines = ["✅ **Ombor harakatlari saqlandi**", ""]
             lines.extend(f"• {x['name']}: {_f(x['quantity'])} {x['unit']} — qoldiq {_f(x['after'])} {x['unit']}" for x in proposals)
@@ -2984,9 +2986,13 @@ async def _callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             context.user_data.pop("_sc_magic_pending", None)
             await _edit(q, "⚠️ Saqlash tasdiqlanmadi: " + str(exc) + ". Omborni yangilab holatini tekshiring.", _home_keyboard())
         except Exception as exc:
-            await _edit(q, "⚠️ " + str(exc) + "\n\nOmbor o‘zgartirilmagan.", InlineKeyboardMarkup([
-                [_btn("⬅️ Menyu", "home")]
-            ]))
+            if committed:
+                context.user_data.pop("_sc_magic_pending", None)
+                await _edit(q, "⚠️ Ombor saqlandi, lekin tasdiq xabarini yuborishda xato yuz berdi. Qoldiq va harakatlar tarixini tekshiring. Tafsilot: " + str(exc), _home_keyboard())
+            else:
+                await _edit(q, "⚠️ " + str(exc) + "\n\nOmbor o‘zgartirilmagan.", InlineKeyboardMarkup([
+                    [_btn("⬅️ Menyu", "home")]
+                ]))
     elif action == "magic_cancel":
         context.user_data.pop("_sc_magic_pending", None)
         context.user_data.pop("_sc_magic_pending_doc", None)
