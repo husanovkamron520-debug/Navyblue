@@ -1379,10 +1379,10 @@ def run_health_server():
                 self._sc_error("not_found", str(exc).strip("'"), 404)
             except (ValueError, UnicodeDecodeError, json.JSONDecodeError):
                 self._sc_error("invalid_request", "O'chirish so'rovi noto'g'ri.", 400)
-            except sc_persistence.PersistenceError as exc:
-                self._sc_error("storage_error", str(exc), 503)
             except sc_persistence.CommitOutcomeUnknown:
                 self._sc_error("outcome_unknown", "Natija tasdiqlanmadi. Qayta urinishdan oldin omborni yangilang.", 503)
+            except sc_persistence.PersistenceError as exc:
+                self._sc_error("storage_error", str(exc), 503)
             except Exception:
                 logger.exception("Supply Chain API DELETE endpoint failed")
                 self._sc_error("internal_error", "Ichki server xatosi.", 500)
