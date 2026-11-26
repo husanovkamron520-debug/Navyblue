@@ -1317,7 +1317,7 @@ def _split_telegram_text(text: str, limit: int = 3900) -> list[str]:
     return chunks
 
 
-def _ask_gemini_sync(client: Any, model: str, question: str, snapshot: dict[str, Any]) -> str:
+def _ask_gemini_sync(client: Any, model: str, question: str, snapshot: dict[str, Any], history_text: str = "") -> str:
     if client is None:
         raise RuntimeError("Gemini AI ulanmagan. Render Environment'da GEMINI_API_KEY mavjudligini tekshiring.")
     payload = json.dumps(snapshot, ensure_ascii=False, default=str, separators=(",", ":"))
@@ -1348,7 +1348,8 @@ def _ask_gemini_sync(client: Any, model: str, question: str, snapshot: dict[str,
         "Texnik atamalar, JSON, ichki maydon nomlari va koddagi o‘zgaruvchilarni hech qachon tilga olma; oddiy biznes tilida gapir. "
         "Xulosa, dalillar va keyingi qadam orasida bitta bo‘sh qator qoldir; ro‘yxatlarni • bilan yoz. "
         "Javobni keraksiz sarlavha va uzun kirish bilan cho‘zma.\n\n"
-        f"EGANING SAVOLI:\n{question[:2000]}\n\n"
+        + _ai_history_prompt_part(history_text)
+        + f"EGANING SAVOLI:\n{question[:2000]}\n\n"
         f"SUPPLY CHAIN MA’LUMOTLARI (to‘liq JSON):\n{payload}"
     )
     response = client.models.generate_content(model=model, contents=prompt)
@@ -1357,7 +1358,7 @@ def _ask_gemini_sync(client: Any, model: str, question: str, snapshot: dict[str,
         raise RuntimeError("Gemini bo‘sh javob qaytardi. Birozdan keyin qayta urinib ko‘ring.")
     return str(answer).strip()
 
-def _ask_gemini_quick_sync(client: Any, model: str, question: str, snapshot: dict[str, Any]) -> str:
+def _ask_gemini_quick_sync(client: Any, model: str, question: str, snapshot: dict[str, Any], history_text: str = "") -> str:
     """Short, evidence-grounded answers for one-tap owner questions."""
     if client is None:
         raise RuntimeError("AI maslahatchi hozir ulanmagan.")
@@ -1379,7 +1380,8 @@ def _ask_gemini_quick_sync(client: Any, model: str, question: str, snapshot: dic
         "Yetkazib beruvchi xavfini faqat mavjud reyting, yetkazish muddati va kechikkan buyurtmalar dalili bilan bahola. "
         "Hech qanday amal bajarma, ombor yoki buyurtmalarni o‘zgartirma. Buyurtma kerak bo‘lsa, faqat qoralama taklif qil; "
         "foydalanuvchi tasdiqlamaguncha hech narsa yuborilmaydi.\n\n"
-        f"SAVOL: {question[:1000]}\n\n"
+        + _ai_history_prompt_part(history_text)
+        + f"SAVOL: {question[:1000]}\n\n"
         f"JORIY SUPPLY CHAIN MA’LUMOTLARI (JSON):\n{payload}"
     )
     response = client.models.generate_content(model=model, contents=prompt)
@@ -1387,6 +1389,55 @@ def _ask_gemini_quick_sync(client: Any, model: str, question: str, snapshot: dic
     if not answer or not str(answer).strip():
         raise RuntimeError("AI javobi bo‘sh qaytdi. Birozdan keyin qayta urinib ko‘ring.")
     return _format_ai_customer_answer(str(answer))
+
+
+_AI_HISTORY_KEY = "_sc_ai_history"
+_AI_HISTORY_MAX_TURNS = 6
+_AI_HISTORY_TTL = 45 * 60
+
+
+def _ai_history_get(context: Any) -> list[dict[str, Any]]:
+    """Return this owner's recent AI turns (expired turns are dropped)."""
+    now = datetime.now().timestamp()
+    items = [x for x in (context.user_data.get(_AI_HISTORY_KEY) or [])
+             if isinstance(x, dict) and now - float(x.get("t", 0)) <= _AI_HISTORY_TTL]
+    items = items[-_AI_HISTORY_MAX_TURNS:]
+    context.user_data[_AI_HISTORY_KEY] = items
+    return items
+
+
+def _ai_history_add(context: Any, question: str, answer: str) -> None:
+    items = _ai_history_get(context)
+    items.append({"q": str(question)[:600], "a": str(answer)[:1200], "t": datetime.now().timestamp()})
+    context.user_data[_AI_HISTORY_KEY] = items[-_AI_HISTORY_MAX_TURNS:]
+
+
+def _ai_history_text(context: Any, replied_text: str = "") -> str:
+    parts: list[str] = []
+    for item in _ai_history_get(context):
+        parts.append("Ega: " + str(item.get("q", ""))[:500])
+        parts.append("Maslahatchi: " + str(item.get("a", ""))[:900])
+    replied = (replied_text or "").strip()
+    if replied and "Qaysi masalada yordam kerak" not in replied:
+        parts.append("Ega hozirgi savolini shu xabarga javob sifatida yozdi: " + replied[:600])
+    return "\n".join(parts)
+
+
+def _ai_history_prompt_part(history_text: str) -> str:
+    if not history_text:
+        return ""
+    return (
+        "AVVALGI SUHBAT (faqat savolning ma’nosini to‘g‘ri tushunish uchun; fakt manbai emas):\n"
+        f"{history_text}\n"
+        "Agar yangi savol qisqa bo‘lsa yoki oldingi gapga bog‘liq bo‘lsa («shular», «ular», «yana», «nega», «qaysi biri»), "
+        "mavzuni AVVALGI SUHBATdan aniqla va savolni shu mavzuda javobla. "
+        "Raqam va faktlarni esa faqat quyidagi joriy ma’lumotdan ol; avvalgi javobdagi raqamni tekshirmasdan takrorlama.\n\n"
+    )
+
+
+def _ai_keep_mode(context: Any) -> None:
+    """Keep the owner in AI-question mode so follow-up messages continue the conversation."""
+    context.user_data["_sc_wait"] = {"action": "ai_ask", "started": datetime.now().timestamp(), "parent": "home"}
 
 
 def _format_ai_customer_answer(answer: str) -> str:
@@ -2062,7 +2113,8 @@ async def _serialized_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                 if await _magic_text(synthetic_update, context):
                     return
             answer = await asyncio.wait_for(asyncio.to_thread(
-                _ask_gemini_quick_sync, _AI_CLIENT, _AI_MODEL, transcript, _ai_snapshot(_data())), timeout=45)
+                _ask_gemini_quick_sync, _AI_CLIENT, _AI_MODEL, transcript, _ai_snapshot(_data()), _ai_history_text(context)), timeout=45)
+        _ai_history_add(context, transcript, answer)
         await status.edit_text("🗣 **Savolingiz:** " + transcript[:700] + "\n\n🤖 **Javob:**\n" + answer)
     except Exception:
         await status.edit_text("⚠️ Ovozli savolni qayta ishlay olmadim. Birozdan keyin yana urinib ko‘ring.")
@@ -2745,9 +2797,9 @@ async def _callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if _AI_CLIENT is None:
             await _edit(q, "🤖 **AI maslahatchi**\n\nHozircha yordamchi ulanmagan. Boshqa ombor funksiyalari ishlayveradi.", _back_keyboard("home"))
         else:
-            context.user_data.pop("_sc_wait", None)
+            _ai_keep_mode(context)
             context.user_data.pop("_sc_ai_draft_candidates", None)
-            await _edit(q, "🤖 **AI MASLAHATCHI**\n\nQaysi masalada yordam kerak?", _ai_quick_keyboard())
+            await _edit(q, "🤖 **AI MASLAHATCHI**\n\nQaysi masalada yordam kerak? Tugmani tanlang yoki savolingizni shunchaki yozing.", _ai_quick_keyboard())
     elif action in ("magic_save_all", "magic_save_matched"):
         pending = context.user_data.get("_sc_magic_pending_doc") or {}
         try:
@@ -2966,8 +3018,8 @@ async def _callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if _AI_CLIENT is None:
             await _edit(q, "AI maslahatchi hozir ulanmagan.", _back_keyboard("home"))
         else:
-            context.user_data["_sc_wait"] = {"action": "ai_ask", "started": datetime.now().timestamp(), "parent": "home"}
-            await _edit(q, "Savolingizni shu yerga yozing. Qisqa va aniq javob beraman.", _back_keyboard("ai"))
+            _ai_keep_mode(context)
+            await _edit(q, "Savolingizni shu yerga yozing. Qisqa va aniq javob beraman; oldingi gapingizni eslab turaman.", _back_keyboard("ai"))
     elif action == "aiq_draft":
         candidates = context.user_data.pop("_sc_ai_draft_candidates", [])
         if not candidates:
@@ -3004,9 +3056,11 @@ async def _callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 current = _data()
                 snapshot = _ai_snapshot(current)
                 answer = await asyncio.wait_for(
-                    asyncio.to_thread(_ask_gemini_quick_sync, _AI_CLIENT, _AI_MODEL, question, snapshot),
+                    asyncio.to_thread(_ask_gemini_quick_sync, _AI_CLIENT, _AI_MODEL, question, snapshot, _ai_history_text(context)),
                     timeout=42,
                 )
+                _ai_history_add(context, question, answer)
+                _ai_keep_mode(context)
                 rows = []
                 if action in ("aiq_stock", "aiq_order"):
                     candidates = _ai_draft_candidates(current)
@@ -3193,6 +3247,8 @@ async def _text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     wait = context.user_data.get("_sc_wait") or {}
     if datetime.now().timestamp() - float(wait.get("started", 0)) > _WAIT_SECONDS:
         context.user_data.pop("_sc_wait", None)
+        if wait.get("action") == "ai_ask":
+            return False
         await update.message.reply_text("⏱ Vaqt tugadi. /supply orqali qayta boshlang.")
         return True
     action = wait.get("action")
@@ -3201,15 +3257,20 @@ async def _text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
         if not raw:
             await update.message.reply_text("Savol matni bo'sh. Savolingizni yozing.")
             return True
-        context.user_data.pop("_sc_wait", None)
+        _ai_keep_mode(context)
         if _AI_CLIENT is None:
             await update.message.reply_text("Gemini AI ulanmagan.", reply_markup=_home_keyboard())
             return True
         status = await update.message.reply_text("🤖 Tahlil qilinmoqda…")
         try:
             snapshot = _ai_snapshot(_data())
-            answer = await asyncio.wait_for(asyncio.to_thread(_ask_gemini_sync, _AI_CLIENT, _AI_MODEL, raw, snapshot), timeout=42)
-            full_answer = "🤖 SUPPLY CHAIN AI\n\n" + answer + "\n\nEslatma: tavsiyalar avtomatik bajarilmaydi."
+            reply_to = getattr(update.message, "reply_to_message", None)
+            replied_text = ((getattr(reply_to, "text", None) or getattr(reply_to, "caption", None) or "") if reply_to else "")
+            history_text = _ai_history_text(context, replied_text)
+            answer = await asyncio.wait_for(asyncio.to_thread(_ask_gemini_sync, _AI_CLIENT, _AI_MODEL, raw, snapshot, history_text), timeout=42)
+            _ai_history_add(context, raw, answer)
+            full_answer = ("🤖 SUPPLY CHAIN AI\n\n" + answer +
+                           "\n\nEslatma: tavsiyalar avtomatik bajarilmaydi.\nSavolni davom ettirishingiz mumkin: shunchaki yozing.")
             answer_parts = _split_telegram_text(full_answer)
             await status.edit_text(answer_parts[0], reply_markup=_home_keyboard())
             for part in answer_parts[1:]:
