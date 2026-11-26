@@ -1394,9 +1394,8 @@ def _format_ai_customer_answer(answer: str) -> str:
             if out and out[-1] != "":
                 out.append("")
             continue
-        if out and out[-1] != "" and not line.startswith("• ") and not out[-1].startswith("• "):
-            if re.match(r"^(💡|Dalillar:|Keyingi qadam:|Xulosa:)", line, re.I):
-                out.append("")
+        if out and out[-1] != "" and re.match(r"^(💡|Dalillar:|Keyingi qadam:|Xulosa:)", line, re.I):
+            out.append("")
         out.append(line)
     return "\n".join(out).strip()
 
@@ -2101,6 +2100,7 @@ async def _callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             await _edit(q, "🤖 **AI maslahatchi**\n\nHozircha yordamchi ulanmagan. Boshqa ombor funksiyalari ishlayveradi.", _back_keyboard("home"))
         else:
             context.user_data.pop("_sc_wait", None)
+            context.user_data.pop("_sc_ai_draft_candidates", None)
             await _edit(q, "🤖 **AI MASLAHATCHI**\n\nQaysi masalada yordam kerak?", _ai_quick_keyboard())
     elif action == "ai_custom":
         if _AI_CLIENT is None:
