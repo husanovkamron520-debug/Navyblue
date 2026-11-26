@@ -513,6 +513,8 @@ STORAGE_TABLE = "bot_storage"
 _cache = {}
 _cache_lock = threading.RLock()
 _STORAGE_WRITE_QUEUE = sc_persistence.SnapshotWriteQueue()
+_SC_COMMIT_ADAPTER = None
+_SC_STORAGE_KEY = "supply_chain_data"
 _storage_save_lock = threading.RLock()
 _writer_started = False
 
@@ -644,6 +646,41 @@ def _db_save(key, data):
         {"storage_key": key, "data": data, "updated_at": datetime.now(timezone.utc).isoformat()},
         prefer="resolution=merge-duplicates,return=minimal",
     )
+
+
+def _sc_storage_load():
+    data = _db_load(_SC_STORAGE_KEY)
+    if not isinstance(data, dict):
+        raise sc_persistence.PersistenceError("Supply Chain storage row is missing or invalid")
+    return data
+
+
+def _sc_storage_patch(candidate, expected_version):
+    query = urlencode({
+        "storage_key": "eq." + _SC_STORAGE_KEY,
+        "data->>version": "eq." + str(expected_version),
+    })
+    rows = _db_request(
+        "PATCH",
+        f"{STORAGE_TABLE}?{query}",
+        {
+            "data": candidate,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        },
+        prefer="return=representation",
+    )
+    if isinstance(rows, list) and len(rows) == 1 and isinstance(rows[0], dict):
+        saved = rows[0].get("data")
+        return isinstance(saved, dict) and saved.get("version") == candidate.get("version")
+    return False
+
+
+def _get_sc_commit_adapter():
+    global _SC_COMMIT_ADAPTER
+    if _SC_COMMIT_ADAPTER is None:
+        cas = sc_persistence.JsonbCompareAndSwap(_sc_storage_load, _sc_storage_patch)
+        _SC_COMMIT_ADAPTER = sc_persistence.SerializedCommitAdapter(_sc_storage_load, cas.persist)
+    return _SC_COMMIT_ADAPTER
 
 
 def _writer_loop():
@@ -781,8 +818,72 @@ def save_json(filepath, data):
         return _file_save(filepath, data)
     key = _storage_key(filepath)
     snapshot = copy.deepcopy(data)
-    # Keep cache publication and queue insertion in one critical section so
-    # concurrent callers cannot enqueue an older snapshot after a newer one.
+
+    if key == _SC_STORAGE_KEY:
+        # Supply Chain is committed synchronously with a database-side JSONB
+        # version filter. It must never enter the legacy best-effort upsert queue.
+        with _storage_save_lock:
+            expected_version = snapshot.get("version", 1)
+            protected = {"version", "_write_idempotency", "audit_log"}
+            business_snapshot = {
+                name: value for name, value in snapshot.items()
+                if name not in protected
+            }
+            request_hash = hashlib.sha256(json.dumps(
+                business_snapshot,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+                allow_nan=False,
+            ).encode("utf-8")).hexdigest()
+
+            def apply_business_snapshot(current):
+                for name in list(current):
+                    if name not in protected and name not in business_snapshot:
+                        del current[name]
+                for name, value in business_snapshot.items():
+                    current[name] = copy.deepcopy(value)
+                return {"saved": True, "storage_key": key}
+
+            try:
+                committed = _get_sc_commit_adapter().commit(
+                    expected_version=expected_version,
+                    operation_id=secrets.token_urlsafe(24),
+                    request_hash=request_hash,
+                    mutate=apply_business_snapshot,
+                )
+            except Exception:
+                # Refresh the local cache after a conflict or ambiguous outcome;
+                # never publish the unacknowledged candidate as committed state.
+                try:
+                    latest = _sc_storage_load()
+                except Exception:
+                    latest = None
+                with _cache_lock:
+                    if isinstance(latest, dict):
+                        _cache[key] = copy.deepcopy(latest)
+                    else:
+                        _cache.pop(key, None)
+                raise
+
+            # The adapter's durable acknowledgement is authoritative. A follow-up
+            # read refreshes audit/idempotency metadata; if it fails, invalidate
+            # the cache so the next read must reload from the database.
+            try:
+                latest = _sc_storage_load()
+            except Exception:
+                logger.warning("Supply Chain commit acknowledged but cache refresh failed", exc_info=True)
+                latest = None
+            with _cache_lock:
+                if isinstance(latest, dict):
+                    _cache[key] = copy.deepcopy(latest)
+                else:
+                    _cache.pop(key, None)
+            if isinstance(data, dict):
+                data["version"] = committed["version"]
+            return True
+
+    # Other bot datasets keep their existing asynchronous snapshot persistence.
     with _storage_save_lock:
         with _cache_lock:
             _cache[key] = snapshot
