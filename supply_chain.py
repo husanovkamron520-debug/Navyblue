@@ -2303,7 +2303,8 @@ async def _inline_inventory_search(update: Update, context: ContextTypes.DEFAULT
         detail = f"{name}\nQoldiq: {_f(qty)} {product.get('unit', 'dona')}\nMinimum: {_f(reorder)}\nHolat: {status}"
         if days is not None:
             detail += f"\nTaxminiy yetish muddati: {days:.1f} kun"
-        detail += f"\nEOQ: {_f(round(eoq[0], 1)) if eoq else 'Ma’lumot yetarli emas'}"
+        eoq_text = (("taxminiy " if eoq[1] else "") + _f(round(eoq[0], 1))) if eoq else "Ma’lumot yetarli emas"
+        detail += f"\nEOQ: {eoq_text}"
         results.append(InlineQueryResultArticle(
             id=str(sku)[:64], title=name,
             description=f"Qoldiq: {_f(qty)} {product.get('unit', 'dona')} · {status}",
@@ -2349,13 +2350,20 @@ async def daily_report_loop(app: Application) -> None:
                     continue
             incoming = [m for m in movements if m.get("type") == "in"]
             outgoing = [m for m in movements if m.get("type") == "out"]
-            in_qty = sum(_safe_num(m.get("quantity")) for m in incoming)
-            out_qty = sum(_safe_num(m.get("quantity")) for m in outgoing)
+            def _movement_totals(rows):
+                totals = {}
+                for movement in rows:
+                    product = data.get("products", {}).get(movement.get("sku"), {})
+                    unit = str(product.get("unit") or "birlik")
+                    totals[unit] = totals.get(unit, 0.0) + _safe_num(movement.get("quantity"))
+                return ", ".join(f"{_f(value)} {unit}" for unit, value in sorted(totals.items())) or "0"
+            in_qty = _movement_totals(incoming)
+            out_qty = _movement_totals(outgoing)
             report = (
                 f"☀️ **ERTALABKI OMBOR HISOBOTI** · {today}\n"
                 f"🔴 Buyurtma kerak: **{len(stats['low'])} ta**\n"
-                f"📥 Kechagi kirim: **{len(incoming)} operatsiya / {_f(in_qty)} birlik**\n"
-                f"📤 Kechagi chiqim: **{len(outgoing)} operatsiya / {_f(out_qty)} birlik**"
+                f"📥 Kechagi kirim: **{len(incoming)} operatsiya / {in_qty}**\n"
+                f"📤 Kechagi chiqim: **{len(outgoing)} operatsiya / {out_qty}**"
             )
             keyboard = InlineKeyboardMarkup([
                 [InlineKeyboardButton(f"🛒 {len(stats['low'])} ta mahsulotni ko‘rish", callback_data="sc:low_stock")]
