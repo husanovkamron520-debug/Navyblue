@@ -1797,8 +1797,8 @@ def _magic_document_text(doc: dict[str, Any]) -> str:
 
 def _magic_document_keyboard(doc: dict[str, Any]) -> InlineKeyboardMarkup:
     rows = []
-    if doc.get("matched") and doc.get("new_in"):
-        rows.append([_btn(f"✅ Topilgan + yangi ({len(doc['matched']) + len(doc['new_in'])}) ni saqlash", "magic_save_all")])
+    if doc.get("matched") or doc.get("new_in"):
+        rows.append([_btn(f"✅ Topilgan + yangi ({len(doc.get('matched', [])) + len(doc.get('new_in', []))}) ni saqlash", "magic_save_all")])
     if doc.get("matched"):
         rows.append([_btn(f"➕ Faqat topilgan ({len(doc['matched'])}) ni saqlash", "magic_save_matched")])
     for x in doc.get("unknown_out", []):
