@@ -113,7 +113,7 @@ All routes require a validated Telegram Web App session and owner authorization,
 - `GET /sc-api/v1/health` — public readiness response with no business data; returns HTTP 503 while storage is starting.
 - `POST /sc-api/v1/session` — validates Telegram Web App `initData` HMAC, enforces the configured owner ID, rejects stale/future auth dates and duplicate fields, then issues a 30-minute process-local bearer session. Session creation is limited to 8 attempts per 60-second process-wide window.
 - Authenticated read endpoints are limited to 120 requests per 60-second process-wide window. API request targets are capped at 8 KiB, query parsing at 32 fields, search text at 120 characters and SKU filters at 128 characters; malformed/oversized inputs are rejected before loading the business snapshot.
-- `GET /sc-api/v1/bootstrap` — supported sections and metric definitions.
+- `GET /sc-api/v1/bootstrap` — supported sections, metric definitions, current data version and the last 10 allow-listed Excel import-history entries.
 - `GET /sc-api/v1/dashboard` — product, inventory value, low-stock, open-order and active-shipment KPIs.
 - `GET /sc-api/v1/inventory?search=&status=&sort=&page=&page_size=` — paginated, allow-listed product rows.
 - `GET /sc-api/v1/inventory/{sku}` — allow-listed product detail, up to 20 recent movements and up to 12 demand-history rows; read-only.
