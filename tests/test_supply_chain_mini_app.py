@@ -54,6 +54,7 @@ class SupplyChainMiniAppShellTests(unittest.TestCase):
         self.assertIn('data-view="excel"', self.html)
         self.assertIn('id="excel-file"', self.html)
         self.assertIn('id="map-unit"', self.html)
+        self.assertIn('id="excel-history"', self.html)
         self.assertIn('function parseCSV(text)', self.html)
         self.assertIn('file.size>5*1024*1024', self.html)
         self.assertIn('rows.length>10001', self.html)
