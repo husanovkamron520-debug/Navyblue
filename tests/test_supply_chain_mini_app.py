@@ -38,19 +38,19 @@ class SupplyChainMiniAppShellTests(unittest.TestCase):
         self.assertNotIn("/sc-api/v1/imports", self.html)
         self.assertNotIn("/sc-api/v1/inventory/movements", self.html)
 
-    def test_excel_workspace_is_local_read_only_csv_preview(self):
+    def test_excel_workspace_is_local_read_only_csv_and_xlsx_preview(self):
         self.assertIn('data-view="excel"', self.html)
         self.assertIn('id="excel-file"', self.html)
         self.assertIn('function parseCSV(text)', self.html)
         self.assertIn('file.size>5*1024*1024', self.html)
         self.assertIn('rows.length>10001', self.html)
         self.assertIn('renderExcelPreview()', self.html)
-        self.assertIn('fayl brauzerda tahlil qilinadi va serverga yuborilmaydi', self.html)
+        self.assertIn('serverga yuborilmaydi', self.html)
         self.assertIn('accept=".csv,text/csv"', self.html)
         self.assertNotIn('/sc-api/v1/imports', self.html)
 
     def test_excel_preview_does_not_mutate_inventory(self):
-        self.assertIn('Hozircha .xlsx bevosita o‘qilmaydi', self.html)
+        self.assertIn('CSV UTF-8 va Excel .xlsx fayllar brauzerda tahlil qilinadi', self.html)
         self.assertIn('Hech qanday import, ombor yangilanishi yoki avtomatik buyurtma bajarilmaydi', self.html)
         self.assertNotIn('method:"POST"', self.html.replace('method: "POST"', 'method:"POST"').replace('method: \"POST\"', 'method:"POST"')[self.html.find('function renderExcelPreview'):])
 
