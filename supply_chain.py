@@ -1602,7 +1602,7 @@ def _inventory_summary(data: dict[str, Any]) -> dict[str, Any]:
     """All-SKU inventory KPIs; low stock and <20-day attention are separate states."""
     products = list(data.get("products", {}).values())
     history = data.get("demand_history", [])
-    low, attention, healthy = [], [], []
+    low, attention, healthy, unknown = [], [], [], []
     total_value = 0.0
     for p in products:
         qty = _safe_num(p.get("quantity"))
@@ -1619,12 +1619,14 @@ def _inventory_summary(data: dict[str, Any]) -> dict[str, Any]:
             if records:
                 annual = sum(_safe_num(r.get("quantity")) for r in records) / len(records) * 12
         days = qty / (annual / 365) if annual > 0 else None
-        if days is not None and days < 20:
+        if days is None:
+            unknown.append(p)
+        elif days < 20:
             attention.append((p, days))
         else:
             healthy.append(p)
     return {"products": products, "total_value": total_value, "low": low,
-            "attention": attention, "healthy": healthy}
+            "attention": attention, "healthy": healthy, "unknown": unknown}
 
 
 def _inventory_summary_text(data: dict[str, Any]) -> str:
@@ -1644,7 +1646,8 @@ def _inventory_summary_text(data: dict[str, Any]) -> str:
             f"💰 Jami qiymat: **{value} {currency}** · {len(products)} ta SKU\n"
             f"🔴 Buyurtma kerak: **{len(stats['low'])} ta**" + (f" ({low_names})" if low_names else "") + "\n"
             f"🟡 Diqqat (<20 kun): **{len(stats['attention'])} ta**" + (f" ({attention_names})" if attention_names else "") + "\n"
-            f"🟢 Me’yorda: **{len(stats['healthy'])} ta**")
+            f"🟢 Me’yorda: **{len(stats['healthy'])} ta**" +
+            (f"\n⚪ Qoplama prognozi yo‘q: **{len(stats['unknown'])} ta**" if stats["unknown"] else ""))
 
 
 def _low_stock_text(data: dict[str, Any]) -> str:
