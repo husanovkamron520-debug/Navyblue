@@ -2140,7 +2140,7 @@ async def _serialized_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         answer = await asyncio.wait_for(asyncio.to_thread(
             _ask_gemini_quick_sync, _AI_CLIENT, _AI_MODEL, transcript, _ai_snapshot(snapshot), _ai_history_text(context)), timeout=45)
         _ai_history_add(context, transcript, answer)
-        await status.edit_text("🗣 **Savolingiz:** " + transcript[:700] + "\n\n🤖 **Javob:**\n" + answer)
+        await status.edit_text("🗣 Savolingiz:\n" + transcript[:700] + "\n\n🤖 Javob:\n" + answer)
     except Exception:
         await status.edit_text("⚠️ Ovozli savolni qayta ishlay olmadim. Birozdan keyin yana urinib ko‘ring.")
 
