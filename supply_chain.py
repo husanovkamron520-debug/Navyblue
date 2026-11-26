@@ -1455,7 +1455,7 @@ def _create_ai_draft_orders(data: dict[str, Any], candidates: list[dict[str, Any
             supplier_id = str(next(iter(suppliers.values())).get("id") or "")
         supplier = suppliers.get(supplier_id)
         if not isinstance(supplier, dict) or not supplier.get("id"):
-            raise ValueError(f"{item.get('name', item['sku'])}: yetkazib beruvchi aniq belgilanmagan.")
+            raise ValueError(f"{item.get('name', item['sku'])}: bitta asosiy yetkazib beruvchi aniq belgilanmagan.")
         price = _safe_num(product.get("unit_cost"))
         qty = _safe_num(item.get("quantity"))
         if price <= 0:
