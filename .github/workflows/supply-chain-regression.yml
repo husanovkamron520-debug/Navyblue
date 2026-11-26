@@ -13,6 +13,8 @@ on:
       - "supply_chain_api.py"
       - "bot.py"
       - "supply_chain_import.py"
+      - "supply_chain_mini_app.html"
+      - "browser_tests/**"
       - "tests/**"
       - ".github/workflows/supply-chain-regression.yml"
 
@@ -37,3 +39,20 @@ jobs:
         run: python -m py_compile supply_chain.py supply_chain_import.py supply_chain_api.py tests/test_supply_chain_regression.py tests/test_supply_chain_api.py
       - name: Run regression tests
         run: python -m unittest discover -s tests -v
+
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install pinned browser test runner
+        run: python -m pip install "playwright==1.55.0"
+      - name: Install Chromium
+        run: python -m playwright install --with-deps chromium
+      - name: Run Mini App browser tests
+        run: python -m unittest discover -s browser_tests -v
