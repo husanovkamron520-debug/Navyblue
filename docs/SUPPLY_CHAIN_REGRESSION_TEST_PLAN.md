@@ -176,6 +176,8 @@ Before any Mini App write feature:
 - Stale preview version rejection.
 - Sanitized workbook filename/worksheet metadata and bounded import history.
 - Optional unit-of-measure validation, application and preservation.
+- Accurate distinction between fully unchanged rows and rows with metadata-only changes.
+- Fail-closed handling when legacy inventory already contains case-insensitive duplicate SKU keys.
 
 `browser_tests/test_mini_app_browser.py` verifies that loading and previewing a CSV does not write, the confirm button remains disabled until the owner checks the confirmation box, and the expected preview version plus normalized rows are sent to the authenticated import endpoint.
 
