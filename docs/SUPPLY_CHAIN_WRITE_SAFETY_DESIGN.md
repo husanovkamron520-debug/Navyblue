@@ -80,6 +80,18 @@ Before implementing the protocol, refactor storage behind one writer/commit adap
 
 A process-local lock is sufficient only while the service is guaranteed to run as a single writer. If multiple Render instances or processes may write the same storage key, a process-local lock is insufficient. Before horizontal scaling, use a database-side transaction/compare-and-swap or a dedicated transactional RPC. That may require a schema or database-function change and must be separately reviewed and explicitly approved.
 
+
+## 3.1 Isolated adapter prototype (not wired into the bot)
+
+Two new files provide an executable prototype without changing the current bot storage path:
+
+- `supply_chain_persistence.py` — `SerializedCommitAdapter` serializes the complete load/version-check/mutate/persist operation within one process. It creates a new document revision, stores bounded audit and idempotency records in the candidate document, and returns success only when the persistence callback returns an explicit `True`.
+- `tests/test_supply_chain_persistence.py` — focused tests for acknowledged commits, persistence failure, idempotent replay, mismatched idempotency reuse, stale preview versions, concurrent same-version requests and missing acknowledgements.
+
+The adapter intentionally requires an injected `persist_snapshot(candidate, expected_version, new_version)` callback. That callback is a strict contract, not an implementation of Supabase persistence: it must atomically compare the stored revision and commit the entire candidate document. An exception is treated as an unknown outcome; callers must retry with the same operation ID.
+
+**Limitations:** the adapter is not imported by `bot.py`, is not exposed through HTTP, and cannot yet be used for inventory changes. Its lock coordinates only threads in one Python process. The current Supabase REST upsert does not satisfy the required atomic compare-and-swap contract, so no production storage callback is supplied. The prototype's tests must pass in CI before it can be considered validated.
+
 ## 4. Audit and idempotency record
 
 Keep the audit entry in the same JSONB document as the business change so the change and its audit record cannot be committed separately.
