@@ -2161,7 +2161,7 @@ def student_menu(chat_id=None):
     rows = [
         [BTN_SC14],
         [BTN_START_CASE],
-        [BTN_SLIDE, BTN_CROSS],
+        [BTN_SLIDE],
         [BTN_REFERAT, BTN_TESTF],
         [BTN_MAQOLA, BTN_TEZIS],
         [BTN_GLOS, BTN_CASEW],
