@@ -98,7 +98,7 @@ The adapter intentionally requires an injected `persist_snapshot(candidate, expe
 
 The current branch now routes ordinary `save_json` snapshots through `SnapshotWriteQueue`:
 
-- Cache publication and queue insertion are serialized by one save lock, preventing concurrent callers from publishing a newer cache snapshot but enqueueing an older snapshot afterwards.
+- Cache publication and queue insertion are serialized by one save lock, so each call's cache update and queue insertion happen together in the same critical section. This preserves the order in which callers acquire that lock; it does not resolve stale read-modify-write snapshots created before the call.
 - The Supabase writer remains the sole thread that performs queued `bot_storage` upserts.
 - A key is tracked as in-flight until the request attempt finishes.
 - If an in-flight write fails after retries, its snapshot is requeued only when no newer snapshot for that key is already pending.
