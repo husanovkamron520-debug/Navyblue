@@ -6,6 +6,7 @@
   <meta name="theme-color" content="#10233f">
   <title>Supply Chain — Mini App</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <style>
     :root{color-scheme:light;--navy:#10233f;--navy2:#18395e;--ink:#182638;--muted:#718096;--line:#e4eaf1;--paper:#f4f7fb;--white:#fff;--blue:#2e6ca4;--green:#21835b;--amber:#bd7b18;--red:#bd4a4a;--radius:16px}
     *{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif}
@@ -81,9 +82,10 @@
       <div class="section-head"><div><h2>Excel Workspace</h2><p>Faylni tekshirish va tahlil qilish — ombor ma’lumotlari o‘zgarmaydi</p></div><button class="retry" id="excel-reset">Tozalash</button></div>
       <div class="card">
         <div class="chart-title">1. CSV faylni yuklang</div>
-        <div class="chart-sub">Excel’dan CSV UTF-8 formatida saqlab yuklang. Hozircha .xlsx bevosita o‘qilmaydi; fayl brauzerda tahlil qilinadi va serverga yuborilmaydi.</div>
-        <div class="toolbar" style="margin-top:14px"><input id="excel-file" type="file" accept=".csv,text/csv"></div>
+        <div class="chart-sub">Excel’dan CSV UTF-8 formatida saqlab yuklang. CSV UTF-8 va Excel .xlsx fayllar brauzerda tahlil qilinadi; serverga yuborilmaydi.</div>
+        <div class="toolbar" style="margin-top:14px"><input id="excel-file" type="file" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"></div>
         <div id="excel-file-info" class="muted" style="font-size:12px">Maksimal hajm: 5 MB · Maksimal qator: 10 000</div>
+        <label class="kpi-label" id="excel-sheet-wrap" hidden style="display:block;margin-top:12px">Ish varag‘i<select id="excel-sheet" style="display:block;width:100%;margin-top:5px" disabled></select></label>
       </div>
       <div class="card" style="margin-top:12px">
         <div class="chart-title">2. Ustunlarni moslang</div>
@@ -285,7 +287,7 @@
       }
     }catch(err){$("report-status").textContent="Eksport bajarilmadi: "+err.message;}
   }
-  const csvState={headers:[],rows:[],fileName:""};
+  const csvState={headers:[],rows:[],fileName:"",workbook:null};
   const mapAliases={
     sku:["sku","product sku","item code","код","артикул"],
     name:["name","product","product name","item name","mahsulot","nomi"],
@@ -300,15 +302,31 @@
       if(ch==='"'&&quoted&&next==='"'){cell+='"';i++;}
       else if(ch==='"'){quoted=!quoted;}
       else if(ch===","&&!quoted){row.push(cell);cell="";}
-      else if((ch==="\\n"||ch==="\\r")&&!quoted){if(ch==="\\r"&&next==="\\n")i++;row.push(cell);if(row.some(v=>v.trim()))rows.push(row);row=[];cell="";}
+      else if((ch==="\n"||ch==="\r")&&!quoted){if(ch==="\r"&&next==="\n")i++;row.push(cell);if(row.some(v=>v.trim()))rows.push(row);row=[];cell="";}
       else cell+=ch;
     }
     if(quoted)throw new Error("CSV formatida yopilmagan qo‘shtirnoq bor.");
     row.push(cell);if(row.some(v=>v.trim()))rows.push(row);
     if(rows.length<2)throw new Error("Sarlavha va kamida bitta ma’lumot qatori kerak.");
     if(rows.length>10001)throw new Error("Faylda 10 000 qatordan ko‘p ma’lumot bor.");
-    const headers=rows[0].map((v,i)=>(i===0?v.replace(/^\\uFEFF/,""):v).trim()||("Column "+(i+1)));
+    const headers=rows[0].map((v,i)=>(i===0?v.replace(/^\uFEFF/,""):v).trim()||("Column "+(i+1)));
     return {headers,rows:rows.slice(1).map(r=>headers.map((_,i)=>(r[i]||"").trim()))};
+  }
+  function workbookSheetRows(sheetName){
+    if(!window.XLSX||!csvState.workbook)throw new Error("Excel o‘qish moduli yuklanmagan yoki fayl ochilmagan.");
+    const sheet=csvState.workbook.Sheets[sheetName];
+    if(!sheet)throw new Error("Tanlangan Excel varag‘i topilmadi.");
+    const rows=XLSX.utils.sheet_to_json(sheet,{header:1,defval:"",raw:false,blankrows:false});
+    if(rows.length<2)throw new Error("Tanlangan varaqda sarlavha va kamida bitta ma’lumot qatori bo‘lishi kerak.");
+    if(rows.length>10001)throw new Error("Excel varag‘ida 10 000 qatordan ko‘p ma’lumot bor.");
+    const headers=rows[0].map((v,i)=>String(v??"").trim()||("Column "+(i+1)));
+    return {headers,rows:rows.slice(1).map(r=>headers.map((_,i)=>String(r[i]??"").trim()))};
+  }
+  function useWorkbookSheet(sheetName){
+    const parsed=workbookSheetRows(sheetName);
+    csvState.headers=parsed.headers;csvState.rows=parsed.rows;
+    setupExcelMappings(parsed.headers);renderExcelPreview();
+    $("excel-file-info").textContent=csvState.fileName+" · "+sheetName+" · "+fmt(parsed.rows.length)+" qator";
   }
   function selectedMap(){return Object.fromEntries(["sku","name","quantity","cost","reorder"].map(k=>[k,$("map-"+k).value]));}
   function renderExcelPreview(){
@@ -317,7 +335,7 @@
     const valid=[],errors=[];
     csvState.rows.forEach((r,index)=>{
       const line=index+2,sku=m.sku?r[csvState.headers.indexOf(m.sku)]:"",name=m.name?r[csvState.headers.indexOf(m.name)]:"",rawQty=m.quantity?r[csvState.headers.indexOf(m.quantity)]:"";
-      const qty=Number(String(rawQty).replace(/\\s/g,"").replace(",","."));
+      const qty=Number(String(rawQty).replace(/\s/g,"").replace(",","."));
       const issues=[];
       if(!sku)issues.push("SKU bo‘sh");
       if(!name)issues.push("nom bo‘sh");
@@ -341,7 +359,7 @@
     const body=$("excel-preview");body.replaceChildren();
     csvState.rows.slice(0,20).forEach((r,i)=>{
       const sku=m.sku?r[csvState.headers.indexOf(m.sku)]||"":"",name=m.name?r[csvState.headers.indexOf(m.name)]||"":"",raw=m.quantity?r[csvState.headers.indexOf(m.quantity)]||"":"";
-      const qty=Number(String(raw).replace(/\\s/g,"").replace(",","."));
+      const qty=Number(String(raw).replace(/\s/g,"").replace(",","."));
       const issue=missing.length||!sku||!name||!raw||!Number.isFinite(qty)||qty<0||errors.some(e=>e.line===i+2);
       const tr=el("tr","");[sku,name,raw,issue?"Tekshirish kerak":"Yaroqli"].forEach(v=>tr.append(el("td","",v)));body.append(tr);
     });
@@ -363,14 +381,29 @@
     const file=event.target.files?.[0];if(!file)return;
     try{
       if(file.size>5*1024*1024)throw new Error("Fayl 5 MB limitdan katta.");
-      if(!file.name.toLowerCase().endsWith(".csv"))throw new Error("Hozircha faqat CSV UTF-8 fayl qo‘llanadi. Excel’da Save As → CSV UTF-8 tanlang.");
-      const parsed=parseCSV(await file.text());csvState.headers=parsed.headers;csvState.rows=parsed.rows;csvState.fileName=file.name;
-      $("excel-file-info").textContent=file.name+" · "+fmt(file.size/1024,1)+" KB · "+fmt(parsed.rows.length)+" qator";
-      setupExcelMappings(parsed.headers);renderExcelPreview();
-    }catch(err){csvState.headers=[];csvState.rows=[];$("excel-validation").replaceChildren(el("div","alert error",err.message));}
+      csvState.fileName=file.name;csvState.workbook=null;
+      const isXlsx=file.name.toLowerCase().endsWith(".xlsx");
+      if(isXlsx){
+        if(!window.XLSX)throw new Error("Excel kutubxonasi yuklanmadi. Internet aloqasini tekshirib, sahifani qayta oching.");
+        const bytes=await file.arrayBuffer();
+        csvState.workbook=XLSX.read(bytes,{type:"array",cellDates:true});
+        const names=csvState.workbook.SheetNames||[];
+        if(!names.length)throw new Error("Excel faylida ish varag‘i topilmadi.");
+        const picker=$("excel-sheet");picker.replaceChildren();
+        names.forEach(name=>picker.append(new Option(name,name)));
+        picker.disabled=false;$("excel-sheet-wrap").hidden=names.length<2;
+        picker.onchange=()=>{try{useWorkbookSheet(picker.value);}catch(err){$("excel-validation").replaceChildren(el("div","alert error",err.message));}};
+        useWorkbookSheet(names[0]);
+      }else if(file.name.toLowerCase().endsWith(".csv")){
+        const parsed=parseCSV(await file.text());csvState.headers=parsed.headers;csvState.rows=parsed.rows;
+        $("excel-sheet-wrap").hidden=true;$("excel-sheet").disabled=true;
+        $("excel-file-info").textContent=file.name+" · "+fmt(file.size/1024,1)+" KB · "+fmt(parsed.rows.length)+" qator";
+        setupExcelMappings(parsed.headers);renderExcelPreview();
+      }else throw new Error("Faqat CSV UTF-8 yoki Excel .xlsx fayl yuklang.");
+    }catch(err){csvState.headers=[];csvState.rows=[];csvState.workbook=null;$("excel-validation").replaceChildren(el("div","alert error",err.message));}
   });
   $("excel-reset").addEventListener("click",()=>{
-    $("excel-file").value="";csvState.headers=[];csvState.rows=[];csvState.fileName="";
+    $("excel-file").value="";csvState.headers=[];csvState.rows=[];csvState.fileName="";csvState.workbook=null;$("excel-sheet").replaceChildren();$("excel-sheet").disabled=true;$("excel-sheet-wrap").hidden=true;
     $("excel-file-info").textContent="Maksimal hajm: 5 MB · Maksimal qator: 10 000";
     ["sku","name","quantity","cost","reorder"].forEach(k=>{$("map-"+k).replaceChildren();$("map-"+k).disabled=true;});
     ["excel-rows","excel-valid","excel-errors","excel-total"].forEach(id=>$(id).textContent="—");
