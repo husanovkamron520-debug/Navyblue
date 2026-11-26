@@ -2030,7 +2030,6 @@ async def _callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 await _edit(q, "⏱ Tahlil biroz cho‘zildi. Iltimos, qayta urinib ko‘ring.",
                             InlineKeyboardMarkup([[_btn("↩️ Qayta tanlash", "ai")], [_btn("⬅️ Menyu", "home")]]))
             except Exception:
-                logger.exception("Supply Chain quick AI failed")
                 await _edit(q, "⚠️ Hozir tahlilni yakunlay olmadim. Birozdan keyin qayta urinib ko‘ring.",
                             InlineKeyboardMarkup([[_btn("↩️ Qayta tanlash", "ai")], [_btn("⬅️ Menyu", "home")]]))
     elif action in _PROMPTS:
