@@ -1595,6 +1595,191 @@ async def _weekly_supply_summary_job(context: ContextTypes.DEFAULT_TYPE) -> None
         return
 
 
+def _vision_extract_movements_sync(raw: bytes, mime: str, caption: str = "") -> list[dict[str, Any]]:
+    if _AI_CLIENT is None:
+        raise RuntimeError("Rasmni o‘qish uchun AI yordamchi ulanmagan.")
+    from google.genai import types
+    part = types.Part.from_bytes(data=raw, mime_type=mime or "image/jpeg")
+    prompt = (
+        "You are extracting inventory movements from a warehouse note, handwritten ledger or delivery note. "
+        "Return ONLY valid JSON with this schema: {\"movements\":[{\"product\":\"exact visible product name or SKU\","
+        "\"direction\":\"in|out\",\"quantity\":number,\"unit\":\"unit as written or empty\","
+        "\"confidence\":0.0}]}. "
+        "Include only explicit, legible stock movements. Do not infer missing quantities, do not add totals, "
+        "do not calculate conversions, do not treat prices or invoice totals as quantities. "
+        "If direction or quantity is unclear, omit that line. Keep product names in the original language. "
+        "Confidence must reflect visual certainty; use below 0.85 when uncertain. "
+        "User caption/context: " + (caption or "none")[:500]
+    )
+    response = _AI_CLIENT.models.generate_content(model=_AI_MODEL, contents=[prompt, part])
+    text = (getattr(response, "text", "") or "").strip()
+    match = re.search(r"\{[\s\S]*\}", text)
+    if not match:
+        raise ValueError("Rasmdan aniq kirim-chiqim ro‘yxati ajratilmadi.")
+    payload = json.loads(match.group(0))
+    movements = payload.get("movements")
+    if not isinstance(movements, list):
+        raise ValueError("Rasmda tasdiqlash mumkin bo‘lgan harakat topilmadi.")
+    return movements[:30]
+
+
+def _magic_prepare_movements(data: dict[str, Any], entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    import copy
+    proposals = []
+    seen: set[str] = set()
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        confidence = _safe_num(entry.get("confidence", 1))
+        if confidence < 0.85:
+            continue
+        product_name = str(entry.get("product") or "").strip()
+        if not product_name:
+            continue
+        product, _hits = _need_product(data, product_name)
+        sku = str(product.get("sku") or next((k for k, v in data["products"].items() if v is product), ""))
+        if not sku or sku in seen:
+            raise ValueError(f"{product_name}: mahsulot takrorlangan yoki SKU aniqlanmadi. Ro‘yxatni tekshiring.")
+        seen.add(sku)
+        direction = str(entry.get("direction") or "").casefold().strip()
+        if direction in {"kirim", "keldi", "qabul"}:
+            direction = "in"
+        elif direction in {"chiqim", "ketdi", "sotildi"}:
+            direction = "out"
+        if direction not in {"in", "out"}:
+            raise ValueError(f"{product_name}: kirimmi yoki chiqimmi aniq emas.")
+        try:
+            quantity = float(entry.get("quantity"))
+        except (TypeError, ValueError):
+            raise ValueError(f"{product_name}: miqdor o‘qilmadi.") from None
+        if not math.isfinite(quantity) or quantity <= 0:
+            raise ValueError(f"{product_name}: miqdor noto‘g‘ri.")
+        product_unit = str(product.get("unit") or "dona")
+        input_unit = str(entry.get("unit") or "").strip()
+        if input_unit:
+            canonical_input = _UNITS.get(_norm(input_unit), _norm(input_unit))
+            canonical_product = _UNITS.get(_norm(product_unit), _norm(product_unit))
+            if canonical_input != canonical_product:
+                raise ValueError(
+                    f"{product_name}: hujjatdagi birlik «{input_unit}», ombordagi birlik «{product_unit)»."
+                )
+        before = _safe_num(product.get("quantity"))
+        after = before + quantity if direction == "in" else before - quantity
+        if after < -1e-9:
+            raise ValueError(f"{product_name}: omborda {_f(before)} {product_unit} bor, chiqim esa {_f(quantity)}.")
+        proposals.append({
+            "sku": sku, "name": str(product.get("name") or product_name),
+            "direction": direction, "quantity": quantity, "unit": product_unit,
+            "before": before, "after": after,
+        })
+    if not proposals:
+        raise ValueError("Aniq mahsulot va miqdor topilmadi. Yaqinroq, tiniqroq rasm yuboring.")
+    return proposals
+
+
+def _magic_preview_text(proposals: list[dict[str, Any]], source: str) -> str:
+    lines = [f"📝 **{source} — tekshirib chiqing**", ""]
+    for item in proposals:
+        action = "KIRIM" if item["direction"] == "in" else "CHIQIM"
+        lines.append(f"• **{item['name']}** — {action} {_f(item['quantity'])} {item['unit']}")
+        lines.append(f"  Qoldiq: {_f(item['before'])} → **{_f(item['after'])} {item['unit']}**")
+    lines.extend(["", "Hozircha ombor o‘zgarmadi. Tasdiqlasangiz, harakatlar saqlanadi."])
+    return "\n".join(lines)
+
+
+async def _serialized_magic_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    async with _SC_MUTATION_LOCK:
+        message = update.effective_message
+        if not message or not _allowed(update) or not message.photo:
+            return
+        status = await message.reply_text("🖼 Hujjatni o‘qiyapman…")
+        try:
+            photo = message.photo[-1]
+            if (getattr(photo, "file_size", 0) or 0) > 10 * 1024 * 1024:
+                await status.edit_text("Rasm 10 MB dan kichik bo‘lishi kerak.")
+                return
+            remote = await photo.get_file()
+            raw = bytes(await remote.download_as_bytearray())
+            if len(raw) > 10 * 1024 * 1024:
+                await status.edit_text("Rasm 10 MB dan kichik bo‘lishi kerak.")
+                return
+            entries = await asyncio.wait_for(
+                asyncio.to_thread(_vision_extract_movements_sync, raw, "image/jpeg", message.caption or ""),
+                timeout=60,
+            )
+            proposals = _magic_prepare_movements(_data(), entries)
+            context.user_data["_sc_magic_pending"] = {
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "proposals": proposals,
+            }
+            await status.edit_text(
+                _magic_preview_text(proposals, "Rasmdan aniqlangan kirim-chiqim"),
+                parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup([[
+                    _btn("✅ Tasdiqlash", "magic_confirm"),
+                    _btn("❌ Bekor qilish", "magic_cancel"),
+                ]]),
+            )
+        except Exception as exc:
+            await status.edit_text("⚠️ " + str(exc)[:800] + "\n\nMa’lumot saqlanmadi. Rasmni tiniqroq yuborib ko‘ring.")
+
+
+async def _magic_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    message = update.effective_message
+    raw = (message.text or "").strip() if message else ""
+    if not message or not raw or raw.startswith("/") or not _allowed(update):
+        return False
+    try:
+        direction = _movement_direction(raw, "")
+    except ValueError as exc:
+        await message.reply_text("⚠️ " + str(exc))
+        return True
+    if direction not in {"in", "out"}:
+        return False
+    import copy
+    try:
+        data = _data()
+        product, _hits = _need_product(data, raw)
+        input_unit, _rest = _take_unit(raw)
+        product_unit = str(product.get("unit") or "dona")
+        if input_unit:
+            canonical_input = _UNITS.get(_norm(input_unit), _norm(input_unit))
+            canonical_product = _UNITS.get(_norm(product_unit), _norm(product_unit))
+            if canonical_input != canonical_product:
+                await message.reply_text(
+                    f"⚠️ {product.get('name')}: siz «{input_unit}» deb yozdingiz, omborda esa «{product_unit}» hisoblanadi. "
+                    "Birlikni aniqlashtirmaguncha saqlamayman."
+                )
+                return True
+        scratch = copy.deepcopy(data)
+        _parse_move(scratch, raw, direction)
+        movement = scratch["movements"][-1]
+        sku = str(movement.get("sku") or product.get("sku") or "")
+        before = _safe_num(data["products"][sku].get("quantity"))
+        after = _safe_num(scratch["products"][sku].get("quantity"))
+        proposal = [{
+            "sku": sku, "name": str(product.get("name") or sku),
+            "direction": direction, "quantity": _safe_num(movement.get("quantity")),
+            "unit": product_unit, "before": before, "after": after,
+        }]
+        context.user_data["_sc_magic_pending"] = {
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "proposals": proposal,
+        }
+        await message.reply_text(
+            _magic_preview_text(proposal, "Matndan aniqlangan harakat"),
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup([[
+                _btn("✅ Tasdiqlash", "magic_confirm"),
+                _btn("❌ Bekor qilish", "magic_cancel"),
+            ]]),
+        )
+        return True
+    except ValueError as exc:
+        await message.reply_text("⚠️ " + str(exc) + "\n\nHech qanday o‘zgarish saqlanmadi.")
+        return True
+
+
 def _voice_transcribe_sync(raw: bytes, mime: str) -> str:
     if _AI_CLIENT is None:
         raise RuntimeError("Ovozli yordamchi hozir ulanmagan.")
@@ -2083,7 +2268,7 @@ _AI_QUICK_QUESTIONS = {
 }
 
 
-def _home_keyboard() -> InlineKeyboardMarkup:
+def _full_home_keyboard() -> InlineKeyboardMarkup:
     rows = [
         [_btn("📦 Ombor", "inventory"), _btn("➕ Mahsulot", "add")],
         [_btn("📥 Kirim", "in"), _btn("📤 Chiqim", "out")],
@@ -2099,7 +2284,16 @@ def _home_keyboard() -> InlineKeyboardMarkup:
             "📱 Supply Chain Mini App",
             web_app=WebAppInfo(url=base_url + "/supply-chain"),
         )])
+    rows.append([_btn("⬅️ Qisqa menyu", "home")])
     return InlineKeyboardMarkup(rows)
+
+
+def _home_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [_btn("⚡ Bugungi holat", "today")],
+        [_btn("🤖 AI yordamchi", "ai")],
+        [_btn("📱 To‘liq tizim", "full_menu")],
+    ])
 
 
 def _menu_keyboard(kind: str) -> InlineKeyboardMarkup:
@@ -2284,6 +2478,28 @@ async def _callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             return await alert("Bu buyurtma uchun bu amalni bajarib bo'lmaydi")
         await _save(data)
         await _edit(q, message + "\n\n" + _orders_text(data), _orders_keyboard(data))
+    elif action == "today":
+        products = [p for p in data.get("products", {}).values() if isinstance(p, dict)]
+        metrics = {str(x.get("sku")): x for x in _computed_metrics(data)}
+        urgent = []
+        for sku, product in data.get("products", {}).items():
+            qty, minimum = _safe_num(product.get("quantity")), _safe_num(product.get("reorder_point"))
+            metric = metrics.get(str(sku), {})
+            cover = metric.get("days_of_stock_cover") if metric.get("forecast_status") == "available" else None
+            if (minimum > 0 and qty <= minimum) or (cover is not None and float(cover) <= 3):
+                urgent.append((float(cover) if cover is not None else 999999, str(product.get("name", sku)), qty, minimum, str(product.get("unit", "dona"))))
+        urgent.sort(key=lambda x: x[0])
+        lines = ["⚡ **BUGUNGI OMBOR HOLATI**", "", f"• Mahsulot turlari: **{len(products)}**", f"• Shoshilinch mahsulotlar: **{len(urgent)}**", ""]
+        for _cover, name, qty, minimum, unit in urgent[:5]:
+            lines.append(f"• **{name}** — {_f(qty)} {unit} (minimum {_f(minimum)})")
+        if not urgent:
+            lines.append("Hozircha shoshilinch zaxira signali yo‘q.")
+        lines.append("\nTo‘liq rasmli hisobot quyida.")
+        await q.message.reply_photo(photo=_inventory_report_png(data), caption="\n".join(lines), parse_mode="Markdown")
+        await _edit(q, "Bugungi holat yuborildi. Kerak bo‘lsa, AI yordamchidan savol so‘rang.", _home_keyboard())
+    elif action == "full_menu":
+        context.user_data.pop("_sc_wait", None)
+        await _edit(q, _HOME_TEXT, _full_home_keyboard())
     elif action == "home":
         context.user_data.pop("_sc_wait", None)
         await _edit(q, _HOME_TEXT, _home_keyboard())
@@ -2328,6 +2544,49 @@ async def _callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             context.user_data.pop("_sc_wait", None)
             context.user_data.pop("_sc_ai_draft_candidates", None)
             await _edit(q, "🤖 **AI MASLAHATCHI**\n\nQaysi masalada yordam kerak?", _ai_quick_keyboard())
+    elif action == "magic_confirm":
+        pending = context.user_data.get("_sc_magic_pending") or {}
+        proposals = pending.get("proposals") or []
+        created_at = pending.get("created_at")
+        try:
+            stamp = datetime.fromisoformat(str(created_at))
+            if stamp.tzinfo is None:
+                stamp = stamp.replace(tzinfo=timezone.utc)
+            if datetime.now(timezone.utc) - stamp > timedelta(minutes=15):
+                raise ValueError("Tasdiqlash vaqti tugagan. Ma’lumotni qayta yuboring.")
+            import copy
+            current = copy.deepcopy(_data())
+            for item in proposals:
+                product = current.get("products", {}).get(item.get("sku"))
+                if not product:
+                    raise ValueError(f"{item.get('name')}: mahsulot endi topilmadi.")
+                before = _safe_num(product.get("quantity"))
+                if abs(before - _safe_num(item.get("before"))) > 1e-8:
+                    raise ValueError(f"{item.get('name')}: qoldiq boshqa sessiyada o‘zgargan. Qayta tekshiring.")
+                qty = _safe_num(item.get("quantity"))
+                direction = item.get("direction")
+                after = before + qty if direction == "in" else before - qty
+                if qty <= 0 or after < -1e-9:
+                    raise ValueError(f"{item.get('name')}: miqdor yoki qoldiq noto‘g‘ri.")
+                product["quantity"] = after
+                product["updated_at"] = _now()
+                current.setdefault("movements", []).append({
+                    "id": uuid.uuid4().hex[:12], "sku": item["sku"],
+                    "type": direction, "quantity": qty,
+                    "note": "Tasdiqlangan Magic Input (matn/rasm)", "created_at": _now(),
+                })
+            await _save(current)
+            context.user_data.pop("_sc_magic_pending", None)
+            lines = ["✅ **Ombor harakatlari saqlandi**", ""]
+            lines.extend(f"• {x['name']}: {_f(x['quantity'])} {x['unit']} — qoldiq {_f(x['after'])} {x['unit']}" for x in proposals)
+            await _edit(q, "\n".join(lines), _home_keyboard())
+        except Exception as exc:
+            await _edit(q, "⚠️ " + str(exc) + "\n\nOmbor o‘zgartirilmagan.", InlineKeyboardMarkup([
+                [_btn("⬅️ Menyu", "home")]
+            ]))
+    elif action == "magic_cancel":
+        context.user_data.pop("_sc_magic_pending", None)
+        await _edit(q, "❌ Kiritish bekor qilindi. Ombor qoldig‘i o‘zgarmadi.", _home_keyboard())
     elif action == "ai_cart":
         candidates = _ai_draft_candidates(data)
         context.user_data["_sc_ai_cart_candidates"] = candidates
@@ -2904,7 +3163,10 @@ async def _serialized_excel_document(update: Update, context: ContextTypes.DEFAU
 async def _serialized_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     async with _SC_MUTATION_LOCK:
         try:
-            return await _text(update, context)
+            handled = await _text(update, context)
+            if handled:
+                return True
+            return await _magic_text(update, context)
         except sc_persistence.PersistenceError as exc:
             await _notify_persistence_error(update, exc)
             return True
@@ -2925,6 +3187,7 @@ def install(app: Application, load_json: Callable[[str, Any], Any], save_json: C
         pass
     if owner_id:
         app.add_handler(MessageHandler(filters.ChatType.PRIVATE & filters.User(user_id=owner_id) & (filters.VOICE | filters.AUDIO), _serialized_voice))
+        app.add_handler(MessageHandler(filters.ChatType.PRIVATE & filters.User(user_id=owner_id) & filters.PHOTO, _serialized_magic_photo))
     app.add_handler(MessageHandler(filters.ChatType.PRIVATE & filters.Document.ALL, _serialized_excel_document))
     job_queue = getattr(app, "job_queue", None)
     if job_queue is not None and owner_id:
