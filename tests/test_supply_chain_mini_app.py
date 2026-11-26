@@ -91,6 +91,18 @@ class SupplyChainMiniAppShellTests(unittest.TestCase):
         self.assertIn('"/sc-api/v1/logistics/shipments"', self.html)
         self.assertNotIn("/sc-api/v1/imports", self.html)
 
+    def test_inventory_rows_open_read_only_product_detail(self):
+        self.assertIn('id="inventory-detail"', self.html)
+        self.assertIn('id="detail-movements"', self.html)
+        self.assertIn('id="detail-demand"', self.html)
+        self.assertIn('async function openInventoryDetail(sku)', self.html)
+        self.assertIn('"/sc-api/v1/inventory/"+encodeURIComponent(sku)', self.html)
+        self.assertIn('data.recent_movements', self.html)
+        self.assertIn('data.demand_history', self.html)
+        self.assertIn('addEventListener("click",()=>openInventoryDetail(p.sku))', self.html)
+        self.assertIn('id="detail-close"', self.html)
+        self.assertNotIn('/sc-api/v1/inventory/movements', self.html)
+
     def test_dynamic_business_values_are_not_inserted_as_html(self):
         self.assertNotIn("innerHTML", self.html)
         self.assertIn("textContent", self.html)
