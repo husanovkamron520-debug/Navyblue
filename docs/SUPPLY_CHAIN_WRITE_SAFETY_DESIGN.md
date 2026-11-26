@@ -1,6 +1,6 @@
 # Supply Chain Write Safety Design
 
-**Status:** design only — no write endpoint or storage behavior is implemented by this document.
+**Status:** the original design findings remain historical context. The isolated branch now implements a Mini App inventory-import path using a JSONB compare-and-swap adapter; it is not merged or deployed.
 
 **Scope:** future Mini App operations that mutate the company Supply Chain dataset, especially Excel import/apply, stock adjustments, purchase-order actions and shipment status changes.
 
@@ -240,3 +240,30 @@ Never return a success-shaped response while the write is merely queued.
 - No merge to `main` and no Render deployment.
 
 **Decision gate:** implement the persistence adapter and concurrency tests first. Only after those pass should a narrowly scoped write operation (preferably create-missing-products import) be considered for a separate reviewed change.
+
+
+## 3.3 Mini App inventory import implementation on isolated branch
+
+The first browser write is deliberately limited to a user-confirmed inventory import:
+
+- `supply_chain_mini_app_import.py` validates the entire payload before mutation, enforces SKU uniqueness case-insensitively, rejects negative/non-finite/boolean values and caps rows/field sizes.
+- `POST /sc-api/v1/inventory/import` requires an existing owner bearer session, configured Supabase storage, JSON content type, an 8 MB body limit and a process-local limit of 3 import requests per 60 seconds.
+- The request carries `operation_id` and `expected_version`. The server computes the canonical SHA-256 request hash; it does not trust a browser-provided hash.
+- The commit uses `SerializedCommitAdapter` plus `JsonbCompareAndSwap`; the browser does not receive or use Supabase credentials.
+- Existing quantities are replaced by the confirmed spreadsheet quantities. New products are created with unit `pcs`. Optional cost/reorder values update only when present. Quantity deltas append inbound/outbound movement records.
+- The UI displays a preview against the current inventory and requires a separate checkbox plus confirmation button. Preview alone never POSTs.
+- Version conflicts are rejected; ambiguous outcomes are not reported as success and the UI warns against blindly repeating the import.
+
+### Tests added
+
+- `tests/test_supply_chain_mini_app_import.py` covers payload validation, duplicate SKUs, invalid numeric values, row limits, stock movements, optional-field preservation, idempotent replay, stale versions and all-or-nothing validation.
+- `browser_tests/test_mini_app_browser.py` covers preview-only behavior and explicit-confirmation POST behavior.
+
+### Remaining release gates
+
+- Validate the exact PostgREST JSONB path filter and response shape against a disposable staging row/project.
+- Confirm all other processes/writers are unable to bypass the CAS with a legacy blind upsert.
+- Run the full CI suite and inspect failures on the final branch head.
+- Test the live HTTPS endpoint and actual Telegram Android WebView before merge/deploy.
+
+No live Supabase PATCH or production write has been performed by this implementation.
