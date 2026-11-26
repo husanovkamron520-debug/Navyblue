@@ -241,3 +241,11 @@ Phase 6 — Hardening and rollout:
 - No classroom/simulation records leak into company inventory.
 - Company-scoped authorization is enforced server-side.
 - No production deployment occurs without a separate approval.
+
+
+### Excel Workspace progress (2026-11-26)
+- Added a mobile-first Excel Workspace view to the isolated Mini App branch.
+- Current phase accepts CSV UTF-8 exported from Excel, parses it locally in the browser, and supports column mapping for SKU, product name, quantity, unit cost and reorder point.
+- Validates required fields, non-negative numeric values, duplicate SKUs, file size (5 MB) and row count (10,000); shows a 20-row preview and validation summary.
+- This is analysis-only: no file is uploaded to the server, no inventory data is changed, and no import/apply endpoint exists.
+- Direct .xlsx parsing, server-side validation, persistent import history, and an explicitly confirmed durable apply flow remain future work. Do not implement inventory writes until persistence acknowledgement and operation-level locking are designed and tested.
