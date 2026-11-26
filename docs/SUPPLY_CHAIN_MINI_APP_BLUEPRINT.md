@@ -278,3 +278,9 @@ Phase 6 — Hardening and rollout:
 - The panel reads the existing authenticated `GET /sc-api/v1/inventory/{sku}` endpoint and displays allow-listed product metrics, up to 20 recent movements and up to 12 demand-history rows.
 - The detail view is read-only and uses text-only DOM rendering for stored values. It does not create movements or update stock.
 - Keyboard activation and a close control are included for accessibility.
+
+
+### Print-ready PDF reports progress (2026-11-26)
+- Inventory, purchase-order and shipment reports now have a print/PDF action alongside CSV and XLSX exports.
+- The app builds a print-only table from the authenticated read-only APIs and opens the device/browser print dialog; users can choose Save as PDF.
+- No PDF service, server upload or inventory mutation is involved. Availability of Save as PDF depends on the browser or device print support, especially inside Telegram WebView.
