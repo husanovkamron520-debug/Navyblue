@@ -55,6 +55,11 @@ def normalize_payload(payload):
         if not isinstance(name, str) or not name.strip() or len(name.strip()) > MAX_NAME:
             raise ImportValidationError(f"{index}-qatorda mahsulot nomi noto'g'ri.")
         sku = sku.strip()
+        unit = row.get("unit")
+        if unit is not None:
+            if not isinstance(unit, str) or len(unit.strip()) > 32:
+                raise ImportValidationError(f"{index}-qatorda birlik noto'g'ri.")
+            unit = "".join(ch for ch in unit.strip() if ord(ch) >= 32 and ord(ch) != 127) or None
         if sku.casefold() in seen:
             raise ImportValidationError(f"{index}-qatorda takroriy SKU bor.")
         seen.add(sku.casefold())
@@ -74,7 +79,7 @@ def normalize_payload(payload):
             return parsed
 
         clean.append({
-            "sku": sku, "name": name.strip(),
+            "sku": sku, "name": name.strip(), "unit": unit,
             "quantity": number("quantity"),
             "unit_cost": number("unit_cost", optional=True),
             "reorder_point": number("reorder_point", optional=True),
@@ -106,7 +111,7 @@ def mutate_inventory(snapshot, rows, source_name="inventory-import", source_shee
         if existing_key is None:
             product = {
                 "sku": sku, "name": row["name"], "quantity": row["quantity"],
-                "unit": "pcs", "created_at": now, "updated_at": now,
+                "unit": row["unit"] or "pcs", "created_at": now, "updated_at": now,
             }
             if row["unit_cost"] is not None:
                 product["unit_cost"] = row["unit_cost"]
@@ -135,6 +140,8 @@ def mutate_inventory(snapshot, rows, source_name="inventory-import", source_shee
                 raise ImportValidationError(f"{existing_key} ombor miqdori noto'g'ri.")
             product["name"] = row["name"]
             product["quantity"] = row["quantity"]
+            if row["unit"] is not None:
+                product["unit"] = row["unit"]
             if row["unit_cost"] is not None:
                 product["unit_cost"] = row["unit_cost"]
             if row["reorder_point"] is not None:
