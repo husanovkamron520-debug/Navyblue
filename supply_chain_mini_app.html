@@ -155,7 +155,7 @@
   const $ = id => document.getElementById(id);
   let token = "", page = 1, totalPages = 1, searchTimer = null, currentView = "dashboard";
   let inventoryBaseline = null, importVersion = null, importRows = [], importPreviewSeq = 0;
-  let inventoryVersion = null, pendingImportOperationId = null;
+  let inventoryVersion = null, pendingImportOperationId = null, pendingImportFingerprint = null;
   const pendingArchiveOperations = new Map();
   const fmt = (n, digits=0) => n == null || !Number.isFinite(Number(n)) ? "—" : new Intl.NumberFormat("uz-UZ",{maximumFractionDigits:digits}).format(Number(n));
   const money = n => n == null ? "—" : fmt(n,0) + " UZS";
@@ -613,7 +613,7 @@
       const products=await fetchAllPages("/sc-api/v1/inventory");
       if(seq!==importPreviewSeq)return;
       importVersion=Number(bootstrap.data_version||1);
-      pendingImportOperationId=null;
+      pendingImportOperationId=null;pendingImportFingerprint=null;
       renderImportHistory(bootstrap.recent_imports||[]);
       inventoryBaseline=new Map(products.map(p=>[String(p.sku).toLocaleLowerCase(),p]));
       const diffs=importRows.map(row=>{
@@ -654,7 +654,11 @@
     $("excel-file").disabled=true;
     $("excel-reset").disabled=true;
     $("excel-import-status").textContent="Server qatorlarni qayta tekshirib, versiya nazorati bilan saqlamoqda.";
-    if(!pendingImportOperationId)pendingImportOperationId=(window.crypto&&crypto.randomUUID)?crypto.randomUUID():("excel-"+Date.now()+"-"+Math.random().toString(36).slice(2));
+    const importFingerprint=JSON.stringify({expected_version:importVersion,source_name:csvState.fileName||"inventory-import",source_sheet:csvState.workbook?$("excel-sheet").value:"",rows:importRows});
+    if(!pendingImportOperationId||pendingImportFingerprint!==importFingerprint){
+      pendingImportOperationId=(window.crypto&&crypto.randomUUID)?crypto.randomUUID():("excel-"+Date.now()+"-"+Math.random().toString(36).slice(2));
+      pendingImportFingerprint=importFingerprint;
+    }
     try{
       const result=await api("/sc-api/v1/inventory/import",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
         operation_id:pendingImportOperationId,expected_version:importVersion,
@@ -664,7 +668,7 @@
       })});
       $("excel-import-status").textContent="Saqlandi: "+fmt(result.result?.processed)+" qator · yangi "+fmt(result.result?.created)+" · yangilandi "+fmt(result.result?.updated)+" · o‘zgarishsiz "+fmt(result.result?.unchanged)+" · versiya "+fmt(result.version)+".";
       $("excel-confirm-check").checked=false;
-      importRows=[];inventoryBaseline=null;importVersion=null;pendingImportOperationId=null;
+      importRows=[];inventoryBaseline=null;importVersion=null;pendingImportOperationId=null;pendingImportFingerprint=null;
       await refreshAll();
       await loadImportHistory();
       $("excel-diff").replaceChildren(el("div","alert good","Import saqlandi va ombor yangilandi."));
@@ -679,7 +683,7 @@
         $("excel-confirm-check").checked=false;
         $("excel-import-status").textContent="Import bajarilmadi: "+error.message+" Sahifani yangilab, faylni qayta tekshiring.";
         if(/Preview eskirgan|Ma'lumotlar o'zgargan|version_conflict/i.test(error.message)){
-          importVersion=null;inventoryBaseline=null;pendingImportOperationId=null;
+          importVersion=null;inventoryBaseline=null;pendingImportOperationId=null;pendingImportFingerprint=null;
           $("excel-import-status").textContent+=" Preview eskirgan. Omborni yangilang va farqlarni qayta tekshiring.";
         }
       }
@@ -705,7 +709,7 @@
   }
   $("excel-file").addEventListener("change",async event=>{
     const file=event.target.files?.[0];if(!file)return;
-    importRows=[];importVersion=null;inventoryBaseline=null;pendingImportOperationId=null;importPreviewSeq++;
+    importRows=[];importVersion=null;inventoryBaseline=null;pendingImportOperationId=null;pendingImportFingerprint=null;importPreviewSeq++;
     $("excel-import-confirm").disabled=true;$("excel-confirm-check").checked=false;
     $("excel-import-status").textContent="Yangi fayl tekshirilmoqda…";
     try{
@@ -749,7 +753,7 @@
     $("excel-diff").replaceChildren(el("div","muted","Fayl yuklangandan keyin ombor bilan solishtiriladi."));
     $("excel-import-confirm").disabled=true;$("excel-confirm-check").checked=false;
     $("excel-import-status").textContent="Hozircha hech narsa saqlanmadi.";
-    importRows=[];inventoryBaseline=null;importVersion=null;pendingImportOperationId=null;importPreviewSeq++;
+    importRows=[];inventoryBaseline=null;importVersion=null;pendingImportOperationId=null;pendingImportFingerprint=null;importPreviewSeq++;
   });
   $("excel-confirm-check").addEventListener("change",event=>{
     const hasErrors=Number($("excel-errors").textContent.replace(/\D/g,""))>0;
