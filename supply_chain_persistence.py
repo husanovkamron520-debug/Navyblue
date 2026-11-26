@@ -89,12 +89,26 @@ class SerializedCommitAdapter:
             if not isinstance(records, list):
                 raise PersistenceError("stored idempotency metadata is invalid")
             for record in reversed(records):
-                if not isinstance(record, dict) or record.get("operation_id") != operation_id:
+                if not isinstance(record, dict):
+                    raise PersistenceError("stored idempotency record is invalid")
+                if record.get("operation_id") != operation_id:
                     continue
-                if record.get("request_hash") != request_hash:
+                stored_hash = record.get("request_hash")
+                stored_version = record.get("version")
+                if not isinstance(stored_hash, str) or len(stored_hash) != 64:
+                    raise PersistenceError("stored idempotency hash is invalid")
+                try:
+                    int(stored_hash, 16)
+                except ValueError as exc:
+                    raise PersistenceError("stored idempotency hash is invalid") from exc
+                if (isinstance(stored_version, bool) or
+                        not isinstance(stored_version, int) or stored_version < 2 or
+                        stored_version > current_version):
+                    raise PersistenceError("stored idempotency version is invalid")
+                if stored_hash != request_hash:
                     raise IdempotencyConflict("operation ID was already used with another payload")
                 return {
-                    "version": record["version"],
+                    "version": stored_version,
                     "result": copy.deepcopy(record.get("result")),
                     "replayed": True,
                 }
