@@ -54,17 +54,17 @@ class SupplyChainMiniAppShellTests(unittest.TestCase):
         self.assertNotIn('method:"POST"', self.html.replace('method: "POST"', 'method:"POST"').replace('method: \"POST\"', 'method:"POST"')[self.html.find('function renderExcelPreview'):])
 
     def test_reports_export_only_uses_read_endpoints_and_csv_download(self):
-        self.assertIn("data-view=\\"reports\\"", self.html)
-        self.assertIn("id=\\"export-inventory\\"", self.html)
-        self.assertIn("id=\\"export-orders\\"", self.html)
-        self.assertIn("id=\\"export-shipments\\"", self.html)
+        self.assertIn('data-view="reports"', self.html)
+        self.assertIn('id="export-inventory"', self.html)
+        self.assertIn('id="export-orders"', self.html)
+        self.assertIn('id="export-shipments"', self.html)
         self.assertIn("function fetchAllPages(path)", self.html)
         self.assertIn("function downloadCSV(filename,headers,rows)", self.html)
         self.assertIn("String.fromCharCode(65279)", self.html)
         self.assertIn("URL.createObjectURL(new Blob", self.html)
-        self.assertIn("\\"/sc-api/v1/inventory\\"", self.html)
-        self.assertIn("\\"/sc-api/v1/procurement/orders\\"", self.html)
-        self.assertIn("\\"/sc-api/v1/logistics/shipments\\"", self.html)
+        self.assertIn('"/sc-api/v1/inventory"', self.html)
+        self.assertIn('"/sc-api/v1/procurement/orders"', self.html)
+        self.assertIn('"/sc-api/v1/logistics/shipments"', self.html)
         self.assertNotIn("/sc-api/v1/imports", self.html)
 
     def test_dynamic_business_values_are_not_inserted_as_html(self):
