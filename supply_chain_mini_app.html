@@ -580,7 +580,7 @@
         source_sheet:csvState.workbook?$("excel-sheet").value:"",
         rows:importRows
       })});
-      $("excel-import-status").textContent="Saqlandi: "+fmt(result.result?.processed)+" qator · yangi "+fmt(result.result?.created)+" · yangilandi "+fmt(result.result?.updated)+" · versiya "+fmt(result.version)+".";
+      $("excel-import-status").textContent="Saqlandi: "+fmt(result.result?.processed)+" qator · yangi "+fmt(result.result?.created)+" · yangilandi "+fmt(result.result?.updated)+" · o‘zgarishsiz "+fmt(result.result?.unchanged)+" · versiya "+fmt(result.version)+".";
       $("excel-confirm-check").checked=false;
       importRows=[];inventoryBaseline=null;importVersion=null;
       await refreshAll();
