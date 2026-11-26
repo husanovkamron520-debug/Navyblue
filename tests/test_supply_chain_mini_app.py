@@ -65,6 +65,8 @@ class SupplyChainMiniAppShellTests(unittest.TestCase):
         self.assertIn('CSV UTF-8 va Excel .xlsx fayllar brauzerda tekshiriladi', self.html)
         self.assertIn('id="excel-import-confirm"', self.html)
         self.assertIn('id="excel-confirm-check"', self.html)
+        self.assertIn('addEventListener("change",event=>', self.html)
+        self.assertIn('addEventListener("click",confirmInventoryImport)', self.html)
         preview = self.html[self.html.find('function renderExcelPreview'):self.html.find('async function renderImportDiff')]
         self.assertNotIn('method:"POST"', preview)
         self.assertIn('renderImportDiff(valid)', preview)
