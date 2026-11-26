@@ -569,6 +569,8 @@
     if(!importRows.length||importVersion==null||!$("excel-confirm-check").checked)return;
     const button=$("excel-import-confirm");
     button.disabled=true;button.textContent="Saqlanmoqda…";
+    $("excel-file").disabled=true;
+    $("excel-reset").disabled=true;
     $("excel-import-status").textContent="Server qatorlarni qayta tekshirib, versiya nazorati bilan saqlamoqda.";
     const operationId=(window.crypto&&crypto.randomUUID)?crypto.randomUUID():("excel-"+Date.now()+"-"+Math.random().toString(36).slice(2));
     try{
@@ -594,6 +596,8 @@
         $("excel-import-status").textContent+=" Takroran import qilishdan oldin omborni yangilab, farqlarni qayta tekshiring.";
       }
     }finally{
+      $("excel-file").disabled=false;
+      $("excel-reset").disabled=false;
       button.textContent="Importni tasdiqlash";
       const hasErrors=Number($("excel-errors").textContent.replace(/\D/g,""))>0;
       button.disabled=!importRows.length||importVersion==null||!$("excel-confirm-check").checked||hasErrors;
