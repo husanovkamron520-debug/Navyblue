@@ -30,6 +30,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer, ThreadingHTTPServer
 import museum
 import supply_chain
 import supply_chain_api as sc_api
+import supply_chain_persistence as sc_persistence
 import october_plus
 import october_creative
 from ppt_media_sources import find_commons_photo
@@ -511,9 +512,7 @@ STORAGE_TABLE = "bot_storage"
 
 _cache = {}
 _cache_lock = threading.RLock()
-_pending = {}
-_pending_inflight = set()
-_pending_cv = threading.Condition()
+_STORAGE_WRITE_QUEUE = sc_persistence.SnapshotWriteQueue()
 _storage_save_lock = threading.RLock()
 _writer_started = False
 
@@ -650,12 +649,7 @@ def _db_save(key, data):
 def _writer_loop():
     """Single ordered writer: only this thread sends queued snapshots to Supabase."""
     while True:
-        with _pending_cv:
-            while not _pending:
-                _pending_cv.wait()
-            key, data = next(iter(_pending.items()))
-            del _pending[key]
-            _pending_inflight.add(key)
+        key, data = _STORAGE_WRITE_QUEUE.take()
         saved = False
         for attempt in range(4):
             try:
@@ -665,12 +659,7 @@ def _writer_loop():
             except Exception:
                 logger.warning("Supabase'ga yozib bo'lmadi (%s, urinish %s)", key, attempt + 1, exc_info=True)
                 time.sleep(2 * (attempt + 1))
-        with _pending_cv:
-            _pending_inflight.discard(key)
-            if not saved:
-                # A newer snapshot already queued for this key always wins.
-                _pending.setdefault(key, data)
-            _pending_cv.notify_all()
+        _STORAGE_WRITE_QUEUE.finish(key, data, saved=saved)
         if not saved:
             time.sleep(10)
 
@@ -683,18 +672,14 @@ def flush_storage(timeout=15):
     """
     if not USE_DB:
         return True
-    deadline = time.monotonic() + max(0.0, float(timeout))
-    with _pending_cv:
-        while _pending or _pending_inflight:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                logger.warning(
-                    "Storage flush timed out; pending=%s inflight=%s",
-                    len(_pending), len(_pending_inflight),
-                )
-                return False
-            _pending_cv.wait(timeout=remaining)
-    return True
+    drained = _STORAGE_WRITE_QUEUE.wait_empty(timeout)
+    if not drained:
+        logger.warning(
+            "Storage flush timed out; pending=%s inflight=%s",
+            _STORAGE_WRITE_QUEUE.pending_count,
+            _STORAGE_WRITE_QUEUE.inflight_count,
+        )
+    return drained
 
 
 def _file_load(filepath, default):
@@ -801,9 +786,7 @@ def save_json(filepath, data):
     with _storage_save_lock:
         with _cache_lock:
             _cache[key] = snapshot
-        with _pending_cv:
-            _pending[key] = copy.deepcopy(snapshot)
-            _pending_cv.notify_all()
+        _STORAGE_WRITE_QUEUE.enqueue(key, snapshot)
     return True
 
 
