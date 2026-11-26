@@ -177,5 +177,90 @@ class SupplyChainCalculationRegressionTests(unittest.TestCase):
         self.assertEqual(data, before)
 
 
+class SupplyChainAIContextRegressionTests(unittest.TestCase):
+    def test_ai_snapshot_includes_all_records_without_old_list_caps(self):
+        data = empty_data()
+        data["products"] = {
+            f"P-{i:03d}": {
+                "name": f"Product {i}", "quantity": 100, "reorder_point": 10,
+                "unit_cost": 2, "annual_demand": 50,
+            }
+            for i in range(75)
+        }
+        data["suppliers"] = {
+            f"S-{i:03d}": {"name": f"Supplier {i}", "lead_time_days": 3}
+            for i in range(45)
+        }
+        data["orders"] = [{"id": f"PO-{i:03d}", "sku": "P-000"} for i in range(55)]
+        data["vehicles"] = [{"id": f"V-{i:03d}"} for i in range(35)]
+        data["shipments"] = [{"id": f"SH-{i:03d}"} for i in range(50)]
+
+        snapshot = supply_chain._ai_snapshot(data)
+
+        self.assertEqual(len(snapshot["products"]), 75)
+        self.assertEqual(len(snapshot["suppliers"]), 45)
+        self.assertEqual(len(snapshot["orders"]), 55)
+        self.assertEqual(len(snapshot["vehicles"]), 35)
+        self.assertEqual(len(snapshot["shipments"]), 50)
+        self.assertEqual(snapshot["data_counts"]["products"], 75)
+
+    def test_ai_snapshot_calculates_low_stock_rate_and_separates_values(self):
+        data = empty_data()
+        for i in range(35):
+            data["products"][f"P-{i:03d}"] = {
+                "name": f"Product {i}",
+                "quantity": 5 if i < 6 else 20,
+                "reorder_point": 10,
+                "unit_cost": 100,
+                "annual_demand": 12,
+            }
+
+        summary = supply_chain._ai_snapshot(data)["inventory_summary"]
+
+        self.assertEqual(summary["product_count"], 35)
+        self.assertEqual(summary["low_stock_count"], 6)
+        self.assertEqual(summary["low_stock_rate_percent"], 17.14)
+        self.assertEqual(summary["total_inventory_value"], 61000)
+        self.assertEqual(summary["annual_consumption_value"], 42000)
+        self.assertIn("abc_groups_by_annual_consumption_value", summary)
+
+    def test_ai_snapshot_marks_unavailable_kpis_with_missing_inputs(self):
+        snapshot = supply_chain._ai_snapshot(empty_data())
+        availability = snapshot["kpi_availability"]
+
+        self.assertEqual(availability["inventory_turnover"]["status"], "not_calculable")
+        self.assertTrue(availability["inventory_turnover"]["missing"])
+        self.assertEqual(availability["forecast_accuracy"]["status"], "not_calculable")
+
+    def test_ai_prompt_keeps_payload_over_previous_18000_character_limit(self):
+        class FakeModels:
+            def __init__(self):
+                self.prompt = None
+
+            def generate_content(self, *, model, contents):
+                self.prompt = contents
+                return type("Response", (), {"text": "Tahlil yakunlandi."})()
+
+        class FakeClient:
+            def __init__(self):
+                self.models = FakeModels()
+
+        client = FakeClient()
+        large_snapshot = {"complete_record": "X" * 19000}
+        answer = supply_chain._ask_gemini_sync(client, "test-model", "Sinov", large_snapshot)
+
+        self.assertEqual(answer, "Tahlil yakunlandi.")
+        self.assertIn("X" * 19000, client.models.prompt)
+        self.assertIn("to‘liq JSON", client.models.prompt)
+
+    def test_long_telegram_answer_is_split_without_losing_ending(self):
+        original = ("Muhim tahlil satri.\\n" * 260) + "YAKUNIY TAVSIYA SAQLANDI"
+        chunks = supply_chain._split_telegram_text(original, limit=3900)
+
+        self.assertGreater(len(chunks), 1)
+        self.assertTrue(all(len(chunk) <= 3900 for chunk in chunks))
+        self.assertIn("YAKUNIY TAVSIYA SAQLANDI", chunks[-1])
+
+
 if __name__ == "__main__":
     unittest.main()

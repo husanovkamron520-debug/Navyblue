@@ -1,0 +1,22 @@
+name: Supply Chain AI checks
+
+on:
+  push:
+    branches:
+      - main
+      - fix/supply-chain-ai-reliability
+  pull_request:
+    paths:
+      - "supply_chain.py"
+      - ".github/workflows/supply-chain-ai-check.yml"
+
+jobs:
+  syntax:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Compile Supply Chain module
+        run: python -m py_compile supply_chain.py
