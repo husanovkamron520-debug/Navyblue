@@ -795,11 +795,15 @@ def save_json(filepath, data):
     if not USE_DB:
         return _file_save(filepath, data)
     key = _storage_key(filepath)
-    with _cache_lock:
-        _cache[key] = copy.deepcopy(data)
-    with _pending_cv:
-        _pending[key] = copy.deepcopy(data)
-        _pending_cv.notify()
+    snapshot = copy.deepcopy(data)
+    # Keep cache publication and queue insertion in one critical section so
+    # concurrent callers cannot enqueue an older snapshot after a newer one.
+    with _storage_save_lock:
+        with _cache_lock:
+            _cache[key] = snapshot
+        with _pending_cv:
+            _pending[key] = copy.deepcopy(snapshot)
+            _pending_cv.notify_all()
     return True
 
 
