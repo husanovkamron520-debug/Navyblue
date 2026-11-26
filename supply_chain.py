@@ -1709,7 +1709,7 @@ def _magic_prepare_movements(data: dict[str, Any], entries: list[dict[str, Any]]
         confidence = _safe_num(entry.get("confidence", 0))
         if confidence < 0.85:
             raise ValueError(
-                f"«{product_name}» qatori noaniq o‘qildi (ishonchlilik {confidence:.0%}). "
+                f"«{product_name}» qatori noaniq o‘qildi (ishonchlilik {confidence:.0%}); aniq mahsulot ma’lumoti yetarli emas. "
                 "Hamma qatorlar aniq bo‘lmaguncha hech narsa saqlanmaydi."
             )
         sku, product = _magic_resolve_product(data, product_name)
