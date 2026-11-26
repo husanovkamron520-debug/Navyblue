@@ -177,6 +177,17 @@ class SerializedCommitAdapterTests(unittest.TestCase):
 
 
 
+
+    def test_programming_error_is_not_misreported_as_ambiguous_commit(self):
+        def broken_persist(candidate, expected_version, new_version):
+            raise ValueError("local serialization bug")
+        adapter = SerializedCommitAdapter(self.store.load, broken_persist)
+        with self.assertRaises(PersistenceError) as caught:
+            adapter.commit(expected_version=1, operation_id="op-bug",
+                           request_hash=digest("x"), mutate=self.change_quantity(1))
+        self.assertNotIsInstance(caught.exception, CommitOutcomeUnknown)
+        self.assertEqual(self.store.load()["version"], 1)
+
 class SnapshotWriteQueueTests(unittest.TestCase):
     def test_newer_snapshot_is_not_replaced_when_older_inflight_write_fails(self):
         queue = SnapshotWriteQueue()
@@ -218,16 +229,6 @@ class SnapshotWriteQueueTests(unittest.TestCase):
         self.assertEqual(retry, {"version": 1})
         queue.finish(key2, retry, saved=True)
 
-
-    def test_programming_error_is_not_misreported_as_ambiguous_commit(self):
-        def broken_persist(candidate, expected_version, new_version):
-            raise ValueError("local serialization bug")
-        adapter = SerializedCommitAdapter(self.store.load, broken_persist)
-        with self.assertRaises(PersistenceError) as caught:
-            adapter.commit(expected_version=1, operation_id="op-bug",
-                           request_hash=digest("x"), mutate=self.change_quantity(1))
-        self.assertNotIsInstance(caught.exception, CommitOutcomeUnknown)
-        self.assertEqual(self.store.load()["version"], 1)
 
 
     def test_second_worker_cannot_take_same_key_while_first_is_inflight(self):
