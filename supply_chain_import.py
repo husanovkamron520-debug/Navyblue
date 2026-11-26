@@ -54,32 +54,54 @@ _REQUIRED = {
 }
 
 
+MAX_XLSX_UNCOMPRESSED = 64 * 1024 * 1024
+MAX_XLSX_ENTRIES = 2_000
+MAX_XLSX_SHEETS = 20
+MAX_XLSX_ROWS = 10_001  # header + at most 10,000 data rows
+MAX_XLSX_COLUMNS = 100
+MAX_XLSX_XML_ENTRY = 32 * 1024 * 1024
+
+
 def _norm(value: Any) -> str:
     value = str(value or "").strip().casefold().replace("ё", "е")
-    return re.sub(r"[^a-z0-9а-я]+", "", value)
+    # Unicode \w preserves Uzbek Cyrillic letters: ў, қ, ғ and ҳ.
+    return re.sub(r"[^\w]+", "", value, flags=re.UNICODE).replace("_", "")
 
 
 def _column_index(cell_ref: str) -> int:
-    letters = re.match(r"[A-Z]+", cell_ref.upper())
-    if not letters:
-        return 0
+    match = re.fullmatch(r"([A-Z]{1,3})([1-9][0-9]{0,6})", str(cell_ref or "").upper())
+    if not match:
+        raise ValueError("Excel katak manzili noto'g'ri.")
+    letters, row_text = match.groups()
     out = 0
-    for char in letters.group(0):
+    for char in letters:
         out = out * 26 + ord(char) - 64
+    if out > MAX_XLSX_COLUMNS or int(row_text) > MAX_XLSX_ROWS:
+        raise ValueError("Excel faylda ruxsat etilgan qator yoki ustun limiti oshgan.")
     return out - 1
+
+
+def _read_xml_entry(zf: zipfile.ZipFile, path: str) -> bytes:
+    try:
+        info = zf.getinfo(path)
+    except KeyError:
+        raise
+    if info.file_size > MAX_XLSX_XML_ENTRY:
+        raise ValueError("Excel XML bo'limi ruxsat etilgan hajmdan katta.")
+    return zf.read(path)
 
 
 def _shared_strings(zf: zipfile.ZipFile) -> list[str]:
     try:
-        root = ET.fromstring(zf.read("xl/sharedStrings.xml"))
+        root = ET.fromstring(_read_xml_entry(zf, "xl/sharedStrings.xml"))
     except KeyError:
         return []
     return ["".join(t.text or "" for t in si.findall(".//m:t", _NS)) for si in root.findall("m:si", _NS)]
 
 
 def _workbook_sheets(zf: zipfile.ZipFile) -> list[tuple[str, str]]:
-    wb = ET.fromstring(zf.read("xl/workbook.xml"))
-    rels = ET.fromstring(zf.read("xl/_rels/workbook.xml.rels"))
+    wb = ET.fromstring(_read_xml_entry(zf, "xl/workbook.xml"))
+    rels = ET.fromstring(_read_xml_entry(zf, "xl/_rels/workbook.xml.rels"))
     targets = {r.attrib["Id"]: r.attrib["Target"] for r in rels.findall("rel:Relationship", _NS)}
     result = []
     for sheet in wb.findall("m:sheets/m:sheet", _NS):
@@ -110,17 +132,19 @@ def _cell_value(cell: ET.Element, shared: list[str]) -> Any:
 
 
 def _read_sheet(zf: zipfile.ZipFile, path: str, shared: list[str]) -> list[tuple[int, list[Any]]]:
-    root = ET.fromstring(zf.read(path))
+    root = ET.fromstring(_read_xml_entry(zf, path))
     output = []
     for row in root.findall(".//m:sheetData/m:row", _NS):
+        if len(output) >= MAX_XLSX_ROWS:
+            raise ValueError("Excel faylda 10 000 qatordan ortiq ma'lumot bor.")
         cells = row.findall("m:c", _NS)
         if not cells:
             continue
         vals: list[Any] = []
         for cell in cells:
             idx = _column_index(cell.attrib.get("r", ""))
-            if idx < 0:
-                continue
+            if idx < 0 or idx >= MAX_XLSX_COLUMNS:
+                raise ValueError("Excel faylda ustunlar limiti oshgan.")
             if len(vals) <= idx:
                 vals.extend([""] * (idx + 1 - len(vals)))
             vals[idx] = _cell_value(cell, shared)
@@ -133,12 +157,23 @@ def read_workbook(raw: bytes) -> list[dict[str, Any]]:
         raise ValueError("Excel fayl bo'sh yoki 12 MB limitdan katta.")
     try:
         with zipfile.ZipFile(io.BytesIO(raw)) as zf:
-            names = set(zf.namelist())
+            infos = zf.infolist()
+            if len(infos) > MAX_XLSX_ENTRIES:
+                raise ValueError("Excel faylda juda ko'p ZIP bo'limlari mavjud.")
+            total_uncompressed = sum(info.file_size for info in infos)
+            if total_uncompressed > MAX_XLSX_UNCOMPRESSED:
+                raise ValueError("Excel fayl ochilganda 64 MB limitdan oshadi.")
+            if any(info.file_size > MAX_XLSX_XML_ENTRY for info in infos):
+                raise ValueError("Excel fayl ichidagi bo'limlardan biri juda katta.")
+            names = {info.filename for info in infos}
             if "xl/workbook.xml" not in names:
                 raise ValueError("Bu fayl haqiqiy .xlsx Excel fayli emas.")
+            sheet_defs = _workbook_sheets(zf)
+            if len(sheet_defs) > MAX_XLSX_SHEETS:
+                raise ValueError("Excel faylda 20 tadan ortiq varaq mavjud.")
             shared = _shared_strings(zf)
             sheets = []
-            for name, path in _workbook_sheets(zf):
+            for name, path in sheet_defs:
                 if path not in names:
                     continue
                 sheets.append({"name": name, "rows": _read_sheet(zf, path, shared)})
@@ -291,10 +326,13 @@ def validate_records(preview: dict[str, Any]) -> dict[str, Any]:
                     continue
                 row.update(quantity=qty, sku=str(rec.get("sku") or "").strip(), unit=str(rec.get("unit") or "dona").strip() or "dona")
                 for field in ("unit_cost", "reorder_point", "annual_demand", "order_cost", "holding_cost"):
-                    val = _num(rec.get(field), sheet["name"], rec["_row"], field, errors, 0.0)
-                    if val is None or val < 0:
-                        if val is not None:
-                            errors.append({"sheet": sheet["name"], "row": rec["_row"], "message": f"{field} manfiy bo'lmasligi kerak."})
+                    raw_value = rec.get(field)
+                    val = _num(raw_value, sheet["name"], rec["_row"], field, errors, None)
+                    if val is None and raw_value is not None and str(raw_value).strip():
+                        row = None
+                        break
+                    if val is not None and val < 0:
+                        errors.append({"sheet": sheet["name"], "row": rec["_row"], "message": f"{field} manfiy bo'lmasligi kerak."})
                         row = None
                         break
                     row[field] = val
@@ -325,8 +363,20 @@ def validate_records(preview: dict[str, Any]) -> dict[str, Any]:
                 if not supplier or qty is None or qty <= 0 or price is None or price < 0:
                     errors.append({"sheet": sheet["name"], "row": rec["_row"], "message": "Supplier nomi, musbat miqdor va manfiy bo'lmagan narx kerak."})
                     continue
+                expected_date = str(rec.get("expected_date") or "").strip()
+                if expected_date:
+                    try:
+                        from datetime import date
+                        date.fromisoformat(expected_date)
+                    except ValueError:
+                        errors.append({"sheet": sheet["name"], "row": rec["_row"], "message": "Kutilgan sana YYYY-MM-DD formatida bo'lishi kerak."})
+                        continue
+                status = str(rec.get("status") or "draft").strip().lower()
+                if status not in {"draft", "ordered", "received", "cancelled"}:
+                    errors.append({"sheet": sheet["name"], "row": rec["_row"], "message": "Buyurtma holati draft, ordered, received yoki cancelled bo'lishi kerak."})
+                    continue
                 valid.append({**row, "supplier_name": supplier, "quantity": qty, "unit_cost": price,
-                              "expected_date": str(rec.get("expected_date") or ""), "status": str(rec.get("status") or "draft").strip().lower()})
+                              "expected_date": expected_date, "status": status})
             elif sheet["kind"] == "movements":
                 qty = _num(rec.get("quantity"), sheet["name"], rec["_row"], "Harakat miqdori", errors)
                 movement = str(rec.get("movement_type") or "").strip().casefold()
@@ -348,9 +398,20 @@ def apply_import(data: dict[str, Any], validated: dict[str, Any]) -> dict[str, A
     result = {"products": 0, "suppliers": 0, "demand": 0, "orders": 0, "movements": 0, "errors": validated.get("errors", [])}
     has_product_snapshot = any(row.get("kind") == "products" for row in validated.get("valid", []))
 
-    def find_product(name: str):
-        norm = _norm(name)
-        return next((p for p in products.values() if _norm(p.get("name")) == norm or _norm(p.get("sku")) == norm), None)
+    def find_product(name: str, sku: str = ""):
+        # SKU is an identifier namespace of its own; never compare it to product names.
+        if sku:
+            wanted_sku = str(sku).strip().casefold()
+            matches = [p for key, p in products.items()
+                       if isinstance(p, dict) and
+                       (str(key).casefold() == wanted_sku or str(p.get("sku") or "").casefold() == wanted_sku)]
+        else:
+            wanted_name = _norm(name)
+            matches = [p for p in products.values()
+                       if isinstance(p, dict) and _norm(p.get("name")) == wanted_name]
+        if len(matches) > 1:
+            raise ValueError(f"'{sku or name}' bir nechta mahsulotga mos keldi; SKU ni aniqlashtiring.")
+        return matches[0] if matches else None
 
     def find_supplier(name: str):
         norm = _norm(name)
@@ -360,21 +421,24 @@ def apply_import(data: dict[str, Any], validated: dict[str, Any]) -> dict[str, A
     for row in sorted(validated.get("valid", []), key=lambda item: priority.get(item["kind"], 9)):
         kind = row["kind"]
         if kind == "products":
-            existing = find_product(row["product_name"])
+            existing = find_product(row["product_name"], row.get("sku") or "")
             sku = row["sku"] or (existing or {}).get("sku") or ("P-" + uuid.uuid4().hex[:8].upper())
             if existing:
                 existing.update(quantity=row["quantity"], unit=row["unit"], updated_at=now)
                 for f in ("unit_cost", "reorder_point", "annual_demand", "order_cost", "holding_cost"):
-                    if row.get(f, 0) != 0:
+                    if row.get(f) is not None:
                         existing[f] = row[f]
             else:
                 if sku in products:
                     result["errors"].append({"sheet": row["sheet"], "row": row["source_row"], "message": f"SKU {sku} boshqa mahsulotda band; mavjud yozuv ustidan yozilmadi."})
                     continue
                 products[sku] = {"sku": sku, "name": row["product_name"], "quantity": row["quantity"], "unit": row["unit"],
-                    "unit_cost": row.get("unit_cost", 0), "reorder_point": row.get("reorder_point", 0),
-                    "annual_demand": row.get("annual_demand", 0), "order_cost": row.get("order_cost", 0),
-                    "holding_cost": row.get("holding_cost", 0), "created_at": now, "updated_at": now}
+                    "unit_cost": row.get("unit_cost") if row.get("unit_cost") is not None else 0,
+                    "reorder_point": row.get("reorder_point") if row.get("reorder_point") is not None else 0,
+                    "annual_demand": row.get("annual_demand") if row.get("annual_demand") is not None else 0,
+                    "order_cost": row.get("order_cost") if row.get("order_cost") is not None else 0,
+                    "holding_cost": row.get("holding_cost") if row.get("holding_cost") is not None else 0,
+                    "created_at": now, "updated_at": now}
             result["products"] += 1
         elif kind == "suppliers":
             existing = find_supplier(row["supplier_name"])
@@ -404,7 +468,7 @@ def apply_import(data: dict[str, Any], validated: dict[str, Any]) -> dict[str, A
             oid = "PO-" + uuid.uuid4().hex[:8].upper()
             data.setdefault("orders", []).append({"id": oid, "sku": product["sku"], "supplier_id": supplier["id"],
                 "quantity": row["quantity"], "unit_price": row["unit_cost"], "expected_date": row["expected_date"],
-                "status": "draft", "created_at": now})
+                "status": row.get("status") or "draft", "created_at": now})
             result["orders"] += 1
         elif kind == "movements":
             product = find_product(row["product_name"])
