@@ -93,6 +93,21 @@ The adapter intentionally requires an injected `persist_snapshot(candidate, expe
 **Limitations:** the adapter is not imported by `bot.py`, is not exposed through HTTP, and cannot yet be used for inventory changes. Its lock coordinates only threads in one Python process. The current Supabase REST upsert does not satisfy the required atomic compare-and-swap contract, so no production storage callback is supplied. The prototype's tests must pass in CI before it can be considered validated.
 
 
+
+## 3.1 Single-process write-queue hardening (isolated branch)
+
+The current branch now routes ordinary `save_json` snapshots through `SnapshotWriteQueue`:
+
+- Cache publication and queue insertion are serialized by one save lock, preventing concurrent callers from publishing a newer cache snapshot but enqueueing an older snapshot afterwards.
+- The Supabase writer remains the sole thread that performs queued `bot_storage` upserts.
+- A key is tracked as in-flight until the request attempt finishes.
+- If an in-flight write fails after retries, its snapshot is requeued only when no newer snapshot for that key is already pending.
+- `flush_storage(timeout)` no longer steals pending items and writes them concurrently. It waits, with a real timeout, for both pending and in-flight work to drain.
+- The queue has focused unit tests for newer-snapshot precedence, in-flight flush waiting, defensive snapshot copies, and retry requeue.
+
+This removes the known same-process writer/flush race and a cache/queue ordering race. It does **not** make the REST upsert transactional, provide a durable per-operation acknowledgement, protect against another bot process or an independent writer, or resolve a process crash between cache publication and database persistence. `save_json` still means accepted into the in-memory cache/queue, not durably committed. The Mini App therefore remains read-only and the new acknowledged-commit adapter remains unconnected until database-side CAS and a single-writer policy are proven.
+
+
 ## 3.2 Read-only Supabase storage inspection (2026-11-26)
 
 The connected project was inspected without changing its schema or data:
