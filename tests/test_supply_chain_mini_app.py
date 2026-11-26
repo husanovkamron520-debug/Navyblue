@@ -53,6 +53,7 @@ class SupplyChainMiniAppShellTests(unittest.TestCase):
     def test_excel_workspace_parses_csv_and_xlsx_locally_before_confirmed_import(self):
         self.assertIn('data-view="excel"', self.html)
         self.assertIn('id="excel-file"', self.html)
+        self.assertIn('id="map-unit"', self.html)
         self.assertIn('function parseCSV(text)', self.html)
         self.assertIn('file.size>5*1024*1024', self.html)
         self.assertIn('rows.length>10001', self.html)
