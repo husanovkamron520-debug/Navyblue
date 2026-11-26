@@ -405,7 +405,7 @@ class SupplyChainAIContextRegressionTests(unittest.TestCase):
                 "product": "Shakarga o‘xshash mahsulot", "direction": "in",
                 "quantity": 4, "unit": "kg", "confidence": 0.99,
             }])
-        with self.assertRaisesRegex(ValueError, "topilmadi"):
+        with self.assertRaisesRegex(ValueError, "Aniq mahsulot"):
             supply_chain._magic_prepare_movements(data, [{
                 "product": "Shakar", "direction": "in",
                 "quantity": 4, "unit": "kg", "confidence": 0.2,
