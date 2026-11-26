@@ -1451,6 +1451,8 @@ def _create_ai_draft_orders(data: dict[str, Any], candidates: list[dict[str, Any
         if not product:
             raise ValueError(f"{item.get('name', item['sku'])}: mahsulot topilmadi.")
         supplier_id = str(item.get("supplier_id") or product.get("supplier_id") or "")
+        if not supplier_id and len(suppliers) == 1:
+            supplier_id = str(next(iter(suppliers.values())).get("id") or "")
         supplier = suppliers.get(supplier_id)
         if not isinstance(supplier, dict) or not supplier.get("id"):
             raise ValueError(f"{item.get('name', item['sku'])}: yetkazib beruvchi aniq belgilanmagan.")
@@ -2067,7 +2069,8 @@ def _ai_quick_keyboard() -> InlineKeyboardMarkup:
         [_btn("💰 Qayerda pulim ko‘p yotibdi?", "aiq_money")],
         [_btn("🚚 Qaysi yetkazib beruvchi xavfli?", "aiq_supplier")],
         [_btn("✍️ O‘zim savol beraman", "ai_custom")],
-        [_btn("🛒 Tavsiya etilgan xarid", "ai_cart")],\n        [_btn("📊 Ombor hisobotini rasmda ko‘rish", "ai_report")]
+        [_btn("🛒 Tavsiya etilgan xarid", "ai_cart")],
+        [_btn("📊 Ombor hisobotini rasmda ko‘rish", "ai_report")],
         [_btn("⬅️ Menyu", "home")],
     ])
 
@@ -2329,7 +2332,7 @@ async def _callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         candidates = _ai_draft_candidates(data)
         context.user_data["_sc_ai_cart_candidates"] = candidates
         rows = []
-        if candidates:
+        if candidates and all(_safe_num(x.get("unit_price")) > 0 for x in candidates):
             rows.append([_btn("✅ Barchasini tasdiqlash", "ai_cart_confirm")])
         rows.extend([[_btn("↻ Savatchani yangilash", "ai_cart")], [_btn("⬅️ AI yordamchi", "ai")]])
         await _edit(q, _ai_cart_text(candidates), InlineKeyboardMarkup(rows))
