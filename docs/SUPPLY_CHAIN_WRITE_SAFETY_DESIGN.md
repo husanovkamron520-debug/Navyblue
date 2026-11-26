@@ -1,23 +1,24 @@
 # Supply Chain Write Safety Design
 
-**Status:** the original design findings remain historical context. The isolated branch now implements a Mini App inventory-import path using a JSONB compare-and-swap adapter; it is not merged or deployed.
+**Status:** this document records both the historical storage risks and the current isolated-branch implementation. The branch implements a Mini App inventory-import path using a JSONB compare-and-swap adapter; it is not merged or deployed.
 
-**Scope:** future Mini App operations that mutate the company Supply Chain dataset, especially Excel import/apply, stock adjustments, purchase-order actions and shipment status changes.
+**Scope:** mutations of the company Supply Chain dataset, currently limited to explicitly confirmed Excel inventory import. Stock adjustments, purchase-order actions and shipment status changes remain deferred as independent Mini App operations.
 
 ## 1. Current persistence behavior
 
-The current application stores the Supply Chain dataset under the `supply_chain_data` key in the existing `bot_storage.data` JSONB record.
+The Supply Chain dataset is stored under the `supply_chain_data` key in the existing `bot_storage.data` JSONB record.
 
-Observed behavior in `bot.py`:
+Current isolated-branch behavior in `bot.py`:
 
 1. `load_json()` ensures the key is loaded and returns a deep copy of the process cache.
-2. `save_json()` replaces the in-memory cache, copies the value into the in-memory `_pending` queue and returns `True`.
-3. A background writer removes pending data from the queue and calls `_db_save()`; it retries failures and requeues the data after the retry limit.
-4. `_db_save()` sends a Supabase REST upsert and requests a minimal response.
+2. `save_json()` special-cases `supply_chain_data`: it uses `SerializedCommitAdapter` and `JsonbCompareAndSwap`, not the generic background upsert queue.
+3. The Supply Chain commit path reloads the current database document, checks its embedded version, and conditionally PATCHes the row using both the storage key and JSONB version.
+4. The local cache is refreshed only after the commit adapter confirms the write; on an ambiguous outcome or conflict, the uncommitted candidate is not published as committed state.
+5. Other bot datasets continue using the generic latest-snapshot background queue described in section 3.1.
 
-**Important consequence:** `save_json() == True` means the cache was updated and a write was queued. It does not prove that Supabase durably stored the new value. The Mini App must not report a successful inventory mutation based on this return value.
+**Important limitation:** this is a single-process application-level protocol backed by a conditional PostgREST PATCH. It has fake-store/unit coverage but has not yet been validated against a disposable Supabase staging row. Any other process or legacy writer using blind upsert for the same key could bypass the compare-and-swap protection.
 
-The Mini App read endpoints remain read-only. The isolated branch additionally exposes one narrowly scoped, owner-authenticated Excel inventory-import POST route; other Mini App business mutations remain deferred.
+The Mini App read endpoints remain read-only. The only Mini App business mutation currently exposed is the narrowly scoped, owner-authenticated Excel inventory-import POST route, which requires explicit user confirmation.
 
 
 ## 1.1 Additional persistence findings from code review
@@ -131,18 +132,13 @@ Integration on the isolated branch:
 
 This implementation is covered by fake-store/unit tests only. **No live PATCH was sent to Supabase**, and no schema, row or production state was changed. Before any production deployment, the exact PostgREST query encoding, service-role response shape, conflict handling and concurrent-client behavior must be validated against a disposable staging row/project. Any separate process still using a blind upsert for the same storage key can bypass this CAS, so all writers must be upgraded or disabled before enabling writes. The Mini App has one scoped write route for explicitly confirmed Excel inventory imports; receipts, manual movements, purchase-order transitions and shipment transitions remain read-only/deferred.
 
-## 3.3 Read-only Supabase storage inspection (2026-11-26)
+## 3.2.1 Supabase schema inspection baseline (2026-11-26)
 
-The connected project was inspected without changing its schema or data:
+The connected project was inspected read-only before the branch adapter was implemented. The observed `public.bot_storage` shape was three columns — `storage_key text NOT NULL`, `data jsonb NOT NULL DEFAULT '{}'`, and `updated_at timestamptz NOT NULL DEFAULT now()` — with no dedicated revision column and no reusable Supply Chain CAS RPC. The dataset's `version` is embedded in its JSONB document.
 
-- `public.bot_storage` has exactly three columns: `storage_key text NOT NULL`, `data jsonb NOT NULL DEFAULT '{}'`, and `updated_at timestamptz NOT NULL DEFAULT now()`.
-- There is no dedicated revision/version column on the row.
-- The existing public function catalog contains no Supply Chain storage compare-and-swap or acknowledged-commit RPC that can safely be reused.
-- The current Supply Chain dataset's own `version` is inside the JSONB document, not a separate database column.
+That inspection informed the isolated-branch design: use a conditional PATCH against the existing row and embedded version, avoiding a schema change. The branch now contains that implementation, but the exact PostgREST filter/response behavior and concurrency guarantees remain **unverified against a disposable staging row**. This section is historical design context, not a statement that the branch implementation is absent or production-approved.
 
-Supabase's current JavaScript/PostgREST filter documentation confirms that filters can be applied to update requests and that JSON-column paths can be filtered (for example, `address->postcode`). This makes a conditional update against the JSONB version worth prototyping without adding a table column. It is **not yet approved or verified as the production solution**: the exact PostgREST filter for the nested document must be tested against a disposable row, and a conditional PATCH alone does not protect against the existing background upsert writer. Every writer for the `supply_chain_data` key must share one ordering protocol before this can be enabled.
-
-A database RPC using a transaction and row-level compare-and-swap remains the clearest robust option, but creating that function is a database change. No SQL, migration, function, table, or data was changed during this inspection. Any RPC implementation requires separate explicit approval.
+No SQL, migration, function, table or production data was changed during the inspection. A transactional database RPC remains a possible future alternative, but would require separate explicit approval.
 
 
 ## 4. Audit and idempotency record
@@ -172,7 +168,7 @@ Suggested bounded record shape:
 Requirements:
 
 - Store no Telegram initData, bearer token, bot token, service-role key or unnecessary personal contact data in the audit log.
-- Retain a bounded history (initial proposal: latest 1,000 operations) and a bounded idempotency lookup window (initial proposal: 30 days); finalize retention before implementation.
+- Current implementation bounds both audit and idempotency arrays to the latest 1,000 records. This is count-based retention, not a guaranteed 30-day window; an old retry may no longer be recognized after its record is evicted. Define the production retry-retention policy before making a long retry guarantee.
 - Preserve the operation result needed to answer an idempotent retry.
 - A duplicate operation ID with a different request hash is always rejected.
 - Audit entries are append-only through normal application workflows; corrections are new compensating operations, not silent edits to old entries.
