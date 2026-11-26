@@ -295,6 +295,15 @@ class SupplyChainAIContextRegressionTests(unittest.TestCase):
             supply_chain._create_ai_draft_orders(data, candidates)
         self.assertEqual(data["orders"], [])
 
+    def test_visual_inventory_report_is_valid_png(self):
+        data = empty_data()
+        data["products"]["MILK"] = {
+            "name": "Sut UHT 1L", "quantity": 10, "reorder_point": 30,
+            "unit": "dona", "unit_cost": 12000,
+        }
+        report = supply_chain._inventory_report_png(data)
+        self.assertEqual(report.read(8), b"\\x89PNG\\r\\n\\x1a\\n")
+
     def test_long_telegram_answer_is_split_without_losing_ending(self):
         original = ("Muhim tahlil satri.\\n" * 260) + "YAKUNIY TAVSIYA SAQLANDI"
         chunks = supply_chain._split_telegram_text(original, limit=3900)

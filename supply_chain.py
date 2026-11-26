@@ -1455,6 +1455,90 @@ def _create_ai_draft_orders(data: dict[str, Any], candidates: list[dict[str, Any
     return [str(order["id"]) for order in prepared]
 
 
+def _voice_transcribe_sync(raw: bytes, mime: str) -> str:
+    if _AI_CLIENT is None:
+        raise RuntimeError("Ovozli yordamchi hozir ulanmagan.")
+    from google.genai import types
+    part = types.Part.from_bytes(data=raw, mime_type=mime or "audio/ogg")
+    response = _AI_CLIENT.models.generate_content(
+        model=_AI_MODEL,
+        contents=["Ovozli xabarni aytilgan asl tilda matnga ko‘chir. Tarjima yoki izoh qo‘shma. Faqat savolni qaytar.", part],
+    )
+    result = (getattr(response, "text", "") or "").strip()
+    if not result:
+        raise RuntimeError("Ovozdan tushunarli savol ajratilmadi.")
+    return result[:1500]
+
+
+def _inventory_report_png(data: dict[str, Any]) -> io.BytesIO:
+    from PIL import Image, ImageDraw, ImageFont
+    image = Image.new("RGB", (1200, 900), "#071426")
+    draw = ImageDraw.Draw(image)
+    try:
+        big = ImageFont.truetype("DejaVuSans-Bold.ttf", 44)
+        mid = ImageFont.truetype("DejaVuSans-Bold.ttf", 27)
+        small = ImageFont.truetype("DejaVuSans.ttf", 19)
+    except Exception:
+        big = mid = small = ImageFont.load_default()
+    products = [p for p in data.get("products", {}).values() if isinstance(p, dict)]
+    low = []
+    for sku, p in data.get("products", {}).items():
+        try:
+            qty, minimum = float(p.get("quantity")), float(p.get("reorder_point"))
+            if qty <= minimum:
+                low.append((str(p.get("name", sku)), qty, minimum, str(p.get("unit", "dona"))))
+        except (TypeError, ValueError):
+            continue
+    low.sort(key=lambda x: x[1] / x[2] if x[2] else 0)
+    value = sum(max(0, _safe_num(p.get("quantity"))) * max(0, _safe_num(p.get("unit_cost"))) for p in products)
+    draw.text((55, 42), "SUPPLY CHAIN  |  OMBOR HISOBOTI", fill="#EAF2FF", font=mid)
+    draw.text((55, 95), datetime.now().strftime("%d.%m.%Y  %H:%M"), fill="#91A7C5", font=small)
+    for x, label, val in [(55, "MAHSULOTLAR", str(len(products))), (430, "OMBOR QIYMATI", f"{value:,.0f}"), (805, "BUYURTMA KERAK", str(len(low)))]:
+        draw.rounded_rectangle((x, 155, x+340, 295), radius=20, fill="#102844", outline="#24476B", width=2)
+        draw.text((x+22, 178), label, fill="#91A7C5", font=small)
+        draw.text((x+22, 218), val, fill="#FFFFFF", font=big)
+    draw.text((55, 345), "MINIMAL ZAXIRADAN PAST MAHSULOTLAR", fill="#EAF2FF", font=mid)
+    if not low:
+        draw.text((55, 420), "Hozircha minimal zaxiradan past mahsulot yo‘q.", fill="#B8C9DE", font=small)
+    for i, (name, qty, minimum, unit) in enumerate(low[:7]):
+        y = 415 + i*62
+        draw.text((60, y), name[:32], fill="#EAF2FF", font=small)
+        draw.text((650, y), f"{qty:g} / {minimum:g} {unit}", fill="#B8C9DE", font=small)
+        draw.rounded_rectangle((900, y+5, 1120, y+27), radius=9, fill="#203A58")
+        ratio = min(1, qty/minimum) if minimum > 0 else 0
+        draw.rounded_rectangle((900, y+5, 900+int(220*ratio), y+27), radius=9, fill="#F05B64")
+    draw.text((55, 855), "Qiymat mavjud miqdor va xarid narxlari asosida hisoblandi.", fill="#91A7C5", font=small)
+    output = io.BytesIO()
+    image.save(output, format="PNG", optimize=True)
+    output.seek(0)
+    return output
+
+
+async def _serialized_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    message = update.effective_message
+    if not message or not update.effective_user or update.effective_user.id != _OWNER_ID:
+        return
+    media = message.voice or message.audio
+    status = await message.reply_text("🎧 Savolingizni tinglayapman…")
+    try:
+        if (getattr(media, "file_size", 0) or 0) > 15*1024*1024:
+            await status.edit_text("Ovozli xabar 15 MB dan kichik bo‘lishi kerak.")
+            return
+        tg_file = await media.get_file()
+        raw = bytes(await tg_file.download_as_bytearray())
+        if len(raw) > 15*1024*1024:
+            await status.edit_text("Ovozli xabar 15 MB dan kichik bo‘lishi kerak.")
+            return
+        mime = getattr(media, "mime_type", None) or ("audio/ogg" if message.voice else "audio/mpeg")
+        async with _SC_MUTATION_LOCK:
+            transcript = await asyncio.wait_for(asyncio.to_thread(_voice_transcribe_sync, raw, mime), timeout=75)
+            answer = await asyncio.wait_for(asyncio.to_thread(
+                _ask_gemini_quick_sync, _AI_CLIENT, _AI_MODEL, transcript, _ai_snapshot(_data())), timeout=45)
+        await status.edit_text("🗣 **Savolingiz:** " + transcript[:700] + "\n\n🤖 **Javob:**\n" + answer)
+    except Exception:
+        await status.edit_text("⚠️ Ovozli savolni qayta ishlay olmadim. Birozdan keyin yana urinib ko‘ring.")
+
+
 def _dashboard_text(data: dict[str, Any]) -> str:
     products = list(data.get("products", {}).values())
     suppliers = list(data.get("suppliers", {}).values())
@@ -1845,6 +1929,7 @@ def _ai_quick_keyboard() -> InlineKeyboardMarkup:
         [_btn("💰 Qayerda pulim ko‘p yotibdi?", "aiq_money")],
         [_btn("🚚 Qaysi yetkazib beruvchi xavfli?", "aiq_supplier")],
         [_btn("✍️ O‘zim savol beraman", "ai_custom")],
+        [_btn("📊 Ombor hisobotini rasmda ko‘rish", "ai_report")],
         [_btn("⬅️ Menyu", "home")],
     ])
 
@@ -2102,6 +2187,13 @@ async def _callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             context.user_data.pop("_sc_wait", None)
             context.user_data.pop("_sc_ai_draft_candidates", None)
             await _edit(q, "🤖 **AI MASLAHATCHI**\n\nQaysi masalada yordam kerak?", _ai_quick_keyboard())
+    elif action == "ai_report":
+        try:
+            await q.answer("Hisobot tayyorlanmoqda…")
+            photo = await asyncio.to_thread(_inventory_report_png, _data())
+            await q.message.reply_photo(photo=photo, caption="📊 Omboringiz bo‘yicha qisqa vizual hisobot.")
+        except Exception:
+            await q.answer("Hisobotni tayyorlab bo‘lmadi. Keyinroq urinib ko‘ring.", show_alert=True)
     elif action == "ai_custom":
         if _AI_CLIENT is None:
             await _edit(q, "AI maslahatchi hozir ulanmagan.", _back_keyboard("home"))
@@ -2639,6 +2731,8 @@ def install(app: Application, load_json: Callable[[str, Any], Any], save_json: C
     except ImportError:
         # Lightweight test doubles may omit inline-query classes; production installs PTB 21.4.
         pass
+    if owner_id:
+        app.add_handler(MessageHandler(filters.ChatType.PRIVATE & filters.User(user_id=owner_id) & (filters.VOICE | filters.AUDIO), _serialized_voice))
     app.add_handler(MessageHandler(filters.ChatType.PRIVATE & filters.Document.ALL, _serialized_excel_document))
 
 
