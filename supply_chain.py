@@ -30,6 +30,7 @@ from telegram.ext import Application, CallbackQueryHandler, CommandHandler, Cont
 
 DATA_FILE = "supply_chain_data.json"
 _LOCK = threading.RLock()
+_SC_MUTATION_LOCK = asyncio.Lock()
 _OWNER_ID: int | None = None
 _LOAD: Callable[[str, Any], Any] | None = None
 _SAVE: Callable[[str, Any], Any] | None = None
@@ -2068,15 +2069,30 @@ async def _text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     return True
 
 
+async def _serialized_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    async with _SC_MUTATION_LOCK:
+        await _callback(update, context)
+
+
+async def _serialized_excel_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    async with _SC_MUTATION_LOCK:
+        await _handle_excel_document(update, context)
+
+
+async def _serialized_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    async with _SC_MUTATION_LOCK:
+        return await _text(update, context)
+
+
 def install(app: Application, load_json: Callable[[str, Any], Any], save_json: Callable[[str, Any], Any], owner_id: int | None, ai_client: Any = None, ai_model: str | None = None) -> None:
     global _LOAD, _SAVE, _OWNER_ID, _AI_CLIENT, _AI_MODEL
     _LOAD, _SAVE, _OWNER_ID = load_json, save_json, owner_id
     _AI_CLIENT = ai_client
     _AI_MODEL = (ai_model or "gemini-3.5-flash-lite").strip()
     app.add_handler(CommandHandler("supply", open_supply))
-    app.add_handler(CallbackQueryHandler(_callback, pattern=r"^sc:"))
-    app.add_handler(MessageHandler(filters.ChatType.PRIVATE & filters.Document.ALL, _handle_excel_document))
+    app.add_handler(CallbackQueryHandler(_serialized_callback, pattern=r"^sc:"))
+    app.add_handler(MessageHandler(filters.ChatType.PRIVATE & filters.Document.ALL, _serialized_excel_document))
 
 
 def on_text_handler():
-    return _text
+    return _serialized_text
