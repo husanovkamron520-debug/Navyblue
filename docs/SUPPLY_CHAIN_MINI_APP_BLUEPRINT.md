@@ -196,7 +196,7 @@ Phase 3 — Analytics:
 
 Current isolated-branch implementation update (2026-11-25):
 
-The read-only Mini App now has a static mobile-first shell with Dashboard, Inventory, Analytics, Procurement and Logistics views. The existing Telegram HTTP server serves the shell at `/supply-chain`; the Supply Chain Telegram menu adds a Web App launch button when `RENDER_EXTERNAL_URL` is HTTPS.
+The Mini App has a mobile-first shell with Dashboard, Inventory, Analytics, Procurement, Logistics, Excel Workspace and Reports views. The existing Telegram HTTP server serves the shell at `/supply-chain`; the Supply Chain Telegram menu adds a Web App launch button when `RENDER_EXTERNAL_URL` is HTTPS.
 
 Implemented read-only service/API coverage:
 - Inventory list and SKU detail with allow-listed product, movement and demand-history fields.
@@ -246,19 +246,20 @@ Phase 6 — Hardening and rollout:
 
 ### Excel Workspace progress (2026-11-26)
 - Added a mobile-first Excel Workspace view to the isolated Mini App branch.
-- Current phase accepts CSV UTF-8 exported from Excel, parses it locally in the browser, and supports column mapping for SKU, product name, quantity, unit cost and reorder point.
-- Validates required fields, non-negative numeric values, duplicate SKUs, file size (5 MB) and row count (10,000); shows a 20-row preview and validation summary.
+- Accepts CSV UTF-8 and XLSX files, parses them locally in the browser, and supports column mapping for SKU, product name, quantity, optional unit, unit cost and reorder point.
+- Validates required fields, non-negative finite numeric values, duplicate SKUs, file size (5 MB), workbook structure, worksheet/column limits and row count (10,000); shows a 20-row preview and validation summary.
 - The preview/analysis stage remains local and read-only; it fetches current inventory/version only to calculate before/after differences.
 - The explicit apply flow sends normalized rows (not workbook bytes) only after a separate confirmation checkbox and button.
 - The server independently validates all rows and commits through the existing JSONB-CAS adapter with expected-version checks, idempotency and audit metadata. Sanitized source filename/worksheet metadata and a bounded 100-entry import history are stored in the existing JSONB document; workbook bytes are not uploaded. No schema change is required.
-- Existing SKU quantities are set to the imported value; optional unit, cost and reorder fields update only when present; new products default to unit `pcs` if no unit is mapped. Quantity changes append inbound/outbound movement records.
+- Existing SKU quantities are set to the imported value; optional unit, cost and reorder fields update only when present; new products default to unit `pcs` if no unit is mapped. Quantity changes append inbound/outbound movement records. Results distinguish created, actually updated, fully unchanged and unchanged-quantity rows.
+- Sanitized source filename/worksheet metadata and a bounded 100-entry import history are stored in the existing JSONB document; the Mini App displays recent import history.
 - The exact PostgREST behavior has not yet been tested against a disposable staging row/project; do not merge/deploy until that gate is complete.
 
 
 ### Reports & export progress (2026-11-26)
 - Added a Reports view with inventory, purchase-order, and shipment CSV exports.
 - Exports read all available API pages (100 rows per page) and generate UTF-8 BOM CSV files in the browser for spreadsheet compatibility.
-- Export endpoints are read-only; no import, update, or inventory mutation is performed.
+- Report exports are read-only; the separate Excel Workspace apply flow is the only Mini App business mutation.
 - Browser-side CSV and XLSX parsing are implemented below. Chromium browser QA now verifies main navigation, responsive layouts, product drill-down, local CSV preview, malformed XLSX rejection, explicit-confirmation import POST, CSV export and print-preview invocation; live Render and Telegram WebView validation remain outstanding.
 
 
