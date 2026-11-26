@@ -159,16 +159,41 @@
   const showNotice = (title, message, retry=false) => { $("notice").hidden=false; $("notice-title").textContent=title; $("notice-text").textContent=message; $("retry").hidden=!retry; };
   const hideNotice = () => { $("notice").hidden=true; };
   async function api(path, options={}) {
-    const response = await fetch(path,{...options,headers:{...(options.headers||{}),...(token?{Authorization:"Bearer "+token}:{})},cache:"no-store"});
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
+    let response;
+    try {
+      response = await fetch(path,{...options,signal:controller.signal,headers:{...(options.headers||{}),...(token?{Authorization:"Bearer "+token}:{})},cache:"no-store"});
+    } catch(error) {
+      if(error.name === "AbortError") throw new Error("Server 15 soniya ichida javob bermadi. Internetni tekshirib, qayta urinib ko'ring.");
+      throw error;
+    } finally {
+      clearTimeout(timeout);
+    }
     let body={}; try{body=await response.json();}catch(_){}
     if(!response.ok) throw new Error(body.error?.message || ("HTTP "+response.status));
     return body.data;
   }
   async function authenticate() {
-    if(!tg || !tg.initData){ showNotice("Telegram orqali oching","Bu sahifa xavfsiz kirish uchun bot ichidagi Mini App tugmasidan ochilishi kerak."); $("connection").textContent="Kirish talab qilinadi"; return false; }
+    if(!tg || !tg.initData){ 
+      const message="Ma'lumotlarni ko'rish uchun Mini Appni Telegram bot ichidagi tugma orqali oching.";
+      showNotice("Telegram orqali oching",message); $("connection").textContent="Kirish talab qilinadi";
+      $("alerts").replaceChildren(el("div","alert error",message));
+      return false;
+    }
     tg.ready(); tg.expand();
     if(tg.initDataUnsafe?.user?.first_name) $("welcome").textContent="Xush kelibsiz, "+tg.initDataUnsafe.user.first_name;
-    const session=await fetch("/sc-api/v1/session",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({initData:tg.initData}),cache:"no-store"});
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
+    let session;
+    try {
+      session=await fetch("/sc-api/v1/session",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({initData:tg.initData}),cache:"no-store",signal:controller.signal});
+    } catch(error) {
+      if(error.name === "AbortError") throw new Error("Telegram sessiyasi 15 soniyada ochilmadi. Mini Appni yopib, botdan qayta oching.");
+      throw error;
+    } finally {
+      clearTimeout(timeout);
+    }
     const payload=await session.json();
     if(!session.ok) throw new Error(payload.error?.message || "Kirish amalga oshmadi");
     token=payload.data.token; $("connection").textContent="Ulangan"; return true;
@@ -680,7 +705,7 @@
   $("excel-import-confirm").addEventListener("click",confirmInventoryImport);
   async function refreshAll() {
     try { hideNotice(); $("connection").textContent="Yangilanmoqda"; await loadDashboard(); if(currentView==="inventory")await loadInventory(); $("connection").textContent="Ulangan"; }
-    catch(err){ $("connection").textContent="Xatolik"; showNotice("Ma’lumot yuklanmadi",err.message,true); }
+    catch(err){ $("connection").textContent="Xatolik"; $("alerts").replaceChildren(el("div","alert error",err.message||"Ma'lumot yuklanmadi.")); showNotice("Ma’lumot yuklanmadi",err.message,true); }
   }
   function switchView(view) {
     currentView=view;["dashboard","inventory","analytics","procurement","logistics","excel","reports"].forEach(v=>{const node=$(v+"-view");if(node)node.hidden=view!==v;});
