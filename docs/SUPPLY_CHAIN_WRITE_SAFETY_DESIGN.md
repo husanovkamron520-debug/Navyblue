@@ -21,9 +21,9 @@ Current isolated-branch behavior in `bot.py`:
 The Mini App read endpoints remain read-only. The only Mini App business mutation currently exposed is the narrowly scoped, owner-authenticated Excel inventory-import POST route, which requires explicit user confirmation.
 
 
-## 1.1 Additional persistence findings from code review
+## 1.1 Historical persistence findings from the pre-refactor writer
 
-A focused review of the current writer implementation confirms several details that must be handled before adding acknowledged commits:
+The following findings describe the original generic writer before the isolated-branch queue hardening. They explain why a separate acknowledged commit path was required; they are not a description of the current Supply Chain save path:
 
 - `_writer_loop()` removes a key from `_pending` before the Supabase request starts. That write is then in-flight but is no longer represented in the pending map.
 - `save_json()` can enqueue a newer snapshot for the same key while the older snapshot is in-flight. The single writer thread currently preserves order for its own queue, but a future synchronous commit must coordinate with both the in-flight write and the pending replacement; simply adding a second direct `_db_save()` call would introduce a stale-overwrite race.
@@ -36,7 +36,7 @@ A focused review of the current writer implementation confirms several details t
 
 ## 2. Required invariants
 
-Every future write path must preserve all of these invariants:
+Every current and future write path must preserve all of these invariants:
 
 - **Durable success:** return a success response only after the storage layer confirms the commit.
 - **No lost updates:** serialize the complete read → validate → mutate → persist operation for the Supply Chain storage key.
@@ -48,9 +48,9 @@ Every future write path must preserve all of these invariants:
 - **Calculation compatibility:** do not change existing EOQ, forecast, ABC, AVCO, transport or scenario calculations as a side effect of storage work.
 - **Simulation separation:** classroom and scenario data must never be written into the live company dataset.
 
-## 3. Proposed commit protocol
+## 3. Commit protocol implemented on the isolated branch
 
-This is the target behavior, not code that is already present.
+The following describes the implemented Excel-import commit flow. Staging validation and production approval remain outstanding.
 
 1. Authenticate the Telegram owner and validate the request schema and size.
 2. Require an `expected_data_version` from the preview or last read response.
@@ -69,7 +69,7 @@ A network timeout after the database may have committed is an **unknown outcome*
 
 ### Persistence adapter requirements
 
-Before implementing the protocol, refactor storage behind one writer/commit adapter:
+The current branch implements a dedicated Supply Chain commit adapter while preserving the legacy interface for other bot datasets. Any future extension must keep both paths coordinated:
 
 - Give each queued write a monotonically increasing in-process revision and a completion signal/result.
 - Track pending and in-flight writes so a new commit cannot race an older write.
