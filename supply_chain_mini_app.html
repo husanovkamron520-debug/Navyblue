@@ -94,11 +94,12 @@
       </div>
       <div class="card" style="margin-top:12px">
         <div class="chart-title">2. Ustunlarni moslang</div>
-        <div class="chart-sub">Majburiy: SKU, mahsulot nomi va miqdor. Birlik narxi hamda reorder point ixtiyoriy.</div>
+        <div class="chart-sub">Majburiy: SKU, mahsulot nomi va miqdor. Birlik, birlik narxi va reorder point ixtiyoriy.</div>
         <div class="grid" style="grid-template-columns:repeat(2,minmax(0,1fr));margin-top:12px">
           <label class="kpi-label">SKU<select id="map-sku" disabled></select></label>
           <label class="kpi-label">Mahsulot nomi<select id="map-name" disabled></select></label>
           <label class="kpi-label">Miqdor<select id="map-quantity" disabled></select></label>
+          <label class="kpi-label">Birlik<select id="map-unit" disabled></select></label>
           <label class="kpi-label">Birlik narxi<select id="map-cost" disabled></select></label>
           <label class="kpi-label">Reorder point<select id="map-reorder" disabled></select></label>
         </div>
@@ -366,6 +367,7 @@
     sku:["sku","product sku","item code","код","артикул"],
     name:["name","product","product name","item name","mahsulot","nomi"],
     quantity:["quantity","qty","stock","on hand","miqdor","остаток"],
+    unit:["unit","uom","unit of measure","measure","birlik","единица"],
     cost:["unit cost","unit_cost","cost","price","narx","birlik narxi"],
     reorder:["reorder point","reorder_point","rop","min stock","qayta buyurtma"]
   };
@@ -447,7 +449,7 @@
     setupExcelMappings(parsed.headers);renderExcelPreview();
     $("excel-file-info").textContent=csvState.fileName+" · "+sheetName+" · "+fmt(parsed.rows.length)+" qator";
   }
-  function selectedMap(){return Object.fromEntries(["sku","name","quantity","cost","reorder"].map(k=>[k,$("map-"+k).value]));}
+  function selectedMap(){return Object.fromEntries(["sku","name","quantity","unit","cost","reorder"].map(k=>[k,$("map-"+k).value]));}
   function excelNumber(raw){
     if(raw==null||String(raw).trim()==="")return null;
     const value=Number(String(raw).replace(/\s/g,"").replace(",","."));
@@ -461,7 +463,7 @@
       const line=index+2;
       const get=key=>m[key]?String(r[csvState.headers.indexOf(m[key])]??"").trim():"";
       const sku=get("sku"),name=get("name"),rawQty=get("quantity"),qty=excelNumber(rawQty);
-      const rawCost=get("cost"),cost=excelNumber(rawCost),rawReorder=get("reorder"),reorder=excelNumber(rawReorder);
+      const unit=get("unit"),rawCost=get("cost"),cost=excelNumber(rawCost),rawReorder=get("reorder"),reorder=excelNumber(rawReorder);
       const issues=[];
       if(!sku)issues.push("SKU bo‘sh");
       if(!name)issues.push("nom bo‘sh");
@@ -471,8 +473,9 @@
       if(sku)seenSku.add(normalizedSku);
       if(rawCost&& (cost===null||cost<0))issues.push("birlik narxi noto‘g‘ri");
       if(rawReorder&&(reorder===null||reorder<0))issues.push("reorder point noto‘g‘ri");
+      if(unit.length>32)issues.push("birlik nomi juda uzun");
       if(issues.length){errors.push({line,issues:issues.join(", ")});errorByLine.set(line,issues.join(", "));}
-      else valid.push({sku,name,quantity:qty,cost,reorder});
+      else valid.push({sku,name,quantity:qty,unit:unit||null,cost,reorder});
     });
     $("excel-rows").textContent=fmt(csvState.rows.length);
     $("excel-valid").textContent=fmt(valid.length);
@@ -485,20 +488,20 @@
     const root=$("excel-validation");root.replaceChildren();
     messages.forEach((msg,i)=>{const item=el("div","alert");item.append(el("strong","",msg),el("span",i===1&&errors.length?"pill":"pill good",i===1&&errors.length?"Tekshiruv":"Info"));root.append(item);});
     const head=$("excel-head");head.replaceChildren();const hr=el("tr","");
-    ["SKU","Mahsulot","Miqdor","Birlik narxi","Reorder point","Holat"].forEach(v=>hr.append(el("th","",v)));head.append(hr);
+    ["SKU","Mahsulot","Miqdor","Birlik","Birlik narxi","Reorder point","Holat"].forEach(v=>hr.append(el("th","",v)));head.append(hr);
     const body=$("excel-preview");body.replaceChildren();
     csvState.rows.slice(0,20).forEach((r,i)=>{
       const get=key=>m[key]?String(r[csvState.headers.indexOf(m[key])]??"").trim():"";
-      const line=i+2,sku=get("sku"),name=get("name"),qty=get("quantity"),cost=get("cost"),reorder=get("reorder");
+      const line=i+2,sku=get("sku"),name=get("name"),qty=get("quantity"),unit=get("unit"),cost=get("cost"),reorder=get("reorder");
       const issue=missing.length||errorByLine.has(line);
-      const tr=el("tr","");[sku,name,qty,cost||"—",reorder||"—",issue?"Tekshirish kerak":"Yaroqli"].forEach(v=>tr.append(el("td","",v)));body.append(tr);
+      const tr=el("tr","");[sku,name,qty,unit||"pcs (default)",cost||"—",reorder||"—",issue?"Tekshirish kerak":"Yaroqli"].forEach(v=>tr.append(el("td","",v)));body.append(tr);
     });
     if(csvState.rows.length>20){const tr=el("tr","");tr.append(el("td","muted","Yana "+(csvState.rows.length-20)+" qator preview’da ko‘rsatilmagan"));body.append(tr);}
     renderImportDiff(valid);
   }
   async function renderImportDiff(rows){
     const seq=++importPreviewSeq;
-    importRows=rows.map(r=>({sku:r.sku,name:r.name,quantity:r.quantity,unit_cost:r.cost,reorder_point:r.reorder}));
+    importRows=rows.map(r=>({sku:r.sku,name:r.name,quantity:r.quantity,unit:r.unit,unit_cost:r.cost,reorder_point:r.reorder}));
     $("excel-import-confirm").disabled=true;
     $("excel-confirm-check").checked=false;
     $("excel-import-status").textContent="Joriy ombor holati olinmoqda…";
@@ -514,6 +517,7 @@
         if(!old)return {row,action:"Yangi SKU",before:null,after:row.quantity,details:["Miqdor: — → "+fmt(row.quantity,2)]};
         const details=[];
         if(String(old.name||"")!==row.name)details.push("Nom: "+(old.name||"—")+" → "+row.name);
+        if(row.unit&&String(old.unit||"")!==row.unit)details.push("Birlik: "+(old.unit||"—")+" → "+row.unit);
         if(Number(old.quantity)!==Number(row.quantity))details.push("Miqdor: "+fmt(old.quantity,2)+" → "+fmt(row.quantity,2));
         if(row.unit_cost!=null&&Number(old.unit_cost)!==Number(row.unit_cost))details.push("Narx: "+fmt(old.unit_cost,2)+" → "+fmt(row.unit_cost,2));
         if(row.reorder_point!=null&&Number(old.reorder_point)!==Number(row.reorder_point))details.push("Reorder: "+fmt(old.reorder_point,2)+" → "+fmt(row.reorder_point,2));
@@ -573,7 +577,7 @@
     }
   }
   function setupExcelMappings(headers){
-    ["sku","name","quantity","cost","reorder"].forEach(key=>{
+    ["sku","name","quantity","unit","cost","reorder"].forEach(key=>{
       const select=$("map-"+key);select.replaceChildren();select.disabled=false;
       select.append(new Option("— Ustun tanlanmagan —",""));
       headers.forEach(h=>select.append(new Option(h,h)));
@@ -623,7 +627,7 @@
   $("excel-reset").addEventListener("click",()=>{
     $("excel-file").value="";csvState.headers=[];csvState.rows=[];csvState.fileName="";csvState.workbook=null;$("excel-sheet").replaceChildren();$("excel-sheet").disabled=true;$("excel-sheet-wrap").hidden=true;
     $("excel-file-info").textContent="Maksimal hajm: 5 MB · Maksimal qator: 10 000";
-    ["sku","name","quantity","cost","reorder"].forEach(k=>{$("map-"+k).replaceChildren();$("map-"+k).disabled=true;});
+    ["sku","name","quantity","unit","cost","reorder"].forEach(k=>{$("map-"+k).replaceChildren();$("map-"+k).disabled=true;});
     ["excel-rows","excel-valid","excel-errors","excel-total"].forEach(id=>$(id).textContent="—");
     $("excel-validation").replaceChildren(el("div","muted","Fayl tanlangandan keyin natija ko‘rinadi."));
     $("excel-head").replaceChildren();$("excel-preview").replaceChildren();
