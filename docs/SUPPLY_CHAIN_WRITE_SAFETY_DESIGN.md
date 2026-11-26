@@ -182,13 +182,13 @@ Requirements:
 The browser-side CSV/XLSX preview remains local and read-only. It fetches the current inventory/version for the before/after diff but does not upload workbook bytes or mutate inventory. The implemented apply route follows this sequence:
 
 1. Parse the workbook locally and show the selected worksheet and mapped columns.
-2. Send a bounded, normalized preview payload — not an opaque workbook — to the server.
-3. Server validates the payload independently: file/row/column limits, required fields, numeric bounds, duplicate SKUs, SKU normalization and business rules.
-4. Server returns a row-level diff with counts for create, update, unchanged and rejected rows, plus the current `data_version`.
-5. User reviews the exact diff and explicitly confirms.
-6. Apply request includes the same expected version, preview fingerprint and idempotency key.
-7. Server revalidates and commits the entire import atomically. If any required row fails, default behavior is **all-or-nothing**; partial import must not happen silently.
-8. Return the committed version and a row-level result report.
+2. Fetch the current inventory and embedded `data_version` through authenticated GET endpoints; calculate the before/after field diff in the browser. Workbook bytes are never uploaded.
+3. User reviews the diff and explicitly checks the confirmation box, then presses the separate Apply button.
+4. Only after confirmation, POST the normalized rows, source filename/worksheet, expected version and operation ID to the authenticated import endpoint.
+5. Server independently validates every row, normalizes the request and calculates its canonical SHA-256 request hash.
+6. The commit adapter reloads the latest JSONB snapshot, checks the expected version and idempotency record, mutates a deep copy, appends audit/import history and persists with conditional JSONB-version PATCH.
+7. If any row or stored record is invalid, the entire candidate is rejected; no partial import is committed.
+8. Return the committed version and summary counts (created, actually updated, fully unchanged and unchanged quantity). The browser refreshes dashboard and import history.
 
 Current behavior is one explicit **create-or-update** mode: missing SKUs are created; matching SKUs update the name and quantity, plus unit/cost/reorder point only when those optional columns are mapped. Omitted optional fields are preserved. Rows with no field changes are counted as unchanged; quantity changes append a stock-adjustment movement. The preview is analysis-only until the user confirms apply. Separate create-only and selected-field modes are not currently exposed.
 
@@ -216,7 +216,7 @@ Never return a success-shaped response while the write is merely queued.
 - Timeout after commit with same-key retry returns the original result and does not duplicate it.
 - Same key with different payload is rejected.
 - Two simultaneous operations with the same expected version: at most one commits; the other receives 409.
-- A legacy background write cannot overwrite a newer acknowledged Mini App commit.
+- Same-process Supply Chain Telegram writes and Mini App imports share the storage-save lock and CAS path; stale external bot replicas or independent blind upsert writers remain a release blocker.
 - Cache remains unchanged when persistence fails.
 - Process restart and retry behavior is deterministic.
 - Import preview and apply revalidate the same normalized data and detect changed dataset versions.
@@ -232,10 +232,10 @@ Never return a success-shaped response while the write is merely queued.
 - No additional Mini App write endpoints beyond the confirmed Excel inventory-import route.
 - No change to `save_json()` behavior for existing bot modules.
 - No inventory mutation during Excel preview; only explicit confirmed apply may mutate inventory.
-- No automatic purchase order or stock adjustment.
+- No automatic purchase-order creation, replenishment, dispatch or delivery actions. Stock adjustments occur only as part of an explicitly confirmed Excel import and are recorded as movements.
 - No merge to `main` and no Render deployment.
 
-**Decision gate:** implement the persistence adapter and concurrency tests first. Only after those pass should a narrowly scoped write operation (preferably create-missing-products import) be considered for a separate reviewed change.
+**Decision gate:** the adapter, server-side import validation and explicit-confirmation flow are implemented on this isolated branch, and fake-store/CI tests pass. Staging validation of the exact PostgREST conditional PATCH, concurrent-client behavior, HTTPS Render and Telegram Android WebView remain mandatory before merge or deployment.
 
 
 ## 3.3 Mini App inventory import implementation on isolated branch
