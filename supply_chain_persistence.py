@@ -223,3 +223,84 @@ class SnapshotWriteQueue:
     def inflight_count(self) -> int:
         with self._condition:
             return len(self._inflight)
+
+
+class JsonbCompareAndSwap:
+    """Retry-aware CAS coordinator for a JSONB document's embedded version.
+
+    load_snapshot() must read the current row from the database.
+    patch_snapshot(candidate, expected_version) must issue one conditional
+    update filtered by both the row key and the JSONB version, returning True
+    only when exactly one row was updated and False when no row matched.
+    """
+
+    def __init__(
+        self,
+        load_snapshot: Callable[[], dict],
+        patch_snapshot: Callable[[dict, int], bool],
+    ) -> None:
+        self._load_snapshot = load_snapshot
+        self._patch_snapshot = patch_snapshot
+
+    @staticmethod
+    def _same_operation(latest: dict, candidate: dict) -> bool:
+        candidate_records = candidate.get("_write_idempotency", [])
+        latest_records = latest.get("_write_idempotency", [])
+        if not isinstance(candidate_records, list) or not candidate_records:
+            return False
+        if not isinstance(latest_records, list):
+            return False
+        wanted = candidate_records[-1]
+        if not isinstance(wanted, dict):
+            return False
+        op_id, request_hash, version = (
+            wanted.get("operation_id"), wanted.get("request_hash"), wanted.get("version")
+        )
+        return any(
+            isinstance(record, dict)
+            and record.get("operation_id") == op_id
+            and record.get("request_hash") == request_hash
+            and record.get("version") == version
+            for record in latest_records
+        )
+
+    def persist(self, candidate: dict, expected_version: int, new_version: int) -> bool:
+        if not isinstance(candidate, dict) or candidate.get("version") != new_version:
+            raise PersistenceError("candidate version does not match requested new version")
+        last_error = None
+        for attempt in range(2):
+            try:
+                if self._patch_snapshot(copy.deepcopy(candidate), expected_version) is True:
+                    return True
+            except Exception as exc:
+                last_error = exc
+
+            try:
+                latest = self._load_snapshot()
+            except Exception as exc:
+                raise CommitOutcomeUnknown(
+                    "could not verify conditional write outcome; retry with the same operation ID"
+                ) from (last_error or exc)
+
+            if not isinstance(latest, dict):
+                raise PersistenceError("database returned an invalid snapshot")
+            if self._same_operation(latest, candidate):
+                return True
+
+            latest_version = latest.get("version", 1)
+            if (isinstance(latest_version, bool) or
+                    not isinstance(latest_version, int) or latest_version < 1):
+                raise PersistenceError("database snapshot version is invalid")
+            if latest_version != expected_version:
+                raise VersionConflict(
+                    f"expected version {expected_version}, current version {latest_version}"
+                )
+            if attempt == 1:
+                if last_error is not None:
+                    raise CommitOutcomeUnknown(
+                        "conditional write outcome remains unknown; retry with the same operation ID"
+                    ) from last_error
+                raise PersistenceError(
+                    "conditional update matched no row although the stored version is unchanged"
+                )
+        raise CommitOutcomeUnknown("conditional write outcome is unknown")
