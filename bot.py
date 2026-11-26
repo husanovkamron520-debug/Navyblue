@@ -1936,6 +1936,8 @@ async def role_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "username": query.from_user.username or "",
                 "active_role": "pending",
                 "status": "pending",
+                "application_details": "",
+                "application_submitted_at": None,
                 "requested_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             }
             save_teachers(teachers)
@@ -2053,6 +2055,40 @@ async def teacher_approval_callback(update: Update, context: ContextTypes.DEFAUL
             )
         except Exception:
             logger.exception("Rad etilgan ariza haqida foydalanuvchiga xabar yuborilmadi")
+
+
+async def show_teacher_applications(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Administrator uchun kutayotgan ustozlik arizalari ro'yxati."""
+    chat_id = update.effective_chat.id
+    if not is_bot_owner(chat_id):
+        await update.message.reply_text("⛔ Bu buyruq faqat administrator uchun.")
+        return
+    pending = [
+        (code, info) for code, info in get_teachers().items()
+        if (info or {}).get("status") == "pending"
+    ]
+    if not pending:
+        await update.message.reply_text("📭 Kutayotgan ustozlik arizalari yo'q.")
+        return
+    await update.message.reply_text(f"📋 Kutayotgan ustozlik arizalari: {len(pending)} ta")
+    for code, info in pending[:30]:
+        applicant_id = info.get("chat_id")
+        if not applicant_id:
+            continue
+        details = str(info.get("application_details") or "").strip()
+        body = (
+            "🆕 USTOZLIK ARIZASI\n\n"
+            f"👤 Ism: {info.get('name', 'Noma'lum')}\n"
+            f"🔗 Telegram: @{info.get('username')}" if info.get("username")
+            else f"🆕 USTOZLIK ARIZASI\n\n👤 Ism: {info.get('name', 'Noma'lumot')}"
+        )
+        body += f"\n🆔 ID: {applicant_id}\n\n"
+        body += f"📚 Ma'lumot:\n{details}" if details else "⏳ Ariza egasidan qo'shimcha ma'lumot kutilmoqda."
+        keyboard = InlineKeyboardMarkup([[
+            InlineKeyboardButton("✅ Tasdiqlash", callback_data=f"teacher_approval:approve:{applicant_id}"),
+            InlineKeyboardButton("❌ Rad etish", callback_data=f"teacher_approval:reject:{applicant_id}"),
+        ]]) if details else None
+        await update.message.reply_text(body, reply_markup=keyboard)
 
 
 # ============================================================
@@ -14498,6 +14534,7 @@ def main():
     app.add_error_handler(_on_error)
     app.add_handler(CommandHandler("rol", role_command))
     app.add_handler(CommandHandler("role", role_command))
+    app.add_handler(CommandHandler("ustoz_arizalar", show_teacher_applications, filters=filters.ChatType.PRIVATE))
     app.add_handler(CommandHandler("myid", myid_command))
     app.add_handler(CommandHandler("qa", qa_command, filters=filters.ChatType.PRIVATE))
     app.add_handler(CommandHandler(["qa_status", "qastatus"], qa_status_command, filters=filters.ChatType.PRIVATE))
