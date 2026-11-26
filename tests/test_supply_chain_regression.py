@@ -253,6 +253,48 @@ class SupplyChainAIContextRegressionTests(unittest.TestCase):
         self.assertIn("X" * 19000, client.models.prompt)
         self.assertIn("to‘liq JSON", client.models.prompt)
 
+    def test_customer_ai_formatter_hides_internal_terms_and_keeps_readable_blocks(self):
+        answer = (
+            "Xulosa: zaxira kam.\n"
+            "Dalillar:\n"
+            "- Sut — 20 dona\n"
+            "Keyingi qadam: buyurtma qoralamasini tayyorlash."
+        )
+        formatted = supply_chain._format_ai_customer_answer(answer)
+        self.assertIn("• Sut — 20 dona", formatted)
+        self.assertNotIn("JSON", formatted)
+        self.assertIn("\\n\\nKeyingi qadam:", formatted)
+
+    def test_ai_draft_orders_are_created_only_as_drafts_after_explicit_action(self):
+        data = empty_data()
+        data["suppliers"]["SUP-001"] = {
+            "id": "SUP-001", "name": "Supplier A", "lead_time_days": 4
+        }
+        data["products"]["P-001"] = {
+            "sku": "P-001", "name": "Milk", "quantity": 5,
+            "reorder_point": 20, "unit": "dona", "unit_cost": 100,
+        }
+        candidates = supply_chain._ai_draft_candidates(data)
+        self.assertEqual(len(candidates), 1)
+        self.assertEqual(candidates[0]["quantity"], 15)
+        self.assertEqual(data["orders"], [])
+        ids = supply_chain._create_ai_draft_orders(data, candidates)
+        self.assertEqual(len(ids), 1)
+        self.assertEqual(data["orders"][0]["status"], "draft")
+        self.assertEqual(data["orders"][0]["quantity"], 15)
+        self.assertEqual(data["products"]["P-001"]["quantity"], 5)
+
+    def test_ai_draft_creation_requires_unambiguous_supplier_and_price(self):
+        data = empty_data()
+        data["products"]["P-001"] = {
+            "sku": "P-001", "name": "Milk", "quantity": 5,
+            "reorder_point": 20, "unit": "dona", "unit_cost": 100,
+        }
+        candidates = [{"sku": "P-001", "name": "Milk", "quantity": 15, "unit": "dona"}]
+        with self.assertRaisesRegex(ValueError, "bitta asosiy yetkazib beruvchi"):
+            supply_chain._create_ai_draft_orders(data, candidates)
+        self.assertEqual(data["orders"], [])
+
     def test_long_telegram_answer_is_split_without_losing_ending(self):
         original = ("Muhim tahlil satri.\\n" * 260) + "YAKUNIY TAVSIYA SAQLANDI"
         chunks = supply_chain._split_telegram_text(original, limit=3900)
