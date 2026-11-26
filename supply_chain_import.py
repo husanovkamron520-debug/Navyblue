@@ -69,14 +69,14 @@ def _norm(value: Any) -> str:
 
 
 def _column_index(cell_ref: str) -> int:
-    match = re.fullmatch(r"([A-Z]{1,3})([1-9][0-9]{0,6})", str(cell_ref or "").upper())
+    match = re.fullmatch(r"([A-Z]{1,3})([1-9][0-9]{0,6})?", str(cell_ref or "").upper())
     if not match:
-        raise ValueError("Excel katak manzili noto'g'ri.")
+        raise ValueError("Excel ustun yoki katak manzili noto'g'ri.")
     letters, row_text = match.groups()
     out = 0
     for char in letters:
         out = out * 26 + ord(char) - 64
-    if out > MAX_XLSX_COLUMNS or int(row_text) > MAX_XLSX_ROWS:
+    if out > MAX_XLSX_COLUMNS or (row_text and int(row_text) > MAX_XLSX_ROWS):
         raise ValueError("Excel faylda ruxsat etilgan qator yoki ustun limiti oshgan.")
     return out - 1
 
