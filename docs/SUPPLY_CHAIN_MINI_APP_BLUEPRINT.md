@@ -260,7 +260,7 @@ Phase 6 — Hardening and rollout:
 
 ### Direct XLSX preview progress (2026-11-26)
 - Excel Workspace now accepts .xlsx files as well as CSV UTF-8.
-- XLSX workbooks are parsed locally in the browser with pinned SheetJS 0.18.5; users can choose among up to 20 worksheets.
+- XLSX workbooks are parsed locally in the browser with pinned SheetJS 0.20.3; users can choose among up to 20 worksheets.
 - Parsing is capped at 5 MB per file and 10,002 parsed rows per worksheet; the preview rejects more than 10,000 data rows.
 - CSV parser newline, carriage-return, whitespace and UTF-8 BOM handling was corrected.
 - Column mapping validates duplicate SKUs and non-negative quantity, optional unit cost and reorder point values.
