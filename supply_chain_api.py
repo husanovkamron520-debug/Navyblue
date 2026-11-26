@@ -462,10 +462,25 @@ def _envelope(data: dict, version=1) -> dict:
 
 def build_bootstrap(snapshot: dict) -> dict:
     data = copy.deepcopy(snapshot) if isinstance(snapshot, dict) else {}
+    history = data.get("import_history") if isinstance(data.get("import_history"), list) else []
+    recent_imports = []
+    for item in history[-10:]:
+        if not isinstance(item, dict):
+            continue
+        recent_imports.append({
+            "file_name": str(item.get("file_name", ""))[:180],
+            "sheet": str(item.get("sheet", ""))[:120],
+            "created_at": str(item.get("created_at", ""))[:40],
+            "processed": _safe_number(item.get("processed")),
+            "created": _safe_number(item.get("created")),
+            "updated": _safe_number(item.get("updated")),
+            "unchanged_quantity": _safe_number(item.get("unchanged_quantity")),
+        })
     return _envelope({
         "company": {"mode": "single_company", "label": "Supply Chain"},
         "sections": ["dashboard", "inventory", "analytics", "procurement", "logistics"],
         "data_version": _safe_version(data),
+        "recent_imports": recent_imports,
         "metric_definitions": {
             "inventory_value": "sum(quantity × unit_cost) for rows with both values",
             "low_stock": "quantity <= reorder_point",
