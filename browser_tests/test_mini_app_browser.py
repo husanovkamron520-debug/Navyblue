@@ -82,7 +82,7 @@ class MiniAppBrowserTests(unittest.TestCase):
             time.sleep(0.25)
             route.fulfill(status=200, json={"data": {"version": 2, "replayed": False,
                 "result": {"processed": len(self.import_payload.get("rows", [])), "created": 2,
-                           "updated": 0, "unchanged_quantity": 0}}})
+                           "updated": 0, "unchanged": 0, "unchanged_quantity": 0}}})
             return
         if path == "/sc-api/v1/bootstrap":
             data = {"data_version": 1}
@@ -227,6 +227,7 @@ class MiniAppBrowserTests(unittest.TestCase):
         self.assertEqual(self.import_payload["rows"][0]["unit"], "kg")
         self.assertEqual(self.import_payload["source_name"], "inventory.csv")
         self.assertEqual(self.import_payload["source_sheet"], "")
+        self.assertIn("o‘zgarishsiz 0", self.page.locator("#excel-import-status").text_content())
         self.assertTrue(any(method == "POST" and path == "/sc-api/v1/inventory/import"
                             for method, path, _query, _auth in self.api_calls))
 
