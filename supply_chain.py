@@ -1647,7 +1647,7 @@ def _magic_prepare_movements(data: dict[str, Any], entries: list[dict[str, Any]]
     for entry in entries:
         if not isinstance(entry, dict):
             continue
-        confidence = _safe_num(entry.get("confidence", 1))
+        confidence = _safe_num(entry.get("confidence", 0))
         if confidence < 0.85:
             continue
         product_name = str(entry.get("product") or "").strip()
