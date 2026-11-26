@@ -211,7 +211,7 @@ Current gaps:
 - Excel import/apply to permanent inventory is intentionally not implemented; the current workspace is local, analysis-only and read-only.
 - Browser-side write operations and confirmation flows for receipts, dispatches, movements or order transitions remain deferred until durable persistence acknowledgements, operation-level locking, idempotency and audit history are designed and tested.
 - End-to-end runtime testing against an authorized deployed HTTPS Render instance has not been performed.
-- Telegram WebView print/PDF behavior and full responsive browser runtime QA remain unverified.
+- Telegram WebView print/PDF behavior and live HTTPS Render end-to-end behavior remain unverified; the mocked Chromium responsive/runtime suite is now passing.
 - Production hardening, backup/restore verification and operational monitoring remain before rollout.
 
 All new Mini App business endpoints remain read-only. No new database schema or production deployment is part of this branch.
@@ -255,7 +255,7 @@ Phase 6 — Hardening and rollout:
 - Added a Reports view with inventory, purchase-order, and shipment CSV exports.
 - Exports read all available API pages (100 rows per page) and generate UTF-8 BOM CSV files in the browser for spreadsheet compatibility.
 - Export endpoints are read-only; no import, update, or inventory mutation is performed.
-- Browser-side CSV and XLSX parsing are implemented in the sections below; full end-to-end browser runtime validation remains outstanding.
+- Browser-side CSV and XLSX parsing are implemented below. A Chromium browser smoke suite with mocked Telegram/API responses now verifies the main navigation, responsive layouts, product drill-down, local CSV preview, malformed XLSX rejection, CSV export and print-preview invocation; live Render and Telegram WebView validation remain outstanding.
 
 
 ### Direct XLSX preview progress (2026-11-26)
@@ -285,3 +285,11 @@ Phase 6 — Hardening and rollout:
 - Inventory, purchase-order and shipment reports now have a print/PDF action alongside CSV and XLSX exports.
 - The app builds a print-only table from the authenticated read-only APIs and opens the device/browser print dialog; users can choose Save as PDF. Print output is capped at 5,000 rows to avoid excessive mobile memory use.
 - No PDF service, server upload or inventory mutation is involved. Availability of Save as PDF depends on the browser or device print support, especially inside Telegram WebView.
+
+
+### Chromium browser QA progress (2026-11-26)
+- Added a pinned Playwright 1.55.0 / Chromium job to the existing pull-request CI workflow, using Ubuntu 24.04 for browser compatibility.
+- Added four browser tests against a local static server with mocked Telegram Web App and read-only API responses.
+- Verified dashboard authentication/rendering, inventory detail drill-down, mobile and desktop responsive layouts, Analytics/Procurement/Logistics navigation, local CSV preview, malformed XLSX archive rejection, CSV download and print-preview invocation.
+- Browser QA result on code commit `eb2ad069ad9449ea6cdad9ec943bd038cd07b889`: **4 tests passed**. No business API writes were made; the only POST in the harness is the mocked session-creation request.
+- These are automated Chromium tests with simulated Telegram/API responses, not a live Render deployment test or a real Telegram Android WebView test. PDF printing inside Telegram WebView remains unverified.
