@@ -10,6 +10,7 @@ from supply_chain_persistence import (
     PersistenceError,
     SerializedCommitAdapter,
     VersionConflict,
+    SnapshotWriteQueue,
 )
 
 
@@ -172,6 +173,50 @@ class SerializedCommitAdapterTests(unittest.TestCase):
     def _add_quantity(document, amount):
         document["products"]["SKU-1"]["quantity"] += amount
         return {"sku": "SKU-1", "quantity": document["products"]["SKU-1"]["quantity"]}
+
+
+
+class SnapshotWriteQueueTests(unittest.TestCase):
+    def test_newer_snapshot_is_not_replaced_when_older_inflight_write_fails(self):
+        queue = SnapshotWriteQueue()
+        queue.enqueue("supply_chain_data", {"version": 1})
+        key, first = queue.take()
+        queue.enqueue("supply_chain_data", {"version": 2})
+        queue.finish(key, first, saved=False)
+        self.assertEqual(queue.pending_count, 1)
+        next_key, newest = queue.take()
+        self.assertEqual(next_key, "supply_chain_data")
+        self.assertEqual(newest, {"version": 2})
+        queue.finish(next_key, newest, saved=True)
+        self.assertTrue(queue.wait_empty(0.05))
+
+    def test_wait_empty_includes_inflight_write(self):
+        queue = SnapshotWriteQueue()
+        queue.enqueue("k", {"value": 1})
+        key, snapshot = queue.take()
+        self.assertFalse(queue.wait_empty(0.01))
+        queue.finish(key, snapshot, saved=True)
+        self.assertTrue(queue.wait_empty(0.05))
+
+    def test_enqueue_copies_snapshot(self):
+        queue = SnapshotWriteQueue()
+        original = {"nested": {"value": 1}}
+        queue.enqueue("k", original)
+        original["nested"]["value"] = 99
+        key, snapshot = queue.take()
+        self.assertEqual(snapshot["nested"]["value"], 1)
+        queue.finish(key, snapshot, saved=True)
+
+    def test_failed_write_requeues_when_no_newer_snapshot_exists(self):
+        queue = SnapshotWriteQueue()
+        queue.enqueue("k", {"version": 1})
+        key, snapshot = queue.take()
+        queue.finish(key, snapshot, saved=False)
+        self.assertEqual(queue.pending_count, 1)
+        key2, retry = queue.take()
+        self.assertEqual(retry, {"version": 1})
+        queue.finish(key2, retry, saved=True)
+
 
 
 if __name__ == "__main__":
