@@ -2032,10 +2032,26 @@ async def _text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
             return True
         import copy
         try:
-            with _LOCK:
-                data = copy.deepcopy(_data())
-                result = supply_chain_import.apply_import(data, validated)
-                _save(data)
+            data = copy.deepcopy(_data())
+            result = supply_chain_import.apply_import(data, validated)
+            await _save(data)
+        except sc_persistence.VersionConflict:
+            context.user_data.pop("_sc_wait", None)
+            await update.message.reply_text(
+                "⚠️ Ma'lumotlar boshqa sessiyada yangilangan. Hech narsa ustidan yozilmadi. "
+                "Excel faylni yangilangan ma'lumot bilan qayta ko'rib chiqing."
+            )
+            return True
+        except sc_persistence.CommitOutcomeUnknown:
+            context.user_data.pop("_sc_wait", None)
+            await update.message.reply_text(
+                "⚠️ Saqlash javobining holati noaniq. Importni qayta yubormang; avval ombor holatini tekshiring."
+            )
+            return True
+        except sc_persistence.PersistenceError:
+            context.user_data.pop("_sc_wait", None)
+            await update.message.reply_text("⚠️ Import bazaga xavfsiz saqlanmadi. Hech qanday muvaffaqiyat tasdiqlanmadi.")
+            return True
         except Exception as exc:
             context.user_data.pop("_sc_wait", None)
             await update.message.reply_text("⚠️ Import saqlanmadi: " + _friendly_error(exc))
@@ -2063,15 +2079,15 @@ async def _text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
         result = handler(data, raw)
         await _save(data)
     except sc_persistence.VersionConflict:
-            error = ("Ma'lumotlar boshqa sessiyada yangilangan. Hech narsa ustidan yozilmadi. "
-                     "Bo'limni qayta ochib, amalni yangilangan ma'lumot bilan takrorlang.")
-        except sc_persistence.CommitOutcomeUnknown:
-            error = ("Saqlash javobining holati noaniq. Amalni hozircha qayta yubormang; "
-                     "avval ombor holatini yangilang va o'zgarish saqlanganini tekshiring.")
-        except sc_persistence.PersistenceError:
-            error = "Ma'lumotni bazaga xavfsiz saqlab bo'lmadi. Hech qanday muvaffaqiyat tasdiqlanmadi."
-        except Exception as exc:  # noqa: BLE001 — foydalanuvchiga tushunarli xabar beramiz
-            error = _friendly_error(exc)
+        error = ("Ma'lumotlar boshqa sessiyada yangilangan. Hech narsa ustidan yozilmadi. "
+                 "Bo'limni qayta ochib, amalni yangilangan ma'lumot bilan takrorlang.")
+    except sc_persistence.CommitOutcomeUnknown:
+        error = ("Saqlash javobining holati noaniq. Amalni hozircha qayta yubormang; "
+                 "avval ombor holatini yangilang va o'zgarish saqlanganini tekshiring.")
+    except sc_persistence.PersistenceError:
+        error = "Ma'lumotni bazaga xavfsiz saqlab bo'lmadi. Hech qanday muvaffaqiyat tasdiqlanmadi."
+    except Exception as exc:  # noqa: BLE001 — foydalanuvchiga tushunarli xabar beramiz
+        error = _friendly_error(exc)
     done_kb = InlineKeyboardMarkup([[_btn("✅ Tayyor — orqaga", parent)]])
     if error:
         await _reply(update.message, f"⚠️ {error}\n\nQayta yozing yoki «Orqaga» ni bosing.", done_kb)
