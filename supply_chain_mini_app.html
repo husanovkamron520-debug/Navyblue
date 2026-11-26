@@ -530,7 +530,7 @@
       t.append(thead,body);table.append(t);root.append(table);
       if(diffs.length>50)root.append(el("div","muted","Yana "+fmt(diffs.length-50)+" ta farq jadvalda ko‘rsatilmagan."));
       $("excel-import-status").textContent="Preview tayyor. Tasdiqlashdan oldin farqlarni tekshiring.";
-      $("excel-import-confirm").disabled=rows.length===0||Number($("excel-errors").textContent.replace(/\D/g,""))>0;
+      $("excel-import-confirm").disabled=true;
     }catch(error){
       if(seq!==importPreviewSeq)return;
       inventoryBaseline=null;importVersion=null;
