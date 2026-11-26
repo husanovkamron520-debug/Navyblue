@@ -32,7 +32,10 @@ The top-level object is initialized with:
   "vehicles": [],
   "shipments": [],
   "demand_history": [],
-  "scenarios": []
+  "scenarios": [],
+  "import_history": [],
+  "audit_log": [],
+  "_write_idempotency": []
 }
 ```
 
@@ -117,25 +120,24 @@ All routes require a validated Telegram Web App session and owner authorization,
 - `GET /sc-api/v1/dashboard` — product, inventory value, low-stock, open-order and active-shipment KPIs.
 - `GET /sc-api/v1/inventory?search=&status=&sort=&page=&page_size=` — paginated, allow-listed product rows.
 - `GET /sc-api/v1/inventory/{sku}` — allow-listed product detail, up to 20 recent movements and up to 12 demand-history rows; read-only.
-- `POST /sc-api/v1/inventory/import` — owner-session-only, explicit confirmed inventory import. Requires `operation_id`, `expected_version` and 1–10,000 normalized rows; server revalidates every field and computes its own canonical SHA-256 request hash. Request body is capped at 8 MB and import attempts at 3 per 60 seconds per process. All rows are validated before mutation; the server commits one atomic JSONB-CAS revision with audit/idempotency metadata. Existing SKU quantities are set to the imported quantity; new SKUs are created with unit `pcs`; optional unit/cost/reorder fields preserve existing values when omitted; new products default to unit `pcs` if no unit is mapped. Quantity deltas append `in`/`out` movements. Sanitized source filename/sheet metadata and a bounded 100-entry import history are stored in the same JSONB document; workbook bytes are never uploaded. A stale preview returns 409; ambiguous storage outcomes return 503 and instruct the user not to blindly repeat the import.
+- `POST /sc-api/v1/inventory/import` — owner-session-only, explicit confirmed inventory import. Requires `operation_id`, `expected_version` and 1–10,000 normalized rows; server revalidates every field and computes its own canonical SHA-256 request hash. Request body is capped at 8 MB and import attempts at 3 per 60 seconds per process. All rows are validated before mutation; the server commits one JSONB-CAS revision with audit/idempotency metadata. Existing SKUs update name and quantity; mapped optional unit/cost/reorder fields update only when supplied, otherwise saved values are preserved. New SKUs use the mapped unit or default to `pcs`. Quantity deltas append `in`/`out` movements. Sanitized source filename/sheet metadata and a bounded 100-entry import history are stored in the same JSONB document; workbook bytes are never uploaded. Results distinguish created, actually updated, fully unchanged and unchanged-quantity rows. A stale preview returns 409; ambiguous storage outcomes return 503 and instruct the user not to blindly repeat the import.
 - Authenticated responses set `Cache-Control: no-store`; JSON responses set `X-Content-Type-Options: nosniff`. No permissive CORS is configured.
 - Session credentials are in-memory, expire after 30 minutes and are cleared automatically on process restart.
 - Session and read API limiters are process-local and global to the app instance; they are basic abuse-control layers, not distributed limiters or substitutes for edge/network controls.
-- The current frontend is a read-only preview: it authenticates with Telegram `initData`, renders dashboard KPIs and stock status, and provides searchable/filterable/paginated inventory. No browser-side mutation is implemented.
+- The frontend authenticates with Telegram `initData`, renders dashboard KPIs, searchable/filterable/paginated inventory, analytics, procurement, logistics, Excel Workspace and reports. Excel preview is local/read-only; only the separately confirmed import action sends a write request. Other browser-side business mutations are not implemented.
 
-### Planned read-only endpoints
-- `GET /sc-api/v1/analytics/demand?sku=&months=&horizon=` — actual and forecast points plus method/coverage metadata.
+### Other implemented read-only endpoints
+- `GET /sc-api/v1/analytics/demand?sku=` — actual demand history and weighted forecast outputs.
 - `GET /sc-api/v1/analytics/abc` — ranked product contribution, cumulative percentage and class.
 - `GET /sc-api/v1/analytics/eoq` — EOQ inputs, outputs, assumption flags and sorted rows.
-- `GET /sc-api/v1/analytics/replenishment` — below-reorder list and suggested quantity only where a defensible rule exists.
+- `GET /sc-api/v1/analytics/replenishment` — below-reorder list and suggested quantity.
 - `GET /sc-api/v1/procurement/orders?status=&page=&page_size=` — purchase order list.
-- `GET /sc-api/v1/procurement/suppliers` — supplier list and observed data completeness.
+- `GET /sc-api/v1/procurement/suppliers` — supplier list.
 - `GET /sc-api/v1/logistics/shipments?status=&page=&page_size=` — shipment list.
 - `GET /sc-api/v1/logistics/vehicles` — vehicle list.
 
-### Later controlled mutations (not part of read-only milestone)
-- `POST /sc-api/v1/imports/preview` — stage an upload and return sheet/column mapping, validation errors and preview; does not change inventory.
-- `POST /sc-api/v1/imports/{import_id}/apply` — apply a reviewed import only after an explicit confirmation token and before/after diff.
+### Later controlled mutations (not implemented)
+- Additional receipt, stock-movement, purchase-order and shipment transition routes remain deferred.
 - `POST /sc-api/v1/orders/{id}/transition` — allow only valid status transitions through the existing business rules.
 - `POST /sc-api/v1/shipments/{id}/transition` — allow only valid transitions; dispatch must atomically decrement stock and append movement.
 - `POST /sc-api/v1/inventory/movements` — validate and record a stock movement through the canonical service.
@@ -213,7 +215,7 @@ Because the current server uses `ThreadingHTTPServer` and storage writes are cac
 - `/procurement/suppliers` — suppliers
 - `/logistics/shipments` — shipments and statuses
 - `/logistics/vehicles` — fleet parameters
-- `/imports` — staged Excel workspace (later phase)
+- `/imports` — Excel Workspace with local preview and explicit confirmed apply
 
 Every page must support loading, empty, error, stale-data and insufficient-data states. Tables must have a mobile-friendly fallback and charts must have equivalent data tables.
 
@@ -234,7 +236,7 @@ Every page must support loading, empty, error, stale-data and insufficient-data 
 - No changes to `supply_chain.py` business calculations.
 - No new Supabase tables or policies.
 - No change to existing classroom tables or `bot_storage` schema.
-- No Mini App write endpoints or automatic AI features.
+- No additional Mini App write endpoints beyond the confirmed Excel inventory import; no automatic AI features.
 - No Render configuration or deployment changes.
 
 
