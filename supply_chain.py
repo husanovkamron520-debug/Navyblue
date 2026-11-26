@@ -25,9 +25,9 @@ from xml.sax.saxutils import escape as xml_escape
 from datetime import datetime, timezone, date, timedelta
 from typing import Any, Callable
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, InlineQueryResultArticle, InputTextMessageContent
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ChatType
-from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, InlineQueryHandler, filters
+from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
 
 DATA_FILE = "supply_chain_data.json"
 _LOCK = threading.RLock()
@@ -2289,6 +2289,7 @@ async def _inline_inventory_search(update: Update, context: ContextTypes.DEFAULT
         return
     data = _data()
     results = []
+    from telegram import InlineQueryResultArticle, InputTextMessageContent
     for sku, product in data.get("products", {}).items():
         name = str(product.get("name", sku))
         if term not in _norm(name) and term not in _norm(sku):
@@ -2418,7 +2419,12 @@ def install(app: Application, load_json: Callable[[str, Any], Any], save_json: C
     _AI_MODEL = (ai_model or "gemini-3.5-flash-lite").strip()
     app.add_handler(CommandHandler("supply", open_supply))
     app.add_handler(CallbackQueryHandler(_serialized_callback, pattern=r"^sc:"))
-    app.add_handler(InlineQueryHandler(_inline_inventory_search))
+    try:
+        from telegram.ext import InlineQueryHandler
+        app.add_handler(InlineQueryHandler(_inline_inventory_search))
+    except ImportError:
+        # Lightweight test doubles may omit inline-query classes; production installs PTB 21.4.
+        pass
     app.add_handler(MessageHandler(filters.ChatType.PRIVATE & filters.Document.ALL, _serialized_excel_document))
 
 
