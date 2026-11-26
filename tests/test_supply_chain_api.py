@@ -243,6 +243,7 @@ class ReadOnlyApiServiceTests(unittest.TestCase):
         self.assertEqual(item["ordered_quantity"], 5)
 
     def test_replenishment_does_not_guess_surplus_without_demand_history_or_cost(self):
+        self.snapshot["products"]["SKU-1"]["unit_cost"] = None
         item = next(x for x in api.build_replenishment(self.snapshot)["data"]["items"]
                     if x["sku"] == "SKU-1")
         self.assertIsNone(item["days_of_stock_cover"])
