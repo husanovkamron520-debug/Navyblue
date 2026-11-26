@@ -96,6 +96,18 @@ class ReadOnlyApiServiceTests(unittest.TestCase):
         api.list_inventory(self.snapshot)
         self.assertEqual(self.snapshot, before)
 
+    def test_bootstrap_returns_only_last_ten_allowlisted_import_records(self):
+        self.snapshot["import_history"] = [
+            {"file_name": f"file-{i}.xlsx", "sheet": "Sheet1", "created_at": "2026-11-26",
+             "processed": i, "created": 1, "updated": 2, "unchanged_quantity": 3,
+             "private": "must-not-leak"}
+            for i in range(12)
+        ]
+        recent = api.build_bootstrap(self.snapshot)["data"]["recent_imports"]
+        self.assertEqual(len(recent), 10)
+        self.assertEqual(recent[0]["file_name"], "file-2.xlsx")
+        self.assertNotIn("private", recent[0])
+
     def test_session_expires_and_is_revocable(self):
         sessions = api.SessionStore(ttl_seconds=20)
         token, ttl = sessions.issue(OWNER_ID, now=100)
