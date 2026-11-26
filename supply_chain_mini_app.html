@@ -338,7 +338,9 @@
     return node;
   }
   async function openAnalyticsProduct(sku){
-    switchView("inventory");
+    currentView="inventory";
+    ["dashboard","inventory","analytics","procurement","logistics","excel","reports"].forEach(view=>{$(view+"-view").hidden=view!=="inventory";});
+    document.querySelectorAll(".nav button").forEach(button=>button.classList.toggle("active",button.dataset.view==="inventory"));
     await loadInventory();
     await openInventoryDetail(sku);
   }
@@ -419,7 +421,8 @@
     if(!rows.length){track.hidden=true;list.append(el("div","viz-empty","Kapital taqsimotini hisoblash uchun mahsulot tannarxi kiritilgan bo‘lishi kerak."));return;}
     track.hidden=false;
     const palette=["#244d78","#4b8c78","#c58a35","#7b6ca8","#4f91b8","#b96c62","#6c8795","#9b9a55","#6c6c91","#9a754f"];
-    rows.slice(0,10).forEach((item,index)=>{
+    const shown=rows.slice(0,10);
+    shown.forEach((item,index)=>{
       const share=Number(item.inventory_value)/total*100,color=palette[index%palette.length];
       const segment=el("button","");segment.type="button";segment.style.width=share+"%";segment.style.background=color;segment.title=(item.name||item.sku)+" · "+fmt(share,1)+"%";
       segment.setAttribute("aria-label",segment.title);segment.addEventListener("click",()=>openAnalyticsProduct(item.sku).catch(err=>showNotice("Mahsulot ochilmadi",err.message,true)));
@@ -430,7 +433,11 @@
       row.addEventListener("click",()=>openAnalyticsProduct(item.sku).catch(err=>showNotice("Mahsulot ochilmadi",err.message,true)));
       list.append(row);
     });
-    if(rows.length>10)list.append(el("div","muted","Yana "+fmt(rows.length-10)+" ta mahsulot ro‘yxatda ko‘rsatilmagan."));
+    const remainder=rows.slice(10).reduce((sum,item)=>sum+Number(item.inventory_value||0),0);
+    if(remainder>0){
+      const other=el("button","");other.type="button";other.style.width=(remainder/total*100)+"%";other.style.background="#b8c2cf";other.title="Boshqa mahsulotlar · "+fmt(remainder/total*100,1)+"%";other.setAttribute("aria-label",other.title);other.disabled=true;track.append(other);
+      list.append(el("div","muted","Boshqa "+fmt(rows.length-10)+" ta mahsulot: "+money(remainder)+" · "+fmt(remainder/total*100,1)+"%"));
+    }
   }
   async function loadAnalytics() {
     const [demand,abc,eoq,replenishment]=await Promise.all([
