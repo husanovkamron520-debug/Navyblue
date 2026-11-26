@@ -1,6 +1,6 @@
 # Supply Chain Mini App — Current Data Map and API Contract
 
-Status: isolated-branch implementation. The read-only API primitives and first HTTP routes are implemented on `docs/supply-chain-mini-app-blueprint`; they are not merged or deployed. This document records verified behavior and the remaining scope. No Supabase schema changes or write endpoints are included.
+Status: isolated-branch implementation. Read models and the explicitly confirmed Excel inventory import route are implemented on `docs/supply-chain-mini-app-blueprint`; they are not merged or deployed. This document records verified code behavior and remaining validation. No Supabase schema changes or live production writes are included.
 
 ## 1. Verified current implementation
 
@@ -10,8 +10,8 @@ Status: isolated-branch implementation. The read-only API primitives and first H
 - The bot derives a Supabase `storage_key` from the filename stem, so this object is stored under `supply_chain_data` in `bot_storage.data`.
 - On startup, `init_storage()` preloads this key into a process cache.
 - `load_json()` returns a deep copy of cached data.
-- `save_json()` replaces the cached deep copy and queues a background write to Supabase. Without Supabase environment configuration, the fallback is a local JSON file.
-- The bot has a custom `ThreadingHTTPServer` in `run_health_server()`. The isolated branch now adds `/supply-chain` for the static Mini App shell and `/sc-api/v1/health`, `/sc-api/v1/session`, `/sc-api/v1/bootstrap`, `/sc-api/v1/dashboard` and `/sc-api/v1/inventory` routes alongside existing routes.
+- Generic `save_json()` calls use the background queue. The `supply_chain_data` key uses the isolated JSONB compare-and-swap commit adapter; without Supabase configuration, the Mini App import endpoint fails closed.
+- The bot has a custom `ThreadingHTTPServer` in `run_health_server()`. The isolated branch now adds `/supply-chain` for the static Mini App shell and `/sc-api/v1/health`, `/sc-api/v1/session`, `/sc-api/v1/bootstrap`, `/sc-api/v1/dashboard`, `/sc-api/v1/inventory` and `/sc-api/v1/inventory/import` routes alongside existing routes.
 - The HTTP server thread starts before storage initialization finishes. `_SC_STORAGE_READY` is set only after `init_storage_with_retry()` returns; business endpoints return HTTP 503 until then.
 
 ### Current access control
@@ -117,6 +117,7 @@ All routes require a validated Telegram Web App session and owner authorization,
 - `GET /sc-api/v1/dashboard` — product, inventory value, low-stock, open-order and active-shipment KPIs.
 - `GET /sc-api/v1/inventory?search=&status=&sort=&page=&page_size=` — paginated, allow-listed product rows.
 - `GET /sc-api/v1/inventory/{sku}` — allow-listed product detail, up to 20 recent movements and up to 12 demand-history rows; read-only.
+- `POST /sc-api/v1/inventory/import` — owner-session-only, explicit confirmed inventory import. Requires `operation_id`, `expected_version` and 1–10,000 normalized rows; server revalidates every field and computes its own canonical SHA-256 request hash. Request body is capped at 8 MB and import attempts at 3 per 60 seconds per process. All rows are validated before mutation; the server commits one atomic JSONB-CAS revision with audit/idempotency metadata. Existing SKU quantities are set to the imported quantity; new SKUs are created with unit `pcs`; optional cost/reorder fields preserve existing values when omitted. Quantity deltas append `in`/`out` movements. A stale preview returns 409; ambiguous storage outcomes return 503 and instruct the user not to blindly repeat the import.
 - Authenticated responses set `Cache-Control: no-store`; JSON responses set `X-Content-Type-Options: nosniff`. No permissive CORS is configured.
 - Session credentials are in-memory, expire after 30 minutes and are cleared automatically on process restart.
 - Session and read API limiters are process-local and global to the app instance; they are basic abuse-control layers, not distributed limiters or substitutes for edge/network controls.
@@ -235,3 +236,19 @@ Every page must support loading, empty, error, stale-data and insufficient-data 
 - No change to existing classroom tables or `bot_storage` schema.
 - No Mini App write endpoints or automatic AI features.
 - No Render configuration or deployment changes.
+
+
+## 5. Confirmed Excel inventory import — implemented on the isolated branch
+
+1. CSV/XLSX parsing, column mapping and row validation remain in the browser for preview only.
+2. The browser fetches the current dataset version and inventory list, then displays new SKU, update and unchanged counts plus before/after quantity values.
+3. No write occurs until the owner checks the confirmation statement and presses **Importni tasdiqlash**.
+4. The server independently validates the complete request, rejects duplicate case-insensitive SKUs, invalid numbers, non-finite values, negative values, oversized fields and stale versions.
+5. `supply_chain_mini_app_import.py` applies the import to a private snapshot and commits it through `SerializedCommitAdapter` and the JSONB compare-and-swap callback. A successful response is returned only after the database adapter acknowledges the exact new version.
+6. Reusing the same operation ID and request hash replays the prior result without duplicating stock movements. Reusing an ID with another payload is rejected.
+7. The Mini App still does not write directly to Supabase; the service-role key remains server-side. No schema migration is required.
+
+### Verification boundary
+- Import validation and adapter behavior are covered by isolated fake-store unit tests.
+- Browser QA includes a check that preview causes no POST, and that a POST is sent only after explicit confirmation.
+- No live Supabase PATCH, staging write, Render deployment or production inventory mutation has been performed. Staging verification and real Telegram Android WebView QA remain required before release.
