@@ -510,7 +510,8 @@
       const row=el("div","alert");
       const left=el("div","");
       left.append(el("strong","",item.file_name||"Excel import"));
-      const detail=[item.sheet||"",item.created_at||""].filter(Boolean).join(" · ");
+      const summary=[fmt(item.created)+" yangi",fmt(item.updated)+" yangilandi",fmt(item.unchanged)+" o‘zgarishsiz"].join(" · ");
+      const detail=[item.sheet||"",item.created_at||"",summary].filter(Boolean).join(" · ");
       left.append(el("div","muted",detail));
       const right=el("span","pill",fmt(item.processed)+" qator");
       row.append(left,right);root.append(row);
