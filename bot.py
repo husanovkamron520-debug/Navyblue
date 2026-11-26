@@ -31,6 +31,7 @@ import museum
 import supply_chain
 import supply_chain_api as sc_api
 import supply_chain_persistence as sc_persistence
+import supply_chain_mini_app_import as sc_import
 import october_plus
 import october_creative
 from ppt_media_sources import find_commons_photo
@@ -92,6 +93,7 @@ _SC_STORAGE_READY = threading.Event()
 _SC_SESSIONS = sc_api.SessionStore()
 _SC_SESSION_LIMITER = sc_api.RateLimiter(max_requests=8, window_seconds=60)
 _SC_API_LIMITER = sc_api.RateLimiter(max_requests=120, window_seconds=60)
+_SC_IMPORT_LIMITER = sc_api.RateLimiter(max_requests=3, window_seconds=60)
 # httpx so'rov URL'larida bot tokeni chiqib qolmasligi uchun
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
@@ -683,6 +685,24 @@ def _get_sc_commit_adapter():
     return _SC_COMMIT_ADAPTER
 
 
+def _sc_commit_inventory_import(payload):
+    """Commit one explicitly confirmed import and publish only acknowledged state."""
+    if not USE_DB:
+        raise sc_persistence.PersistenceError("Mini App import requires configured Supabase storage")
+    with _storage_save_lock:
+        result = sc_import.commit_inventory_import(_get_sc_commit_adapter(), payload)
+        try:
+            latest = _sc_storage_load()
+        except Exception:
+            # The commit is acknowledged; invalidate cache so later reads reload it.
+            with _cache_lock:
+                _cache.pop(_SC_STORAGE_KEY, None)
+        else:
+            with _cache_lock:
+                _cache[_SC_STORAGE_KEY] = copy.deepcopy(latest)
+        return result
+
+
 def _writer_loop():
     """Single ordered writer: only this thread sends queued snapshots to Supabase."""
     while True:
@@ -1269,36 +1289,69 @@ def run_health_server():
             self._sc_json(result)
 
         def _sc_api_post(self, parsed):
-            if parsed.path != "/sc-api/v1/session":
-                self._sc_error("method_not_allowed", "Bu endpoint faqat sessiya yaratish uchun.", 405)
-                return
-            if not _SC_SESSION_LIMITER.allow("session"):
-                self._sc_error("rate_limited", "Juda ko'p urinish. Birozdan keyin qayta urinib ko'ring.", 429)
+            is_session = parsed.path == "/sc-api/v1/session"
+            is_import = parsed.path == "/sc-api/v1/inventory/import"
+            if not is_session and not is_import:
+                self._sc_error("not_found", "POST endpoint topilmadi.", 404)
                 return
             if not _SC_STORAGE_READY.is_set():
                 self._sc_error("not_ready", "Ma'lumotlar bazasi hali tayyor emas.", 503)
                 return
+            if is_session and not _SC_SESSION_LIMITER.allow("session"):
+                self._sc_error("rate_limited", "Juda ko'p urinish. Birozdan keyin qayta urinib ko'ring.", 429)
+                return
+            if is_import:
+                if not OWNER_CHAT_ID or not _SC_SESSIONS.authenticate(self._sc_bearer(), OWNER_CHAT_ID):
+                    self._sc_error("unauthorized", "Sessiya yaroqsiz yoki muddati tugagan.", 401)
+                    return
+                if not _SC_IMPORT_LIMITER.allow("inventory-import"):
+                    self._sc_error("rate_limited", "Import limiti tugadi. Birozdan keyin qayta urinib ko'ring.", 429)
+                    return
+                if not USE_DB:
+                    self._sc_error("storage_unavailable", "Import uchun Supabase saqlash xizmati kerak.", 503)
+                    return
             try:
                 length = int(self.headers.get("Content-Length", "0"))
-                if length <= 0 or length > sc_api.MAX_INIT_DATA_BYTES:
-                    self._sc_error("invalid_request", "So'rov hajmi noto'g'ri.", 413)
+                max_length = sc_api.MAX_INIT_DATA_BYTES if is_session else 1_500_000
+                if length <= 0 or length > max_length:
+                    self._sc_error("invalid_request", "So'rov hajmi noto'g'ri yoki limitdan katta.", 413)
                     return
                 if "application/json" not in self.headers.get("Content-Type", "").lower():
                     self._sc_error("invalid_request", "JSON format talab qilinadi.", 415)
                     return
-                payload = json.loads(self.rfile.read(length).decode("utf-8"))
-                init_data = payload.get("initData") if isinstance(payload, dict) else None
-                user = sc_api.validate_init_data(init_data, TELEGRAM_BOT_TOKEN, OWNER_CHAT_ID)
-                token, expires_in = _SC_SESSIONS.issue(user["id"])
-                self._sc_json({"data": {"token": token, "token_type": "Bearer",
-                                        "expires_in": expires_in},
-                               "meta": {"request_id": uuid.uuid4().hex}, "error": None})
+                raw = self.rfile.read(length)
+                if len(raw) != length:
+                    self._sc_error("invalid_request", "So'rov to'liq kelmadi.", 400)
+                    return
+                payload = json.loads(raw.decode("utf-8"))
+                if is_session:
+                    init_data = payload.get("initData") if isinstance(payload, dict) else None
+                    user = sc_api.validate_init_data(init_data, TELEGRAM_BOT_TOKEN, OWNER_CHAT_ID)
+                    token, expires_in = _SC_SESSIONS.issue(user["id"])
+                    self._sc_json({"data": {"token": token, "token_type": "Bearer",
+                                            "expires_in": expires_in},
+                                   "meta": {"request_id": uuid.uuid4().hex}, "error": None})
+                    return
+
+                result = _sc_commit_inventory_import(payload)
+                self._sc_json({"data": result, "meta": {"request_id": uuid.uuid4().hex},
+                               "error": None})
             except sc_api.AuthError as exc:
                 self._sc_error("unauthorized", str(exc), 401)
+            except sc_import.ImportValidationError as exc:
+                self._sc_error("invalid_import", str(exc), 400)
+            except sc_persistence.VersionConflict:
+                self._sc_error("version_conflict", "Preview eskirgan: ma'lumotlar o'zgargan. Sahifani yangilab, faylni qayta tekshiring.", 409)
+            except sc_persistence.IdempotencyConflict:
+                self._sc_error("idempotency_conflict", "Import identifikatori boshqa fayl uchun ishlatilgan. Faylni qayta tekshiring.", 409)
+            except sc_persistence.CommitOutcomeUnknown:
+                self._sc_error("outcome_unknown", "Saqlash natijasi hozircha tasdiqlanmadi. Takroran import qilmang; avval sahifani yangilab ombor holatini tekshiring.", 503)
+            except sc_persistence.PersistenceError as exc:
+                self._sc_error("storage_error", str(exc), 503)
             except (UnicodeDecodeError, json.JSONDecodeError, AttributeError, TypeError, ValueError):
                 self._sc_error("invalid_request", "So'rov formati noto'g'ri.", 400)
             except Exception:
-                logger.exception("Supply Chain API session endpoint failed")
+                logger.exception("Supply Chain API POST endpoint failed")
                 self._sc_error("internal_error", "Ichki server xatosi.", 500)
 
         def do_GET(self):
