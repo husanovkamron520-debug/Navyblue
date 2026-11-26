@@ -61,6 +61,8 @@ class SupplyChainMiniAppShellTests(unittest.TestCase):
         self.assertIn('XLSX.utils.sheet_to_json', self.html)
         self.assertIn('id="excel-sheet"', self.html)
         self.assertIn('names.length>20', self.html)
+        self.assertIn('range.e.c>=100', self.html)
+        self.assertIn('headers.length>100', self.html)
         self.assertIn('ch==="\\n"', self.html)
         self.assertIn('ch==="\\r"', self.html)
         self.assertIn(r'/\s/g', self.html)
