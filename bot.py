@@ -12895,7 +12895,7 @@ def _sys_status_text(short=False):
             tasks = 0
         up = int(now - _LAG["started"])
         lines.append(f"⚙️ Oqimlar: {threading.active_count()}, vazifalar: {tasks}, AI navbati: {busy}/10, "
-                     f"bazaga yozilishi kutilayotgan: {len(_pending)}, ish vaqti: {up // 3600} soat {up % 3600 // 60} daq")
+                     f"bazaga yozilishi kutilayotgan: {_STORAGE_WRITE_QUEUE.pending_count}, ish vaqti: {up // 3600} soat {up % 3600 // 60} daq")
     recent = list(_PERF)[-(2 if short else 6):]
     if recent:
         lines.append("⏱ Oxirgi vazifalar:")
