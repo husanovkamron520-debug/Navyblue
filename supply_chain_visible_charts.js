@@ -38,7 +38,7 @@
     document.head.append(style);
     const grid = document.createElement("div");
     grid.className = "live-chart-grid";
-    grid.innerHTML = '<section class="live-chart-card"><div class="live-chart-title">Zaxira va buyurtma chegarasi</div><div class="live-chart-sub">Joriy miqdor reorder nuqtasi bilan taqqoslanadi</div><div id="live-stock-bars" class="live-bars"><div class="live-empty">Ma’lumot yuklanmoqda…</div></div><div class="live-legend"><span><i></i> Joriy zaxira</span><span><i style="background:#bd7b18"></i> Kam zaxira</span></div></section><section class="live-chart-card"><div class="live-chart-title">Keyingi oy talab prognozi</div><div class="live-chart-sub">API hisoblagan prognozlar, mahsulotlar kesimida</div><div id="live-demand-bars" class="live-forecast"><div class="live-empty">Prognoz yuklanmoqda…</div></div></section>';
+    grid.innerHTML = '<section class="live-chart-card"><div class="live-chart-title">X–Y koordinata grafigi: zaxira holati</div><div class="live-chart-sub">X — qayta buyurtma nuqtasi · Y — joriy zaxira. Har bir nuqta bitta mahsulot.</div><div id="live-xy-scatter"><div class="live-empty">Koordinata grafigi yuklanmoqda…</div></div></section><section class="live-chart-card"><div class="live-chart-title">Zaxira va buyurtma chegarasi</div><div class="live-chart-sub">Joriy miqdor reorder nuqtasi bilan taqqoslanadi</div><div id="live-stock-bars" class="live-bars"><div class="live-empty">Ma’lumot yuklanmoqda…</div></div><div class="live-legend"><span><i></i> Joriy zaxira</span><span><i style="background:#bd7b18"></i> Kam zaxira</span></div></section><section class="live-chart-card"><div class="live-chart-title">Keyingi oy talab prognozi</div><div class="live-chart-sub">API hisoblagan prognozlar, mahsulotlar kesimida</div><div id="live-demand-bars" class="live-forecast"><div class="live-empty">Prognoz yuklanmoqda…</div></div></section>';
     const controls = view.querySelector(".analytics-controls");
     if (controls) controls.insertAdjacentElement("afterend", grid);
     const stock = $("stock-chart"), forecast = $("forecast-table");
@@ -59,6 +59,32 @@
         return {name:texts[0],current:Math.max(0,Math.min(1.5,currentWidth/backgroundWidth)),reorder:ratio,label:texts[texts.length-1]||""};
       }).filter(Boolean);
       target.replaceChildren();
+      const xy=$("live-xy-scatter");
+      if (xy) {
+        xy.replaceChildren();
+        const points=rows.map(row=>{const pair=row.label.split("/");return {name:row.name,x:num(pair[1]),y:num(pair[0])};}).filter(p=>Number.isFinite(p.x)&&Number.isFinite(p.y)&&p.x>=0&&p.y>=0);
+        if (!points.length) { xy.innerHTML='<div class="live-empty">X–Y grafigi uchun miqdorlar mavjud emas.</div>'; }
+        else {
+          const ns="http://www.w3.org/2000/svg", W=520,H=310,L=58,R=20,T=18,B=52;
+          const maxX=Math.max(1,...points.map(p=>p.x))*1.12,maxY=Math.max(1,...points.map(p=>p.y))*1.12;
+          const sx=v=>L+(v/maxX)*(W-L-R),sy=v=>H-B-(v/maxY)*(H-T-B);
+          const svg=document.createElementNS(ns,"svg");svg.setAttribute("viewBox","0 0 "+W+" "+H);svg.setAttribute("role","img");svg.setAttribute("aria-label","X o‘qida reorder nuqtasi, Y o‘qida joriy zaxira bo‘yicha mahsulotlar scatter grafigi");svg.style.width="100%";svg.style.height="auto";
+          for(let i=0;i<=4;i++){
+            const x=L+(W-L-R)*i/4,y=H-B-(H-T-B)*i/4;
+            const gx=document.createElementNS(ns,"line");gx.setAttribute("x1",L);gx.setAttribute("x2",W-R);gx.setAttribute("y1",y);gx.setAttribute("y2",y);gx.setAttribute("stroke","#e7edf3");svg.append(gx);
+            const gy=document.createElementNS(ns,"line");gy.setAttribute("x1",x);gy.setAttribute("x2",x);gy.setAttribute("y1",T);gy.setAttribute("y2",H-B);gy.setAttribute("stroke","#e7edf3");svg.append(gy);
+            const yt=document.createElementNS(ns,"text");yt.setAttribute("x",L-9);yt.setAttribute("y",y+4);yt.setAttribute("text-anchor","end");yt.setAttribute("font-size","10");yt.setAttribute("fill","#64748b");yt.textContent=new Intl.NumberFormat("uz-UZ",{maximumFractionDigits:1}).format(maxY*i/4);svg.append(yt);
+            const xt=document.createElementNS(ns,"text");xt.setAttribute("x",x);xt.setAttribute("y",H-B+17);xt.setAttribute("text-anchor","middle");xt.setAttribute("font-size","10");xt.setAttribute("fill","#64748b");xt.textContent=new Intl.NumberFormat("uz-UZ",{maximumFractionDigits:1}).format(maxX*i/4);svg.append(xt);
+          }
+          const axisX=document.createElementNS(ns,"line");axisX.setAttribute("x1",L);axisX.setAttribute("x2",W-R);axisX.setAttribute("y1",H-B);axisX.setAttribute("y2",H-B);axisX.setAttribute("stroke","#526174");axisX.setAttribute("stroke-width","1.5");svg.append(axisX);
+          const axisY=document.createElementNS(ns,"line");axisY.setAttribute("x1",L);axisY.setAttribute("x2",L);axisY.setAttribute("y1",T);axisY.setAttribute("y2",H-B);axisY.setAttribute("stroke","#526174");axisY.setAttribute("stroke-width","1.5");svg.append(axisY);
+          const xl=document.createElementNS(ns,"text");xl.setAttribute("x",(L+W-R)/2);xl.setAttribute("y",H-8);xl.setAttribute("text-anchor","middle");xl.setAttribute("font-size","11");xl.setAttribute("font-weight","700");xl.setAttribute("fill","#18395e");xl.textContent="X · Reorder nuqtasi";svg.append(xl);
+          const yl=document.createElementNS(ns,"text");yl.setAttribute("x",14);yl.setAttribute("y",(T+H-B)/2);yl.setAttribute("transform","rotate(-90 14 "+((T+H-B)/2)+")");yl.setAttribute("text-anchor","middle");yl.setAttribute("font-size","11");yl.setAttribute("font-weight","700");yl.setAttribute("fill","#18395e");yl.textContent="Y · Joriy zaxira";svg.append(yl);
+          points.forEach(p=>{const c=document.createElementNS(ns,"circle");c.setAttribute("cx",sx(p.x));c.setAttribute("cy",sy(p.y));c.setAttribute("r","5.5");c.setAttribute("fill",p.y<p.x?"#bd7b18":"#3679ad");c.setAttribute("stroke","#fff");c.setAttribute("stroke-width","1.5");const title=document.createElementNS(ns,"title");title.textContent=p.name+" · Reorder: "+p.x+" · Zaxira: "+p.y;c.append(title);svg.append(c);});
+          xy.append(svg);
+          const note=document.createElement("div");note.className="live-chart-sub";note.textContent=points.length+" ta mahsulot · nuqtalar ustiga bosib miqdorlarni ko‘ring.";xy.append(note);
+        }
+      }
       if (!rows.length) { target.innerHTML='<div class="live-empty">Zaxira grafigi uchun ma’lumot yo‘q.</div>'; return; }
       rows.forEach(row => {
         const line=document.createElement("div");line.className="live-bar-row";
