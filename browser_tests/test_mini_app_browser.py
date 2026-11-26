@@ -76,7 +76,15 @@ class MiniAppBrowserTests(unittest.TestCase):
             route.fulfill(status=401, json={"error": {"message": "Unauthorized"}})
             return
 
-        if path == "/sc-api/v1/dashboard":
+        if request.method == "POST" and path == "/sc-api/v1/inventory/import":
+            self.import_payload = json.loads(request.post_data or "{}")
+            route.fulfill(status=200, json={"data": {"version": 2, "replayed": False,
+                "result": {"processed": len(self.import_payload.get("rows", [])), "created": 2,
+                           "updated": 0, "unchanged_quantity": 0}}})
+            return
+        if path == "/sc-api/v1/bootstrap":
+            data = {"data_version": 1}
+        elif path == "/sc-api/v1/dashboard":
             data = {"kpis": {"product_count": 2, "total_units": 15, "inventory_value": 1500,
                 "low_stock_count": 1, "open_order_count": 1, "active_shipment_count": 1,
                 "unknown_stock_count": 0}}
@@ -187,6 +195,30 @@ class MiniAppBrowserTests(unittest.TestCase):
         })
         self.page.get_by_text("to‘g‘ri ZIP/XLSX arxiv emas").wait_for()
         self.assertFalse(any(path == "/sc-api/v1/imports" for _method, path, _query, _auth in self.api_calls))
+
+    def test_excel_import_requires_explicit_confirmation_and_posts_preview_version(self):
+        self._open_app()
+        self.page.get_by_role("button", name="Excel Workspace").click()
+        csv_bytes = b"SKU,Product,Quantity,Unit Cost,Reorder Point\\nSKU-100,Local Item,7,12,3\\nSKU-101,Second Item,4,5,2\\n"
+        self.page.locator("#excel-file").set_input_files({
+            "name": "inventory.csv", "mimeType": "text/csv", "buffer": csv_bytes
+        })
+        self.page.wait_for_function("document.querySelector('#excel-diff').textContent.includes('Yangi SKU')")
+        confirm = self.page.locator("#excel-import-confirm")
+        self.assertTrue(confirm.is_disabled())
+        self.assertFalse(any(method == "POST" and path == "/sc-api/v1/inventory/import"
+                             for method, path, _query, _auth in self.api_calls))
+
+        self.page.locator("#excel-confirm-check").check()
+        self.assertTrue(confirm.is_enabled())
+        confirm.click()
+        self.page.wait_for_function("document.querySelector('#excel-import-status').textContent.includes('Saqlandi')")
+        self.assertEqual(self.import_payload["expected_version"], 1)
+        self.assertEqual(len(self.import_payload["rows"]), 2)
+        self.assertEqual(self.import_payload["rows"][0]["sku"], "SKU-100")
+        self.assertEqual(self.import_payload["rows"][0]["unit_cost"], 12)
+        self.assertTrue(any(method == "POST" and path == "/sc-api/v1/inventory/import"
+                            for method, path, _query, _auth in self.api_calls))
 
     def test_csv_export_and_print_preview_use_read_only_api(self):
         self._open_app()
