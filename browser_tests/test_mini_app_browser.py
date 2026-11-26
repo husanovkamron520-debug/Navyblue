@@ -39,6 +39,7 @@ class MiniAppBrowserTests(unittest.TestCase):
 
     def setUp(self):
         self.api_calls = []
+        self.import_history = []
         self.context = self.browser.new_context(viewport={"width": 390, "height": 844}, accept_downloads=True)
         self.context.add_init_script("""
             Object.defineProperty(window, "print", {
@@ -85,7 +86,7 @@ class MiniAppBrowserTests(unittest.TestCase):
                            "updated": 0, "unchanged": 0, "unchanged_quantity": 0}}})
             return
         if path == "/sc-api/v1/bootstrap":
-            data = {"data_version": 1}
+            data = {"data_version": 1, "recent_imports": self.import_history}
         elif path == "/sc-api/v1/dashboard":
             data = {"kpis": {"product_count": 2, "total_units": 15, "inventory_value": 1500,
                 "low_stock_count": 1, "open_order_count": 1, "active_shipment_count": 1,
@@ -230,6 +231,20 @@ class MiniAppBrowserTests(unittest.TestCase):
         self.assertIn("o‘zgarishsiz 0", self.page.locator("#excel-import-status").text_content())
         self.assertTrue(any(method == "POST" and path == "/sc-api/v1/inventory/import"
                             for method, path, _query, _auth in self.api_calls))
+
+    def test_excel_workspace_displays_recent_import_history(self):
+        self.import_history = [{
+            "file_name": "stock.xlsx", "sheet": "Warehouse", "created_at": "2026-11-26",
+            "processed": 3, "created": 1, "updated": 1, "unchanged": 1,
+        }]
+        self._open_app()
+        self.page.get_by_role("button", name="Excel Workspace").click()
+        history = self.page.locator("#excel-history")
+        self.assertIn("stock.xlsx", history.inner_text())
+        self.assertIn("Warehouse", history.inner_text())
+        self.assertIn("1 yangi", history.inner_text())
+        self.assertIn("1 yangilandi", history.inner_text())
+        self.assertIn("1 o‘zgarishsiz", history.inner_text())
 
     def test_csv_export_and_print_preview_use_read_only_api(self):
         self._open_app()
