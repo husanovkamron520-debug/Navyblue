@@ -331,7 +331,7 @@
   function selectedMap(){return Object.fromEntries(["sku","name","quantity","cost","reorder"].map(k=>[k,$("map-"+k).value]));}
   function excelNumber(raw){
     if(raw==null||String(raw).trim()==="")return null;
-    const value=Number(String(raw).replace(/\\s/g,"").replace(",","."));
+    const value=Number(String(raw).replace(/\s/g,"").replace(",","."));
     return Number.isFinite(value)?value:null;
   }
   function renderExcelPreview(){
