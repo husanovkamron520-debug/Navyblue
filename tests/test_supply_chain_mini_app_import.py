@@ -125,6 +125,23 @@ class MiniAppImportCommitTests(unittest.TestCase):
         self.assertEqual(history[0]["sheet"], "Warehouse")
         self.assertEqual(history[0]["processed"], 2)
 
+    def test_fully_unchanged_product_is_not_counted_as_updated(self):
+        rows = [{"sku": "SKU-1", "name": "Cotton", "quantity": 5,
+                 "unit": "kg", "unit_cost": 10, "reorder_point": 2}]
+        result = importer.commit_inventory_import(self.adapter, payload(rows))
+        self.assertEqual(result["result"]["updated"], 0)
+        self.assertEqual(result["result"]["unchanged"], 1)
+        self.assertEqual(result["result"]["unchanged_quantity"], 1)
+        self.assertEqual(self.store.load()["movements"], [])
+
+    def test_metadata_only_change_is_counted_as_update_without_stock_movement(self):
+        rows = [{"sku": "SKU-1", "name": "Cotton Grade B", "quantity": 5,
+                 "unit": "kg", "unit_cost": 10, "reorder_point": 2}]
+        result = importer.commit_inventory_import(self.adapter, payload(rows))
+        self.assertEqual(result["result"]["updated"], 1)
+        self.assertEqual(result["result"]["unchanged"], 0)
+        self.assertEqual(self.store.load()["movements"], [])
+
     def test_optional_fields_are_preserved_when_not_in_file(self):
         rows = [{"sku": "SKU-1", "name": "Cotton", "quantity": 5}]
         importer.commit_inventory_import(self.adapter, payload(rows))
