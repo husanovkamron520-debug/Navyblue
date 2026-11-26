@@ -131,5 +131,48 @@ class SerializedCommitAdapterTests(unittest.TestCase):
         self.assertEqual(store.load()["version"], 1)
 
 
+    def test_retry_after_commit_then_timeout_replays_original_result(self):
+        class CommitThenTimeoutStore(FakeStore):
+            def __init__(self):
+                super().__init__()
+                self.first = True
+
+            def persist(self, candidate, expected_version, new_version):
+                with self.lock:
+                    if self.data["version"] != expected_version:
+                        raise VersionConflict("database compare-and-swap failed")
+                    self.data = copy.deepcopy(candidate)
+                    if self.first:
+                        self.first = False
+                        raise TimeoutError("response lost after database commit")
+                    return True
+
+        store = CommitThenTimeoutStore()
+        adapter = SerializedCommitAdapter(store.load, store.persist)
+        args = dict(expected_version=1, operation_id="op-ambiguous",
+                    request_hash=digest("add-4"), mutate=lambda doc: self._add_quantity(doc, 4))
+        with self.assertRaises(CommitOutcomeUnknown):
+            adapter.commit(**args)
+        replay = adapter.commit(**args)
+        self.assertTrue(replay["replayed"])
+        self.assertEqual(replay["version"], 2)
+        self.assertEqual(store.load()["products"]["SKU-1"]["quantity"], 9)
+
+    def test_corrupt_matching_idempotency_record_fails_closed(self):
+        self.store.data["_write_idempotency"] = [{
+            "operation_id": "op-corrupt",
+            "request_hash": digest("payload"),
+        }]
+        with self.assertRaises(PersistenceError):
+            self.adapter.commit(expected_version=1, operation_id="op-corrupt",
+                                request_hash=digest("payload"), mutate=self.change_quantity(1))
+        self.assertEqual(self.store.load()["products"]["SKU-1"]["quantity"], 5)
+
+    @staticmethod
+    def _add_quantity(document, amount):
+        document["products"]["SKU-1"]["quantity"] += amount
+        return {"sku": "SKU-1", "quantity": document["products"]["SKU-1"]["quantity"]}
+
+
 if __name__ == "__main__":
     unittest.main()
