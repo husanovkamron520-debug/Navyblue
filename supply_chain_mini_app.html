@@ -80,6 +80,7 @@
     </section>
     <section id="procurement-view" hidden>
       <div class="section-head"><div><h2>Xarid va yetkazib beruvchilar</h2><p>Buyurtmalar holati va ta’minotchi ko‘rsatkichlari</p></div><button class="retry" id="procurement-refresh">Yangilash</button></div>
+      <div class="card" style="margin-bottom:12px"><div class="chart-title">Xarid ehtiyoji va kutilayotgan zaxira</div><div class="chart-sub">Draft — hali tasdiqlanmagan; Ordered — yetkazib beruvchiga yuborilgan. Ikkalasi ham yangi xarid tavsiyasidan hisobga olinadi.</div><div id="procurement-replenishment" class="alert-list"></div></div>
       <div class="card"><div class="chart-title">Xarid buyurtmalari</div><div class="table-wrap" style="display:block;margin-top:12px"><table class="table"><thead><tr><th>Buyurtma</th><th>Mahsulot</th><th>Yetkazib beruvchi</th><th>Miqdor</th><th>Sana</th><th>Holat</th></tr></thead><tbody id="orders-table"></tbody></table></div><div class="mobile-list" id="orders-mobile"></div></div>
       <div class="card" style="margin-top:12px"><div class="chart-title">Yetkazib beruvchilar</div><div id="suppliers-list" class="alert-list"></div></div>
     </section>
@@ -303,13 +304,22 @@
     eoq.items.forEach(item=>{const tr=el("tr","");[item.name,item.eoq==null?"Ma’lumot yetarli emas":fmt(item.eoq,2),item.orders_per_year==null?"—":fmt(item.orders_per_year,2),item.holding_cost_assumed?"H saqlash xarajati 20% narxdan olindi":item.status==="available"?"Kiritilgan H":"Kiritmalar yetishmaydi"].forEach((v,i)=>tr.append(el("td",i===0?"sku":"",v)));et.append(tr);});
     const rl=$("replenishment-list");rl.replaceChildren();
     replenishment.items.slice(0,12).forEach(item=>{
-      const row=el("div","alert");const left=el("div","");left.append(el("strong","",item.name),el("div","muted",item.sku+" · Zaxira "+fmt(item.quantity,1)+" · Ochiq buyurtma "+fmt(item.open_order_quantity,1)));
+      const row=el("div","alert");const left=el("div","");left.append(el("strong","",item.name),el("div","muted",item.sku+" · Zaxira "+fmt(item.quantity,1)+" · Draft "+fmt(item.draft_order_quantity,1)+" · Ordered "+fmt(item.ordered_quantity,1)+" · Jami ochiq "+fmt(item.open_order_quantity,1)+(item.lead_time_days==null?"":" · Yetkazish "+fmt(item.lead_time_days,0)+" kun")));
       const right=el("span",item.status==="low"?"pill":"pill good",item.suggested_order_quantity==null?"Prognoz yo‘q":fmt(item.suggested_order_quantity,1)+" tavsiya");row.append(left,right);rl.append(row);
     });
     if(!replenishment.items.length)rl.append(el("div","muted","Mahsulotlar topilmadi."));
   }
   async function loadProcurement() {
-    const [orders,suppliers]=await Promise.all([api("/sc-api/v1/procurement/orders?page_size=50"),api("/sc-api/v1/procurement/suppliers")]);
+    const [orders,suppliers,replenishment]=await Promise.all([api("/sc-api/v1/procurement/orders?page_size=50"),api("/sc-api/v1/procurement/suppliers"),api("/sc-api/v1/analytics/replenishment")]);
+    const need=$("procurement-replenishment");need.replaceChildren();
+    const priority=replenishment.items.filter(item=>item.open_order_quantity>0||item.suggested_order_quantity>0||item.status==="low").slice(0,12);
+    priority.forEach(item=>{
+      const row=el("div","alert");const left=el("div","");
+      left.append(el("strong","",item.name),el("div","muted",item.sku+" · Omborda "+fmt(item.quantity,1)+" · Draft "+fmt(item.draft_order_quantity,1)+" · Ordered "+fmt(item.ordered_quantity,1)+" · Jami ochiq "+fmt(item.open_order_quantity,1)+(item.lead_time_days==null?"":" · Lead time "+fmt(item.lead_time_days,0)+" kun")));
+      const recommendation=item.suggested_order_quantity==null?"Prognoz uchun tarix yetarli emas":fmt(item.suggested_order_quantity,1)+" "+(item.suggested_order_quantity>0?"xarid tavsiyasi":"qo‘shimcha xarid shart emas");
+      row.append(left,el("span",item.suggested_order_quantity>0?"pill":"pill good",recommendation));need.append(row);
+    });
+    if(!priority.length)need.append(el("div","muted","Hozircha ochiq buyurtma yoki xarid ehtiyoji aniqlanmadi."));
     const table=$("orders-table");table.replaceChildren();const mobile=$("orders-mobile");mobile.replaceChildren();
     orders.items.forEach(o=>{
       const tr=el("tr","");[o.id,o.product_name,o.supplier_name,fmt(o.quantity,1),o.expected_date||"—",o.status].forEach(v=>tr.append(el("td","",v)));table.append(tr);
