@@ -315,6 +315,7 @@
         headers=["Jo‘natma ID","Mahsulot","Miqdor","Manzil","Transport","Masofa km","Taxminiy xarajat","Holat"];
         rows=(await fetchAllPages(path)).map(x=>[x.id,x.product_name,x.quantity,x.destination,x.vehicle_name,x.distance_km,x.estimated_cost,x.status]);
       }
+      if(rows.length>5000)throw new Error("PDF chop etish 5 000 qator bilan cheklangan. To‘liq ma’lumot uchun CSV yoki Excel eksportidan foydalaning.");
       $("print-title").textContent=title;
       $("print-meta").textContent="Yaratilgan: "+new Date().toLocaleString("uz-UZ")+" · Qatorlar: "+fmt(rows.length);
       const head=$("print-head");head.replaceChildren();const tr=el("tr","");
