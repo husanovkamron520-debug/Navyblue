@@ -51,5 +51,39 @@ class SupplyChainMutationSerializationTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotEqual(callback_threads[0], loop_thread)
 
 
+    async def test_read_only_ai_text_does_not_wait_for_mutation_gate(self):
+        from types import SimpleNamespace
+
+        async def fake_text(update, context):
+            return True
+
+        context = SimpleNamespace(user_data={"_sc_wait": {"action": "ai_ask"}})
+        update = SimpleNamespace(effective_message=None, update_id=123)
+        await supply_chain._SC_MUTATION_LOCK.acquire()
+        try:
+            with patch.object(supply_chain, "_text", fake_text):
+                result = await asyncio.wait_for(
+                    supply_chain._serialized_text(update, context), timeout=0.1
+                )
+            self.assertTrue(result)
+        finally:
+            supply_chain._SC_MUTATION_LOCK.release()
+
+    async def test_save_passes_stable_operation_identity_to_storage(self):
+        calls = []
+
+        def fake_save(path, data, *, operation_id=None, request_hash=None):
+            calls.append((path, operation_id, request_hash))
+
+        token = supply_chain._SC_OPERATION_CONTEXT.set(("tg-operation-1", "a" * 64))
+        try:
+            with patch.object(supply_chain, "_SAVE", fake_save):
+                await supply_chain._save({"version": 1})
+        finally:
+            supply_chain._SC_OPERATION_CONTEXT.reset(token)
+
+        self.assertEqual(calls, [("supply_chain_data.json", "tg-operation-1", "a" * 64)])
+
+
 if __name__ == "__main__":
     unittest.main()
