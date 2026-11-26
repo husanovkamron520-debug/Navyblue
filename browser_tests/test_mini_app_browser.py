@@ -240,6 +240,7 @@ class MiniAppBrowserTests(unittest.TestCase):
         self._open_app()
         self.page.get_by_role("button", name="Excel Workspace").click()
         history = self.page.locator("#excel-history")
+        self.page.wait_for_function("document.querySelector('#excel-history').textContent.includes('stock.xlsx')")
         self.assertIn("stock.xlsx", history.inner_text())
         self.assertIn("Warehouse", history.inner_text())
         self.assertIn("1 yangi", history.inner_text())
