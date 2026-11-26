@@ -240,13 +240,13 @@ class FakeJsonbCasStore:
             return False
         if self.mode == "timeout_before" and self.calls == 1:
             raise TimeoutError("request failed before commit")
+        if self.mode == "timeout_always":
+            raise TimeoutError("persistent network ambiguity before commit")
         self.data = copy.deepcopy(candidate)
         if self.mode == "timeout_after" and self.calls == 1:
             raise TimeoutError("response lost after commit")
         if self.mode == "no_match":
             return False
-        if self.mode == "timeout_always":
-            raise TimeoutError("persistent network ambiguity")
         return True
 
 
