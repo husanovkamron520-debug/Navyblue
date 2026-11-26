@@ -174,6 +174,8 @@ Before any Mini App write feature:
 - Inbound/outbound movement generation and optional-field preservation.
 - Idempotent replay and operation-ID payload mismatch.
 - Stale preview version rejection.
+- Sanitized workbook filename/worksheet metadata and bounded import history.
+- Optional unit-of-measure validation, application and preservation.
 
 `browser_tests/test_mini_app_browser.py` verifies that loading and previewing a CSV does not write, the confirm button remains disabled until the owner checks the confirmation box, and the expected preview version plus normalized rows are sent to the authenticated import endpoint.
 
