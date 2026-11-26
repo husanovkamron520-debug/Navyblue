@@ -51,6 +51,11 @@ class TelegramInitDataTests(unittest.TestCase):
             api.validate_init_data(signed_init_data() + "&auth_date=1800000000",
                                    BOT_TOKEN, OWNER_ID, now=1_800_000_100)
 
+    def test_init_data_with_excessive_field_count_is_rejected(self):
+        raw = signed_init_data() + "".join(f"&extra{i}=x" for i in range(30))
+        with self.assertRaises(api.AuthError):
+            api.validate_init_data(raw, BOT_TOKEN, OWNER_ID, now=1_800_000_100)
+
 
 class ReadOnlyApiServiceTests(unittest.TestCase):
     def setUp(self):
