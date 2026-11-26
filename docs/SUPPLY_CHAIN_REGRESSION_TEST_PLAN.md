@@ -1,6 +1,6 @@
 # Supply Chain — Regression Test Plan and Current Risks
 
-Status: test design and code-review findings only. No production code, tests, database or deployment were changed by this document.
+Status: regression suite and Mini App import tests are implemented on the isolated branch. This plan also records historical risks and remaining release checks. No production database or deployment has been changed.
 
 ## 1. Test-suite discovery
 
@@ -162,3 +162,19 @@ Before any Mini App write feature:
 - Shared lock/transaction strategy is implemented and tested against Telegram callback concurrency.
 - Durable write acknowledgement and recovery behavior are defined.
 - Import diff, explicit confirmation, audit history and rollback/correction path are tested.
+
+
+## 6. Implemented Mini App import tests
+
+`tests/test_supply_chain_mini_app_import.py` now covers:
+- Request schema, operation ID, version, row count and numeric bounds.
+- Case-insensitive duplicate SKU rejection.
+- All-or-nothing validation before commit.
+- New product creation and existing product updates.
+- Inbound/outbound movement generation and optional-field preservation.
+- Idempotent replay and operation-ID payload mismatch.
+- Stale preview version rejection.
+
+`browser_tests/test_mini_app_browser.py` verifies that loading and previewing a CSV does not write, the confirm button remains disabled until the owner checks the confirmation box, and the expected preview version plus normalized rows are sent to the authenticated import endpoint.
+
+Remaining gaps: staging PostgREST integration, actual Render HTTPS, and real Telegram Android WebView verification.
