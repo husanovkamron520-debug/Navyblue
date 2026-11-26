@@ -1692,7 +1692,7 @@ def _magic_resolve_product(data: dict[str, Any], label: str) -> tuple[str, dict[
             raise ValueError(f"«{label}» bir nechta mahsulotga o‘xshaydi: {names}. Aniqlashtiring.")
 
     raise ValueError(
-        f"«{label}» ombordagi mahsulot nomiga aniq bog‘lanmadi. "
+        f"«{label}» ombordagi mahsulot nomiga aniq mos kelmadi. "
         "Yaqin mos mahsulot topilmadi yoki nom noaniq — mahsulotni aniqlashtiring."
     )
 
