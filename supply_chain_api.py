@@ -184,6 +184,7 @@ def build_demand_analytics(snapshot: dict, sku: str = "") -> dict:
             "unit": str(product.get("unit") or ""),
             "history_months": len(records),
             "months_used": [str(r.get("month") or "") for r in records],
+            "history": [{"month": str(r.get("month") or ""), "quantity": _number(r.get("quantity"))} for r in records if _number(r.get("quantity")) is not None and _number(r.get("quantity")) >= 0],
             "forecast_status": "available" if forecast is not None else "insufficient_history",
             "forecast_next_month": monthly,
             "average_daily_demand": round(daily, 4) if daily is not None else None,
