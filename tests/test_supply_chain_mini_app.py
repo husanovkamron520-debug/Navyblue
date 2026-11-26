@@ -9,6 +9,17 @@ class SupplyChainMiniAppShellTests(unittest.TestCase):
         cls.html = (Path(__file__).resolve().parents[1] / "supply_chain_mini_app.html").read_text(
             encoding="utf-8"
         )
+        cls.bot = (Path(__file__).resolve().parents[1] / "bot.py").read_text(
+            encoding="utf-8"
+        )
+
+
+    def test_read_api_has_rate_limits_and_bounded_query_inputs(self):
+        self.assertIn('_SC_API_LIMITER = sc_api.RateLimiter(max_requests=120, window_seconds=60)', self.bot)
+        self.assertIn('len(self.path.encode("utf-8")) > 8192', self.bot)
+        self.assertIn('max_num_fields=32', self.bot)
+        self.assertIn('> 120', self.bot)
+        self.assertIn('> 128', self.bot)
 
     def test_shell_is_mobile_first_and_has_dashboard_inventory_views(self):
         self.assertIn('name="viewport"', self.html)
