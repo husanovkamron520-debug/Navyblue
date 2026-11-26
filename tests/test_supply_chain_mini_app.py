@@ -17,6 +17,7 @@ class SupplyChainMiniAppShellTests(unittest.TestCase):
         self.assertIn('data-view="analytics"', self.html)
         self.assertIn('data-view="procurement"', self.html)
         self.assertIn('data-view="logistics"', self.html)
+        self.assertIn('data-view="reports"', self.html)
         self.assertIn('id="inventory-mobile"', self.html)
 
     def test_shell_authenticates_with_telegram_init_data(self):
