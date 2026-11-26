@@ -246,14 +246,14 @@ The first browser write is deliberately limited to a user-confirmed inventory im
 - `POST /sc-api/v1/inventory/import` requires an existing owner bearer session, configured Supabase storage, JSON content type, an 8 MB body limit and a process-local limit of 3 import requests per 60 seconds.
 - The request carries `operation_id` and `expected_version`. The server computes the canonical SHA-256 request hash; it does not trust a browser-provided hash.
 - The commit uses `SerializedCommitAdapter` plus `JsonbCompareAndSwap`; the browser does not receive or use Supabase credentials.
-- Existing quantities are replaced by the confirmed spreadsheet quantities. New products are created with unit `pcs`. Optional cost/reorder values update only when present. Quantity deltas append inbound/outbound movement records.
+- Existing quantities are replaced by the confirmed spreadsheet quantities. New products use the mapped unit when supplied, otherwise `pcs`; optional unit/cost/reorder values update only when present. Sanitized source filename/worksheet metadata and a bounded 100-entry import history are stored in the same JSONB document. Quantity deltas append inbound/outbound movement records.
 - The UI displays a preview against the current inventory and requires a separate checkbox plus confirmation button. Preview alone never POSTs.
 - Version conflicts are rejected; ambiguous outcomes are not reported as success and the UI warns against blindly repeating the import.
 
 ### Tests added
 
-- `tests/test_supply_chain_mini_app_import.py` covers payload validation, duplicate SKUs, invalid numeric values, row limits, stock movements, optional-field preservation, idempotent replay, stale versions and all-or-nothing validation.
-- `browser_tests/test_mini_app_browser.py` covers preview-only behavior and explicit-confirmation POST behavior.
+- `tests/test_supply_chain_mini_app_import.py` covers payload validation, duplicate SKUs, invalid numeric values, row limits, stock movements, optional-field preservation, unit mapping, sanitized source metadata, import history, idempotent replay, stale versions, unchanged-row counts and all-or-nothing validation.
+- `browser_tests/test_mini_app_browser.py` covers preview-only behavior, explicit-confirmation POST behavior, import controls locked during an active commit and recent import-history display.
 
 ### Remaining release gates
 
