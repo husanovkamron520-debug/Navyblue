@@ -144,6 +144,7 @@ class MiniAppBrowserTests(unittest.TestCase):
         self.assertEqual(self.page.locator("#inventory-view .table-wrap").first.evaluate("(e)=>getComputedStyle(e).display"), "none")
         self.page.locator("#inventory-mobile .product-card").first.click()
         self.page.locator("#inventory-detail:not([hidden])").wait_for()
+        self.page.wait_for_function("document.querySelector('#detail-name')?.textContent === 'Test Product'")
         self.assertIn("Test Product", self.page.locator("#detail-name").inner_text())
         self.assertIn("Initial stock", self.page.locator("#detail-movements").inner_text())
 
