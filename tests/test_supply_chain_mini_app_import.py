@@ -175,6 +175,16 @@ class MiniAppImportCommitTests(unittest.TestCase):
         self.assertEqual(self.store.load()["version"], 2)
         self.assertEqual(len(self.store.load()["movements"]), 2)
 
+    def test_ambiguous_existing_casefold_duplicate_skus_are_rejected(self):
+        self.store.data["products"]["sku-1"] = {
+            "sku": "sku-1", "name": "Duplicate legacy key", "quantity": 1
+        }
+        before = self.store.load()
+        rows = [{"sku": "SKU-1", "name": "Cotton", "quantity": 8}]
+        with self.assertRaisesRegex(importer.ImportValidationError, "takroriy"):
+            importer.commit_inventory_import(self.adapter, payload(rows))
+        self.assertEqual(self.store.load(), before)
+
     def test_stale_preview_version_is_rejected(self):
         importer.commit_inventory_import(self.adapter, payload())
         with self.assertRaises(VersionConflict):
