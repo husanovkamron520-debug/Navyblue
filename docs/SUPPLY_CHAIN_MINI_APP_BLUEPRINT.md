@@ -207,12 +207,12 @@ Implemented read-only service/API coverage:
 - Purchase-order, supplier, shipment and vehicle read views. Supplier contact details are not exposed.
 - Mobile UI views for forecast, ABC, EOQ, replenishment, orders/suppliers and shipments/fleet.
 
-Still not implemented:
-- Excel Workspace upload/preview/apply in the Mini App (existing Telegram Excel import remains separate).
-- Reports/export UI and downloadable report workflows.
-- Browser-side write operations and confirmation flows for receipts, dispatches, movements or order transitions.
-- End-to-end runtime testing against a deployed HTTPS Render instance.
-- Complete production hardening and durable write semantics.
+Current gaps:
+- Excel import/apply to permanent inventory is intentionally not implemented; the current workspace is local, analysis-only and read-only.
+- Browser-side write operations and confirmation flows for receipts, dispatches, movements or order transitions remain deferred until durable persistence acknowledgements, operation-level locking, idempotency and audit history are designed and tested.
+- End-to-end runtime testing against an authorized deployed HTTPS Render instance has not been performed.
+- Telegram WebView print/PDF behavior and full responsive browser runtime QA remain unverified.
+- Production hardening, backup/restore verification and operational monitoring remain before rollout.
 
 All new Mini App business endpoints remain read-only. No new database schema or production deployment is part of this branch.
 
@@ -248,14 +248,14 @@ Phase 6 — Hardening and rollout:
 - Current phase accepts CSV UTF-8 exported from Excel, parses it locally in the browser, and supports column mapping for SKU, product name, quantity, unit cost and reorder point.
 - Validates required fields, non-negative numeric values, duplicate SKUs, file size (5 MB) and row count (10,000); shows a 20-row preview and validation summary.
 - This is analysis-only: no file is uploaded to the server, no inventory data is changed, and no import/apply endpoint exists.
-- Direct .xlsx parsing, server-side validation, persistent import history, and an explicitly confirmed durable apply flow remain future work. Do not implement inventory writes until persistence acknowledgement and operation-level locking are designed and tested.
+- Direct .xlsx parsing is implemented below; server-side validation, persistent import history, and an explicitly confirmed durable apply flow remain future work. Do not implement inventory writes until persistence acknowledgement and operation-level locking are designed and tested.
 
 
 ### Reports & export progress (2026-11-26)
 - Added a Reports view with inventory, purchase-order, and shipment CSV exports.
 - Exports read all available API pages (100 rows per page) and generate UTF-8 BOM CSV files in the browser for spreadsheet compatibility.
 - Export endpoints are read-only; no import, update, or inventory mutation is performed.
-- Browser-side Excel parsing remains CSV-only in this phase; direct XLSX parsing and end-to-end browser runtime validation remain outstanding.
+- Browser-side CSV and XLSX parsing are implemented in the sections below; full end-to-end browser runtime validation remains outstanding.
 
 
 ### Direct XLSX preview progress (2026-11-26)
@@ -265,6 +265,7 @@ Phase 6 — Hardening and rollout:
 - CSV parser newline, carriage-return, whitespace and UTF-8 BOM handling was corrected.
 - Column mapping validates duplicate SKUs and non-negative quantity, optional unit cost and reorder point values.
 - No workbook bytes are uploaded, no import/apply endpoint is called, and inventory remains unchanged. The SheetJS library is loaded from a version-pinned CDN, so XLSX preview requires that CDN to be reachable.
+- Before SheetJS parses an XLSX file, a ZIP archive preflight rejects malformed/multi-disk archives, ZIP64, encrypted entries, unsupported compression methods, more than 2,000 archive entries, any uncompressed entry over 20 MB, or total uncompressed contents over 40 MB. This is an additional guard beyond the 5 MB uploaded-file limit; it does not replace full browser/runtime testing.
 
 
 ### Excel report exports progress (2026-11-26)
