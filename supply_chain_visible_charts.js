@@ -56,13 +56,13 @@
         const reorderX = Number(line?.getAttribute("x1")) || 220;
         const barX = Number(rects[0].getAttribute("x")) || 220;
         const ratio = Math.max(0, Math.min(1.5, (reorderX - barX) / backgroundWidth));
-        return {name:texts[0],current:Math.max(0,Math.min(1.5,currentWidth/backgroundWidth)),reorder:ratio,label:texts[texts.length-1]||""};
+        const current=Number(g.getAttribute("data-stock-quantity")); const exactReorder=Number(g.getAttribute("data-reorder-point")); return {name:g.getAttribute("data-product-name")||texts[0],current:Math.max(0,Math.min(1.5,currentWidth/backgroundWidth)),reorder:ratio,stockValue:Number.isFinite(current)?current:NaN,reorderValue:Number.isFinite(exactReorder)?exactReorder:NaN,label:texts[texts.length-1]||""};
       }).filter(Boolean);
       target.replaceChildren();
       const xy=$("live-xy-scatter");
       if (xy) {
         xy.replaceChildren();
-        const points=rows.map(row=>{const pair=row.label.split("/");return {name:row.name,x:num(pair[1]),y:num(pair[0])};}).filter(p=>Number.isFinite(p.x)&&Number.isFinite(p.y)&&p.x>=0&&p.y>=0);
+        const points=rows.map(row=>({name:row.name,x:Number.isFinite(row.reorderValue)?row.reorderValue:num(row.label.split("/")[1]),y:Number.isFinite(row.stockValue)?row.stockValue:num(row.label.split("/")[0])})).filter(p=>Number.isFinite(p.x)&&Number.isFinite(p.y)&&p.x>=0&&p.y>=0);
         if (!points.length) { xy.innerHTML='<div class="live-empty">X–Y grafigi uchun miqdorlar mavjud emas.</div>'; }
         else {
           const ns="http://www.w3.org/2000/svg", W=520,H=310,L=58,R=20,T=18,B=52;
