@@ -103,7 +103,7 @@ def mutate_inventory(snapshot, rows, source_name="inventory-import", source_shee
         raise ImportValidationError("Saqlangan kirim-chiqim tarixi noto'g'ri.")
 
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    created = updated = unchanged = 0
+    created = updated = unchanged = unchanged_quantity = 0
     changes = []
     for row in rows:
         sku = row["sku"]
@@ -138,23 +138,44 @@ def mutate_inventory(snapshot, rows, source_name="inventory-import", source_shee
                 raise ImportValidationError(f"{existing_key} ombor miqdori noto'g'ri.") from exc
             if not math.isfinite(old_quantity) or old_quantity < 0:
                 raise ImportValidationError(f"{existing_key} ombor miqdori noto'g'ri.")
-            product["name"] = row["name"]
-            product["quantity"] = row["quantity"]
-            if row["unit"] is not None:
+            changed_fields = []
+            if product.get("name") != row["name"]:
+                product["name"] = row["name"]
+                changed_fields.append("name")
+            if row["unit"] is not None and product.get("unit") != row["unit"]:
                 product["unit"] = row["unit"]
+                changed_fields.append("unit")
             if row["unit_cost"] is not None:
-                product["unit_cost"] = row["unit_cost"]
+                try:
+                    old_cost = float(product.get("unit_cost"))
+                except (TypeError, ValueError, OverflowError):
+                    old_cost = None
+                if old_cost != row["unit_cost"]:
+                    product["unit_cost"] = row["unit_cost"]
+                    changed_fields.append("unit_cost")
             if row["reorder_point"] is not None:
-                product["reorder_point"] = row["reorder_point"]
-            product["updated_at"] = now
+                try:
+                    old_reorder = float(product.get("reorder_point"))
+                except (TypeError, ValueError, OverflowError):
+                    old_reorder = None
+                if old_reorder != row["reorder_point"]:
+                    product["reorder_point"] = row["reorder_point"]
+                    changed_fields.append("reorder_point")
             delta = row["quantity"] - old_quantity
-            updated += 1
-            if abs(delta) < 1e-12 and not unknown_before:
-                unchanged += 1
-            else:
+            if unknown_before or abs(delta) >= 1e-12:
+                product["quantity"] = row["quantity"]
+                changed_fields.append("quantity")
+            if changed_fields:
+                product["updated_at"] = now
+                updated += 1
                 changes.append({"sku": str(existing_key), "action": "updated",
+                                "fields": changed_fields,
                                 "before": None if unknown_before else old_quantity,
                                 "after": row["quantity"]})
+            else:
+                unchanged += 1
+            if abs(delta) < 1e-12 and not unknown_before:
+                unchanged_quantity += 1
 
         if abs(delta) >= 1e-12:
             movements.append({
@@ -170,7 +191,8 @@ def mutate_inventory(snapshot, rows, source_name="inventory-import", source_shee
     snapshot["movements"] = movements[-50_000:]
     result = {
         "processed": len(rows), "created": created, "updated": updated,
-        "unchanged_quantity": unchanged, "changes": changes[:100],
+        "unchanged": unchanged, "unchanged_quantity": unchanged_quantity,
+        "changes": changes[:100],
         "changes_truncated": len(changes) > 100,
         "source_name": source_name, "source_sheet": source_sheet,
     }
@@ -180,7 +202,7 @@ def mutate_inventory(snapshot, rows, source_name="inventory-import", source_shee
     history.append({
         "file_name": source_name, "sheet": source_sheet, "created_at": now,
         "processed": len(rows), "created": created, "updated": updated,
-        "unchanged_quantity": unchanged,
+        "unchanged": unchanged, "unchanged_quantity": unchanged_quantity,
     })
     snapshot["import_history"] = history[-100:]
     return result
