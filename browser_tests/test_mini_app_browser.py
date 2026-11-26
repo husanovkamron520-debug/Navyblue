@@ -179,6 +179,7 @@ class MiniAppBrowserTests(unittest.TestCase):
     def test_local_csv_preview_and_invalid_xlsx_archive_guard(self):
         self._open_app()
         self.page.get_by_role("button", name="Excel Workspace").click()
+        self.page.get_by_text("Hozircha import tarixi yo‘q.").wait_for()
         csv_bytes = b"SKU,Product,Quantity,Unit,Unit Cost,Reorder Point\nSKU-100,Local Item,7,kg,12,3\nSKU-101,Second Item,4,pcs,5,2\n"
         self.page.locator("#excel-file").set_input_files({
             "name": "sample.csv", "mimeType": "text/csv", "buffer": csv_bytes
