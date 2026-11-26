@@ -3,7 +3,7 @@ import copy
 import unittest
 
 import supply_chain_mini_app_import as importer
-from supply_chain_persistence import SerializedCommitAdapter, VersionConflict
+from supply_chain_persistence import IdempotencyConflict, SerializedCommitAdapter, VersionConflict
 
 
 class Store:
@@ -107,6 +107,15 @@ class MiniAppImportCommitTests(unittest.TestCase):
         self.assertEqual(product["reorder_point"], 2)
         self.assertEqual(product["unit"], "kg")
 
+    def test_unknown_existing_quantity_is_recorded_as_opening_balance(self):
+        self.store.data["products"]["SKU-1"]["quantity"] = None
+        rows = [{"sku": "SKU-1", "name": "Cotton", "quantity": 4}]
+        importer.commit_inventory_import(self.adapter, payload(rows))
+        movement = self.store.load()["movements"][0]
+        self.assertEqual(movement["type"], "in")
+        self.assertEqual(movement["quantity"], 4)
+        self.assertIn("unknown", movement["note"])
+
     def test_stock_decrease_creates_outbound_adjustment(self):
         rows = [{"sku": "SKU-1", "name": "Cotton", "quantity": 2}]
         importer.commit_inventory_import(self.adapter, payload(rows))
@@ -145,7 +154,7 @@ class MiniAppImportCommitTests(unittest.TestCase):
         importer.commit_inventory_import(self.adapter, payload())
         changed = payload(rows=[{"sku": "SKU-1", "name": "Cotton", "quantity": 999}],
                           expected_version=1)
-        with self.assertRaises(Exception):
+        with self.assertRaises(IdempotencyConflict):
             importer.commit_inventory_import(self.adapter, changed)
         self.assertEqual(self.store.load()["products"]["SKU-1"]["quantity"], 8)
 
