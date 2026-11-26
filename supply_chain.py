@@ -1262,6 +1262,16 @@ def _ai_snapshot(data: dict[str, Any]) -> dict[str, Any]:
         "context_note": "Ro‘yxatlar sun’iy ravishda kesilmagan. Bo‘sh ro‘yxat tegishli yozuvlar kiritilmaganini anglatadi.",
     }
 
+def _open_order_quantity(data: dict[str, Any], sku: str) -> float:
+    """Quantity already committed in draft or placed POs; received/cancelled POs are excluded."""
+    return sum(
+        _safe_num(order.get("quantity"))
+        for order in data.get("orders", [])
+        if str(order.get("sku")) == str(sku)
+        and str(order.get("status", "")).lower() in {"draft", "ordered"}
+    )
+
+
 def _computed_metrics(data: dict[str, Any]) -> list[dict[str, Any]]:
     """Deterministic, evidence-backed metrics supplied to Gemini; no AI arithmetic."""
     results = []
@@ -1269,7 +1279,9 @@ def _computed_metrics(data: dict[str, Any]) -> list[dict[str, Any]]:
     for sku, product in data.get("products", {}).items():
         records = sorted((r for r in history if r.get("sku") == sku), key=lambda r: str(r.get("month", "")))[-6:]
         stock = _safe_num(product.get("quantity"))
+        open_order_qty = _open_order_quantity(data, str(sku))
         item = {"sku": sku, "product": str(product.get("name", sku)), "stock": stock,
+                "open_order_quantity": open_order_qty,
                 "unit": str(product.get("unit", "dona")), "history_months_available": len(records), "history_months_required": 3}
         if len(records) < 3:
             item.update(forecast_status="insufficient", reason=f"Kamida 3 oylik tarix kerak; hozir {len(records)} oy mavjud.")
@@ -1284,7 +1296,7 @@ def _computed_metrics(data: dict[str, Any]) -> list[dict[str, Any]]:
                         days_of_stock_cover=round(cover, 2) if cover is not None else None,
                         stockout_date=(date.today() + timedelta(days=math.ceil(cover))).isoformat() if cover is not None else None,
                         reorder_point=_safe_num(product.get("reorder_point")),
-                        recommended_purchase_quantity=round(max(0.0, monthly + _safe_num(product.get("reorder_point")) - stock), 4))
+                        recommended_purchase_quantity=round(max(0.0, monthly + _safe_num(product.get("reorder_point")) - stock - open_order_qty), 4))
         results.append(item)
     return results
 
@@ -1426,7 +1438,8 @@ def _ai_draft_candidates(data: dict[str, Any]) -> list[dict[str, Any]]:
             continue
         metric = metrics.get(str(sku), {})
         qty = (_safe_num(metric.get("recommended_purchase_quantity"))
-               if metric.get("forecast_status") == "available" else max(0.0, minimum - stock))
+               if metric.get("forecast_status") == "available"
+               else max(0.0, minimum - stock - _safe_num(metric.get("open_order_quantity"))))
         if qty <= 0:
             continue
         supplier_id = str(product.get("supplier_id") or "").strip()
