@@ -218,6 +218,39 @@ class ReadOnlyApiServiceTests(unittest.TestCase):
         self.assertEqual(first["open_order_quantity"], 8)
         self.assertEqual(first["suggested_order_quantity"], 20.33)
 
+    def test_replenishment_exposes_stock_cover_capital_and_indicative_surplus(self):
+        self.snapshot["products"]["SKU-2"].update({"quantity": 1000, "unit_cost": 12})
+        self.snapshot["demand_history"] = [
+            {"sku": "SKU-2", "month": "2026-01", "quantity": 10},
+            {"sku": "SKU-2", "month": "2026-02", "quantity": 10},
+            {"sku": "SKU-2", "month": "2026-03", "quantity": 10},
+        ]
+        self.snapshot["orders"] = [
+            {"sku": "SKU-2", "quantity": 5, "status": "ordered"},
+            {"sku": "SKU-2", "quantity": 7, "status": "draft"},
+            {"sku": "SKU-2", "quantity": 50, "status": "received"},
+        ]
+        item = next(x for x in api.build_replenishment(self.snapshot)["data"]["items"]
+                    if x["sku"] == "SKU-2")
+        self.assertEqual(item["inventory_value"], 12000)
+        self.assertEqual(item["days_of_stock_cover"], 3000)
+        self.assertEqual(item["supply_including_confirmed_inbound"], 1005)
+        self.assertEqual(item["demand_over_review_horizon"], 30)
+        self.assertEqual(item["indicative_surplus_quantity"], 975)
+        self.assertEqual(item["indicative_surplus_value"], 11700)
+        self.assertEqual(item["surplus_review_status"], "review")
+        self.assertEqual(item["draft_order_quantity"], 7)
+        self.assertEqual(item["ordered_quantity"], 5)
+
+    def test_replenishment_does_not_guess_surplus_without_demand_history_or_cost(self):
+        item = next(x for x in api.build_replenishment(self.snapshot)["data"]["items"]
+                    if x["sku"] == "SKU-1")
+        self.assertIsNone(item["days_of_stock_cover"])
+        self.assertIsNone(item["inventory_value"])
+        self.assertIsNone(item["indicative_surplus_quantity"])
+        self.assertIsNone(item["indicative_surplus_value"])
+        self.assertEqual(item["surplus_review_status"], "insufficient_data")
+
     def test_inventory_detail_is_read_only_and_scoped_to_sku(self):
         self.snapshot["movements"] = [
             {"sku": "SKU-1", "type": "in", "quantity": 5, "created_at": "2026-01-01"},
