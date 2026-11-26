@@ -218,7 +218,7 @@ class MiniAppBrowserTests(unittest.TestCase):
         confirm.click()
         self.assertTrue(self.page.locator("#excel-file").is_disabled())
         self.assertTrue(self.page.locator("#excel-reset").is_disabled())
-        self.page.wait_for_function("document.querySelector('#excel-import-status').textContent.includes('Saqlandi')")
+        self.page.wait_for_function("document.querySelector('#excel-import-status').textContent.includes('Saqlandi') && !document.querySelector('#excel-file').disabled && !document.querySelector('#excel-reset').disabled")
         self.assertFalse(self.page.locator("#excel-file").is_disabled())
         self.assertFalse(self.page.locator("#excel-reset").is_disabled())
         self.assertEqual(self.import_payload["expected_version"], 1)
