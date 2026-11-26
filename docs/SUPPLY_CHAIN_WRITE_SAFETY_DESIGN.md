@@ -114,7 +114,22 @@ The current branch now routes ordinary `save_json` snapshots through `SnapshotWr
 This removes the known same-process writer/flush race and a cache/queue ordering race. It does **not** make the REST upsert transactional, provide a durable per-operation acknowledgement, protect against another bot process or an independent writer, or resolve a process crash between cache publication and database persistence. `save_json` still means accepted into the in-memory cache/queue, not durably committed. The Mini App therefore remains read-only and the new acknowledged-commit adapter remains unconnected until database-side CAS and a single-writer policy are proven.
 
 
-## 3.2 Read-only Supabase storage inspection (2026-11-26)
+## 3.2 Branch implementation: JSONB compare-and-swap without schema changes
+
+The existing `bot_storage` row for `supply_chain_data` was read without changing it. Its `data` value is a JSONB object and its embedded `version` is currently a JSON number (`1`). No dedicated version column or reusable CAS RPC exists.
+
+Official PostgREST documentation describes JSON/JSONB arrow-path filters and conditional PATCH updates. The branch now prototypes that combination: `PATCH bot_storage` filtered by both `storage_key=eq.supply_chain_data` and `data->>version=eq.<expected>`, with `Prefer: return=representation`. A returned updated row acknowledges the conditional update; an empty result triggers a database reload and version/idempotency check. On an ambiguous network result, the same candidate is retried once and its operation ID is checked before the outcome is classified. See the [PostgREST JSON-column filtering and PATCH reference](https://docs.postgrest.org/en/stable/references/api/tables_views.html).
+
+Integration on the isolated branch:
+- `bot.save_json` special-cases only `supply_chain_data`: it commits synchronously through `SerializedCommitAdapter` and `JsonbCompareAndSwap`, rather than putting this dataset in the legacy blind-upsert queue.
+- The adapter reads the current database snapshot, checks the expected embedded version, preserves audit/idempotency metadata, increments the version and uses the conditional PATCH callback.
+- Supply Chain callback, Excel-import and free-text mutation handlers share one async lock, preventing overlapping in-process read-modify-save operations.
+- Version conflicts are surfaced without overwriting newer data. Ambiguous outcomes warn the user not to repeat the action until the inventory state is checked.
+- Other bot datasets continue using the latest-snapshot queue described below.
+
+This implementation is covered by fake-store/unit tests only. **No live PATCH was sent to Supabase**, and no schema, row or production state was changed. Before any production deployment, the exact PostgREST query encoding, service-role response shape, conflict handling and concurrent-client behavior must be validated against a disposable staging row/project. Any separate process still using a blind upsert for the same storage key can bypass this CAS, so all writers must be upgraded or disabled before enabling writes. The Mini App itself remains read-only until its write routes are separately reviewed and tested.
+
+## 3.3 Read-only Supabase storage inspection (2026-11-26)
 
 The connected project was inspected without changing its schema or data:
 
