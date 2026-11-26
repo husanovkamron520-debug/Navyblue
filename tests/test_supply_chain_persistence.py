@@ -11,6 +11,7 @@ from supply_chain_persistence import (
     SerializedCommitAdapter,
     VersionConflict,
     SnapshotWriteQueue,
+    JsonbCompareAndSwap,
 )
 
 
@@ -216,6 +217,89 @@ class SnapshotWriteQueueTests(unittest.TestCase):
         key2, retry = queue.take()
         self.assertEqual(retry, {"version": 1})
         queue.finish(key2, retry, saved=True)
+
+
+
+
+class FakeJsonbCasStore:
+    def __init__(self):
+        self.data = {
+            "version": 1,
+            "products": {"SKU-1": {"quantity": 5}},
+            "_write_idempotency": [],
+        }
+        self.mode = "success"
+        self.calls = 0
+
+    def load(self):
+        return copy.deepcopy(self.data)
+
+    def patch(self, candidate, expected_version):
+        self.calls += 1
+        if self.data["version"] != expected_version:
+            return False
+        if self.mode == "timeout_before" and self.calls == 1:
+            raise TimeoutError("request failed before commit")
+        self.data = copy.deepcopy(candidate)
+        if self.mode == "timeout_after" and self.calls == 1:
+            raise TimeoutError("response lost after commit")
+        if self.mode == "no_match":
+            return False
+        if self.mode == "timeout_always":
+            raise TimeoutError("persistent network ambiguity")
+        return True
+
+
+def cas_candidate():
+    return {
+        "version": 2,
+        "products": {"SKU-1": {"quantity": 7}},
+        "_write_idempotency": [{
+            "operation_id": "cas-op-1",
+            "request_hash": digest("cas-payload"),
+            "version": 2,
+            "result": {"ok": True},
+        }],
+    }
+
+
+class JsonbCompareAndSwapTests(unittest.TestCase):
+    def test_conditional_patch_acknowledges_success(self):
+        store = FakeJsonbCasStore()
+        cas = JsonbCompareAndSwap(store.load, store.patch)
+        self.assertTrue(cas.persist(cas_candidate(), 1, 2))
+        self.assertEqual(store.data["version"], 2)
+
+    def test_timeout_after_commit_is_verified_by_idempotency_record(self):
+        store = FakeJsonbCasStore()
+        store.mode = "timeout_after"
+        cas = JsonbCompareAndSwap(store.load, store.patch)
+        self.assertTrue(cas.persist(cas_candidate(), 1, 2))
+        self.assertEqual(store.data["version"], 2)
+        self.assertEqual(store.calls, 1)
+
+    def test_timeout_before_commit_retries_same_candidate(self):
+        store = FakeJsonbCasStore()
+        store.mode = "timeout_before"
+        cas = JsonbCompareAndSwap(store.load, store.patch)
+        self.assertTrue(cas.persist(cas_candidate(), 1, 2))
+        self.assertEqual(store.calls, 2)
+        self.assertEqual(store.data["version"], 2)
+
+    def test_stale_version_is_reported_as_conflict(self):
+        store = FakeJsonbCasStore()
+        store.data["version"] = 3
+        cas = JsonbCompareAndSwap(store.load, store.patch)
+        with self.assertRaises(VersionConflict):
+            cas.persist(cas_candidate(), 1, 2)
+
+    def test_persistent_timeout_remains_unknown_not_false_success(self):
+        store = FakeJsonbCasStore()
+        store.mode = "timeout_always"
+        cas = JsonbCompareAndSwap(store.load, store.patch)
+        with self.assertRaises(CommitOutcomeUnknown):
+            cas.persist(cas_candidate(), 1, 2)
+
 
 
 
