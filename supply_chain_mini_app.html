@@ -362,7 +362,7 @@
     const width=720,rowH=48,height=rows.length*rowH+12,svg=svgNode("svg",{viewBox:"0 0 "+width+" "+height,class:"viz-svg",role:"img","aria-label":"Joriy zaxira va qayta buyurtma chegarasi taqqoslanishi"});
     rows.forEach((item,index)=>{
       const y=index*rowH+8,qty=Math.max(0,Number(item.quantity)||0),reorder=Math.max(0,Number(item.reorder_point)||0),scale=Math.max(qty,reorder,1),barX=220,barW=340,qtyW=qty/scale*barW,reorderX=barX+reorder/scale*barW;
-      const group=svgNode("g",{class:"viz-clickable",tabindex:"0",role:"button","aria-label":(item.name||item.sku)+", zaxira "+fmt(qty,2)+", reorder "+fmt(reorder,2)});
+      const group=svgNode("g",{class:"viz-clickable",tabindex:"0",role:"button","aria-label":(item.name||item.sku)+", zaxira "+fmt(qty,2)+", reorder "+fmt(reorder,2),"data-product-name":String(item.name||item.sku),"data-stock-quantity":String(qty),"data-reorder-point":String(reorder)});
       group.append(svgNode("title",{},(item.name||item.sku)+" · Zaxira: "+fmt(qty,2)+" · Reorder: "+fmt(reorder,2)+" · Tafsilotlarni ochish"));
       group.append(svgNode("text",{x:8,y:y+14,fill:"#18395e","font-size":13,"font-weight":700},String(item.name||item.sku).slice(0,25)));
       group.append(svgNode("text",{x:8,y:y+29,fill:"#718096","font-size":10},String(item.sku||"").slice(0,26)));
