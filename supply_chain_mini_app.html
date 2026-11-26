@@ -265,7 +265,7 @@
   }
   function csvCell(value){const s=value==null?"":String(value);return '"' + s.replace(/"/g,'""') + '"';}
   function downloadCSV(filename,headers,rows){
-    const csv="\\uFEFF"+[headers,...rows].map(row=>row.map(csvCell).join(",")).join("\\r\\n");
+    const csv=String.fromCharCode(65279)+[headers,...rows].map(row=>row.map(csvCell).join(",")).join(String.fromCharCode(13,10));
     const url=URL.createObjectURL(new Blob([csv],{type:"text/csv;charset=utf-8"}));
     const link=document.createElement("a");link.href=url;link.download=filename;document.body.append(link);link.click();link.remove();URL.revokeObjectURL(url);
     $("report-status").textContent=filename+" · "+fmt(rows.length)+" qator eksport qilindi.";
