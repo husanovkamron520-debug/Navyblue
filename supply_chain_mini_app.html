@@ -629,6 +629,11 @@
     $("excel-import-status").textContent="Hozircha hech narsa saqlanmadi.";
     importRows=[];inventoryBaseline=null;importVersion=null;importPreviewSeq++;
   });
+  $("excel-confirm-check").addEventListener("change",event=>{
+    const hasErrors=Number($("excel-errors").textContent.replace(/\D/g,""))>0;
+    $("excel-import-confirm").disabled=!event.target.checked||!importRows.length||importVersion==null||hasErrors;
+  });
+  $("excel-import-confirm").addEventListener("click",confirmInventoryImport);
   async function refreshAll() {
     try { hideNotice(); $("connection").textContent="Yangilanmoqda"; await loadDashboard(); if(currentView==="inventory")await loadInventory(); $("connection").textContent="Ulangan"; }
     catch(err){ $("connection").textContent="Xatolik"; showNotice("Ma’lumot yuklanmadi",err.message,true); }
