@@ -112,6 +112,9 @@ def mutate_inventory(snapshot, rows):
             if not isinstance(product, dict):
                 raise ImportValidationError(f"{existing_key} mahsulot yozuvi buzilgan.")
             old_quantity = product.get("quantity", 0)
+            unknown_before = old_quantity is None
+            if unknown_before:
+                old_quantity = 0.0
             if isinstance(old_quantity, bool):
                 raise ImportValidationError(f"{existing_key} ombor miqdori noto'g'ri.")
             try:
@@ -129,11 +132,12 @@ def mutate_inventory(snapshot, rows):
             product["updated_at"] = now
             delta = row["quantity"] - old_quantity
             updated += 1
-            if abs(delta) < 1e-12:
+            if abs(delta) < 1e-12 and not unknown_before:
                 unchanged += 1
             else:
                 changes.append({"sku": str(existing_key), "action": "updated",
-                                "before": old_quantity, "after": row["quantity"]})
+                                "before": None if unknown_before else old_quantity,
+                                "after": row["quantity"]})
 
         if abs(delta) >= 1e-12:
             movements.append({
@@ -142,7 +146,7 @@ def mutate_inventory(snapshot, rows):
                 ).hexdigest()[:16],
                 "sku": sku, "type": "in" if delta > 0 else "out",
                 "quantity": abs(delta),
-                "note": "Excel import — stock adjustment",
+                "note": "Excel import — opening balance (previous quantity unknown)" if existing_key is not None and unknown_before else "Excel import — stock adjustment",
                 "created_at": now,
             })
 
