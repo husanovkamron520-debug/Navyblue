@@ -7,6 +7,8 @@ the embedded version and persist the complete candidate document.
 from __future__ import annotations
 
 import copy
+import hashlib
+import json
 import threading
 import time
 from typing import Any, Callable
@@ -28,6 +30,22 @@ class IdempotencyConflict(PersistenceError):
     """An operation ID was reused with a different request hash."""
 
 
+def _compact_idempotency_result(result: Any) -> Any:
+    """Keep replay metadata bounded while retaining small business summaries."""
+    if not isinstance(result, dict):
+        return copy.deepcopy(result)
+    compact = {}
+    for key, value in result.items():
+        if isinstance(value, list) and key in {"changes", "errors", "details"}:
+            encoded = json.dumps(value, ensure_ascii=False, sort_keys=True,
+                                 separators=(",", ":"), default=str).encode("utf-8")
+            compact[key + "_count"] = len(value)
+            compact[key + "_sha256"] = hashlib.sha256(encoded).hexdigest()
+        else:
+            compact[key] = copy.deepcopy(value)
+    return compact
+
+
 class SerializedCommitAdapter:
     """Single-process serialized commit coordinator (prototype only).
 
@@ -47,7 +65,7 @@ class SerializedCommitAdapter:
         load_snapshot: Callable[[], dict],
         persist_snapshot: Callable[[dict, int, int], bool],
         *,
-        max_idempotency_records: int = 1000,
+        max_idempotency_records: int = 100,
     ) -> None:
         self._load_snapshot = load_snapshot
         self._persist_snapshot = persist_snapshot
@@ -140,7 +158,7 @@ class SerializedCommitAdapter:
                 "operation_id": operation_id,
                 "request_hash": request_hash,
                 "version": new_version,
-                "result": copy.deepcopy(result),
+                "result": _compact_idempotency_result(result),
             })
             candidate["_write_idempotency"] = idempotency[-self._max_records:]
 
