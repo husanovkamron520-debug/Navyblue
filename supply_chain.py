@@ -45,7 +45,7 @@ def _now() -> str:
 
 
 def _empty() -> dict[str, Any]:
-    return {"version": 1, "products": {}, "movements": [], "suppliers": {}, "orders": [], "vehicles": [], "shipments": [], "demand_history": [], "scenarios": []}
+    return {"version": 1, "products": {}, "movements": [], "suppliers": {}, "orders": [], "vehicles": [], "shipments": [], "demand_history": [], "scenarios": [], "alert_state": {}}
 
 
 def _data() -> dict[str, Any]:
@@ -1401,58 +1401,196 @@ def _format_ai_customer_answer(answer: str) -> str:
 
 
 def _ai_draft_candidates(data: dict[str, Any]) -> list[dict[str, Any]]:
-    """Return low-stock products with evidence-backed or minimum-gap draft quantities."""
+    """Build a purchase cart only where supplier ownership is unambiguous."""
     metrics = {str(x.get("sku")): x for x in _computed_metrics(data)}
+    suppliers = data.get("suppliers", {})
     candidates = []
     for sku, product in data.get("products", {}).items():
         if not isinstance(product, dict):
             continue
         stock = _safe_num(product.get("quantity"))
         minimum = _safe_num(product.get("reorder_point"))
-        if product.get("quantity") is None or product.get("reorder_point") is None or stock > minimum:
+        if product.get("quantity") is None or product.get("reorder_point") is None or minimum <= 0 or stock > minimum:
             continue
         metric = metrics.get(str(sku), {})
-        if metric.get("forecast_status") == "available":
-            qty = _safe_num(metric.get("recommended_purchase_quantity"))
-        else:
-            qty = max(0.0, minimum - stock)
+        qty = (_safe_num(metric.get("recommended_purchase_quantity"))
+               if metric.get("forecast_status") == "available" else max(0.0, minimum - stock))
         if qty <= 0:
             continue
+        supplier_id = str(product.get("supplier_id") or "").strip()
+        if not supplier_id:
+            linked = {
+                str(order.get("supplier_id")) for order in data.get("orders", [])
+                if str(order.get("sku")) == str(sku) and order.get("supplier_id")
+                and order.get("status") in ("draft", "ordered", "received")
+            }
+            if len(linked) == 1:
+                supplier_id = next(iter(linked))
+            elif not linked and len(suppliers) == 1:
+                supplier_id = str(next(iter(suppliers.values())).get("id") or "")
+        supplier = suppliers.get(supplier_id) if supplier_id else None
+        if not isinstance(supplier, dict) or not supplier.get("id"):
+            continue
+        price = _safe_num(product.get("unit_cost"))
         candidates.append({
             "sku": str(sku), "name": str(product.get("name", sku)),
             "quantity": qty, "unit": str(product.get("unit", "dona")),
+            "supplier_id": str(supplier["id"]), "supplier_name": str(supplier.get("name", "Yetkazib beruvchi")),
+            "unit_price": price, "estimated_total": qty * price,
         })
     return candidates
 
 
 def _create_ai_draft_orders(data: dict[str, Any], candidates: list[dict[str, Any]]) -> list[str]:
-    """Create drafts only after an explicit button press; never submit them to suppliers."""
+    """Create supplier-specific drafts only after an explicit confirmation."""
     suppliers = data.get("suppliers", {})
-    if len(suppliers) != 1:
-        raise ValueError("Buyurtma qoralamasini tayyorlash uchun bitta asosiy yetkazib beruvchini tanlash kerak.")
-    supplier = next(iter(suppliers.values()))
-    if not isinstance(supplier, dict) or not supplier.get("id"):
-        raise ValueError("Yetkazib beruvchi ma’lumoti to‘liq emas.")
-    lead_days = max(0, int(_safe_num(supplier.get("lead_time_days"))))
-    expected = (date.today() + timedelta(days=lead_days)).isoformat()
     prepared = []
+    today = date.today()
     for item in candidates:
         product = data.get("products", {}).get(item["sku"])
         if not product:
-            raise ValueError(f"{item['name']}: mahsulot topilmadi.")
+            raise ValueError(f"{item.get('name', item['sku'])}: mahsulot topilmadi.")
+        supplier_id = str(item.get("supplier_id") or product.get("supplier_id") or "")
+        supplier = suppliers.get(supplier_id)
+        if not isinstance(supplier, dict) or not supplier.get("id"):
+            raise ValueError(f"{item.get('name', item['sku'])}: yetkazib beruvchi aniq belgilanmagan.")
         price = _safe_num(product.get("unit_cost"))
+        qty = _safe_num(item.get("quantity"))
         if price <= 0:
-            raise ValueError(f"{item['name']}: xarid narxi kiritilmagan. Avval mahsulot narxini to‘ldiring.")
+            raise ValueError(f"{item.get('name')}: xarid narxi kiritilmagan. Avval mahsulot narxini to‘ldiring.")
+        if qty <= 0 or not math.isfinite(qty):
+            raise ValueError(f"{item.get('name')}: buyurtma miqdori noto‘g‘ri.")
+        lead_days = max(0, int(_safe_num(supplier.get("lead_time_days"))))
         prepared.append({
             "id": "PO-" + uuid.uuid4().hex[:8].upper(),
             "sku": item["sku"], "supplier_id": supplier["id"],
-            "quantity": item["quantity"], "unit_price": price,
-            "expected_date": expected, "status": "draft", "created_at": _now(),
+            "quantity": qty, "unit_price": price,
+            "expected_date": (today + timedelta(days=lead_days)).isoformat(),
+            "status": "draft", "created_at": _now(), "source": "ai_auto_cart",
         })
     if not prepared:
-        raise ValueError("Qoralama yaratish uchun mos mahsulot topilmadi.")
+        raise ValueError("Savatchada qoralama yaratish mumkin bo‘lgan mahsulot yo‘q.")
     data.setdefault("orders", []).extend(prepared)
     return [str(order["id"]) for order in prepared]
+
+
+def _ai_cart_text(candidates: list[dict[str, Any]]) -> str:
+    if not candidates:
+        return ("🛒 **TAVSIYA ETILGAN XARID**\n\n"
+                "Hozircha tayyor savatcha yo‘q. Mahsulot uchun minimum zaxira, yetkazib beruvchi "
+                "va xarid narxi aniq bo‘lishi kerak.")
+    lines = [f"🛒 **TAVSIYA ETILGAN XARID — {len(candidates)} ta mahsulot**", ""]
+    total = 0.0
+    by_supplier: dict[str, list[dict[str, Any]]] = {}
+    for item in candidates:
+        by_supplier.setdefault(item["supplier_id"], []).append(item)
+    for items in by_supplier.values():
+        lines.append(f"🏭 **{items[0]['supplier_name']}**")
+        for item in items:
+            lines.append(f"• {item['name']} — {_f(item['quantity'])} {item['unit']}")
+            if item["unit_price"] > 0:
+                lines.append(f"  Taxminiy qiymat: {_f(item['estimated_total'])} so‘m")
+                total += item["estimated_total"]
+            else:
+                lines.append("  Narx kiritilmagan — tasdiqlash mumkin emas")
+        lines.append("")
+    if total > 0:
+        lines.append(f"**Jami taxminiy xarid: {_f(total)} so‘m**")
+    lines.append("Miqdorlar talab tarixi mavjud bo‘lsa prognoz va minimum zaxira, aks holda minimumgacha yetkazish asosida hisoblandi.")
+    lines.append("Tasdiqlash faqat qoralama yaratadi — yetkazib beruvchiga yuborilmaydi.")
+    return "\n".join(lines)
+
+
+async def _proactive_alert_job(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Send one-time stock alerts; never alter inventory."""
+    if not _OWNER_ID:
+        return
+    try:
+        data = _data()
+        states = data.setdefault("alert_state", {})
+        metrics = {str(x.get("sku")): x for x in _computed_metrics(data)}
+        changed = False
+        now = datetime.now(timezone.utc)
+        for sku, product in data.get("products", {}).items():
+            if not isinstance(product, dict):
+                continue
+            stock = _safe_num(product.get("quantity"))
+            minimum = _safe_num(product.get("reorder_point"))
+            metric = metrics.get(str(sku), {})
+            cover = metric.get("days_of_stock_cover") if metric.get("forecast_status") == "available" else None
+            critical = (minimum > 0 and stock <= minimum) or (cover is not None and _safe_num(cover, 999999) <= 3)
+            if not critical:
+                if sku in states:
+                    states.pop(sku, None)
+                    changed = True
+                continue
+            state = states.get(sku)
+            if not isinstance(state, dict):
+                state = {"active": True, "notified_at": now.isoformat(), "last_stock": stock}
+                states[sku] = state
+                changed = True
+                await context.application.bot.send_message(
+                    chat_id=_OWNER_ID,
+                    text=(f"🚨 **Omborda muhim signal**\n\n**{product.get('name', sku)}** — {_f(stock)} {product.get('unit', 'dona')} qoldi.\n"
+                          + (f"Zaxira taxminan **{_f(cover)} kun** yetadi.\n" if cover is not None else "")
+                          + (f"Minimum zaxira: {_f(minimum)}.\n" if minimum > 0 else "")
+                          + "Xarid savatchasini tekshirib, qoralama tayyorlashingiz mumkin."),
+                    parse_mode="Markdown",
+                    reply_markup=InlineKeyboardMarkup([[
+                        _btn("🛒 Savatchani ko‘rish", "ai_cart"),
+                        InlineKeyboardButton("⏰ Ertaga eslat", callback_data=f"sc:alert_snooze:{sku}")
+                    ]])
+                )
+            else:
+                snooze = state.get("snoozed_until")
+                if snooze and not state.get("snooze_reminded"):
+                    try:
+                        due = datetime.fromisoformat(str(snooze))
+                    except ValueError:
+                        due = now
+                    if due.tzinfo is None:
+                        due = due.replace(tzinfo=timezone.utc)
+                    if now >= due:
+                        await context.application.bot.send_message(
+                            chat_id=_OWNER_ID,
+                            text=f"⏰ Eslatma: **{product.get('name', sku)}** zaxirasi hanuz kritik ({_f(stock)} {product.get('unit', 'dona')}).",
+                            parse_mode="Markdown",
+                            reply_markup=InlineKeyboardMarkup([[_btn("🛒 Savatchani ko‘rish", "ai_cart")]])
+                        )
+                        state["snooze_reminded"] = True
+                        changed = True
+        if changed:
+            await _save(data)
+    except Exception:
+        return
+
+
+async def _weekly_supply_summary_job(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Send a short Monday 09:00 Uzbekistan-time inventory summary."""
+    if not _OWNER_ID:
+        return
+    try:
+        data = _data()
+        products = [p for p in data.get("products", {}).values() if isinstance(p, dict)]
+        if not products:
+            return
+        candidates = _ai_draft_candidates(data)
+        value = sum(max(0, _safe_num(p.get("quantity"))) * max(0, _safe_num(p.get("unit_cost"))) for p in products)
+        low = sum(_safe_num(p.get("reorder_point")) > 0 and _safe_num(p.get("quantity")) <= _safe_num(p.get("reorder_point")) for p in products)
+        lines = [
+            "📅 **HAFTALIK OMBOR XULOSASI**", "",
+            f"• Mahsulot turlari: **{len(products)}**",
+            f"• Ombor qiymati: **{_f(value)} so‘m**",
+            f"• Minimumga yetgan mahsulotlar: **{low}**",
+            f"• Xarid savatchasiga tayyor: **{len(candidates)} ta**",
+            "", "Batafsil ko‘rish uchun xarid savatchasini oching."
+        ]
+        await context.application.bot.send_message(
+            chat_id=_OWNER_ID, text="\n".join(lines), parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup([[_btn("🛒 Tavsiya etilgan xarid", "ai_cart")]])
+        )
+    except Exception:
+        return
 
 
 def _voice_transcribe_sync(raw: bytes, mime: str) -> str:
@@ -1929,7 +2067,7 @@ def _ai_quick_keyboard() -> InlineKeyboardMarkup:
         [_btn("💰 Qayerda pulim ko‘p yotibdi?", "aiq_money")],
         [_btn("🚚 Qaysi yetkazib beruvchi xavfli?", "aiq_supplier")],
         [_btn("✍️ O‘zim savol beraman", "ai_custom")],
-        [_btn("📊 Ombor hisobotini rasmda ko‘rish", "ai_report")],
+        [_btn("🛒 Tavsiya etilgan xarid", "ai_cart")],\n        [_btn("📊 Ombor hisobotini rasmda ko‘rish", "ai_report")]
         [_btn("⬅️ Menyu", "home")],
     ])
 
@@ -2187,6 +2325,57 @@ async def _callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             context.user_data.pop("_sc_wait", None)
             context.user_data.pop("_sc_ai_draft_candidates", None)
             await _edit(q, "🤖 **AI MASLAHATCHI**\n\nQaysi masalada yordam kerak?", _ai_quick_keyboard())
+    elif action == "ai_cart":
+        candidates = _ai_draft_candidates(data)
+        context.user_data["_sc_ai_cart_candidates"] = candidates
+        rows = []
+        if candidates:
+            rows.append([_btn("✅ Barchasini tasdiqlash", "ai_cart_confirm")])
+        rows.extend([[_btn("↻ Savatchani yangilash", "ai_cart")], [_btn("⬅️ AI yordamchi", "ai")]])
+        await _edit(q, _ai_cart_text(candidates), InlineKeyboardMarkup(rows))
+    elif action == "ai_cart_confirm":
+        candidates = context.user_data.get("_sc_ai_cart_candidates") or []
+        if not candidates:
+            await _edit(q, "Savatcha bo‘sh yoki eskirgan. Yangilab ko‘ring.", _back_keyboard("ai"))
+        else:
+            try:
+                current = _data()
+                fresh = {x["sku"]: x for x in _ai_draft_candidates(current)}
+                validated = []
+                for item in candidates:
+                    latest = fresh.get(item.get("sku"))
+                    if not latest or latest.get("supplier_id") != item.get("supplier_id"):
+                        raise ValueError("Ombor yoki yetkazib beruvchi ma’lumoti o‘zgargan. Savatchani yangilang.")
+                    if abs(_safe_num(latest.get("quantity")) - _safe_num(item.get("quantity"))) > 1e-8:
+                        raise ValueError("Tavsiya miqdori o‘zgargan. Savatchani yangilang.")
+                    validated.append(latest)
+                order_ids = _create_ai_draft_orders(current, validated)
+                await _save(current)
+                context.user_data.pop("_sc_ai_cart_candidates", None)
+                by_supplier: dict[str, int] = {}
+                for item in validated:
+                    by_supplier[item["supplier_name"]] = by_supplier.get(item["supplier_name"], 0) + 1
+                lines = ["✅ **Xarid qoralamalari yaratildi**", ""]
+                lines.extend(f"• {name}: {count} ta mahsulot" for name, count in by_supplier.items())
+                lines.extend(["", f"Jami: **{len(order_ids)} ta qoralama**.", "Hech biri yetkazib beruvchiga yuborilmadi."])
+                await _edit(q, "\n".join(lines), InlineKeyboardMarkup([
+                    [_btn("🧾 Buyurtmalarni ko‘rish", "orders")], [_btn("⬅️ AI yordamchi", "ai")]
+                ]))
+            except Exception as exc:
+                await _edit(q, "⚠️ " + str(exc), InlineKeyboardMarkup([
+                    [_btn("↻ Savatchani yangilash", "ai_cart")], [_btn("⬅️ AI yordamchi", "ai")]
+                ]))
+    elif action.startswith("alert_snooze:"):
+        sku = bits[2] if len(bits) > 2 else ""
+        state = data.setdefault("alert_state", {}).get(sku)
+        if not isinstance(state, dict):
+            await _edit(q, "Bu signal endi faol emas.", _back_keyboard("home"))
+        else:
+            state["snoozed_until"] = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
+            state["snooze_reminded"] = False
+            await _save(data)
+            await _edit(q, "⏰ Ertaga yana bir marta eslataman. Ombor qoldig‘i o‘zgartirilmadi.",
+                        InlineKeyboardMarkup([[_btn("🛒 Savatchani ko‘rish", "ai_cart")]]))
     elif action == "ai_report":
         try:
             await q.answer("Hisobot tayyorlanmoqda…")
@@ -2734,6 +2923,17 @@ def install(app: Application, load_json: Callable[[str, Any], Any], save_json: C
     if owner_id:
         app.add_handler(MessageHandler(filters.ChatType.PRIVATE & filters.User(user_id=owner_id) & (filters.VOICE | filters.AUDIO), _serialized_voice))
     app.add_handler(MessageHandler(filters.ChatType.PRIVATE & filters.Document.ALL, _serialized_excel_document))
+    job_queue = getattr(app, "job_queue", None)
+    if job_queue is not None and owner_id:
+        from datetime import time as datetime_time
+        from zoneinfo import ZoneInfo
+        job_queue.run_repeating(_proactive_alert_job, interval=900, first=30, name="sc_proactive_alerts")
+        job_queue.run_daily(
+            _weekly_supply_summary_job,
+            time=datetime_time(hour=9, minute=0, tzinfo=ZoneInfo("Asia/Tashkent")),
+            days=(0,),
+            name="sc_weekly_summary",
+        )
 
 
 def on_text_handler():
