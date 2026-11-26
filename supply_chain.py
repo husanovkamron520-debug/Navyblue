@@ -1694,11 +1694,11 @@ def _magic_prepare_movements(data: dict[str, Any], entries: list[dict[str, Any]]
 
 
 def _magic_preview_text(proposals: list[dict[str, Any]], source: str) -> str:
-    lines = [f"📝 **{source} — tekshirib chiqing**", ""]
+    lines = [f"📝 {source} — tekshirib chiqing", ""]
     for item in proposals:
         action = "KIRIM" if item["direction"] == "in" else "CHIQIM"
-        lines.append(f"• **{item['name']}** — {action} {_f(item['quantity'])} {item['unit']}")
-        lines.append(f"  Qoldiq: {_f(item['before'])} → **{_f(item['after'])} {item['unit']}**")
+        lines.append(f"• {item['name']} — {action} {_f(item['quantity'])} {item['unit']}")
+        lines.append(f"  Qoldiq: {_f(item['before'])} → {_f(item['after'])} {item['unit']}")
     lines.extend(["", "Hozircha ombor o‘zgarmadi. Tasdiqlasangiz, harakatlar saqlanadi."])
     return "\n".join(lines)
 
@@ -1730,7 +1730,6 @@ async def _serialized_magic_photo(update: Update, context: ContextTypes.DEFAULT_
             }
             await status.edit_text(
                 _magic_preview_text(proposals, "Rasmdan aniqlangan kirim-chiqim"),
-                parse_mode="Markdown",
                 reply_markup=InlineKeyboardMarkup([[
                     _btn("✅ Tasdiqlash", "magic_confirm"),
                     _btn("❌ Bekor qilish", "magic_cancel"),
