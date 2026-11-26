@@ -54,6 +54,20 @@ class SupplyChainMiniAppShellTests(unittest.TestCase):
         self.assertIn('Hech qanday import, ombor yangilanishi yoki avtomatik buyurtma bajarilmaydi', self.html)
         self.assertNotIn('method:"POST"', self.html.replace('method: "POST"', 'method:"POST"').replace('method: \"POST\"', 'method:"POST"')[self.html.find('function renderExcelPreview'):])
 
+    def test_excel_workspace_reads_xlsx_locally_and_supports_multiple_sheets(self):
+        self.assertIn('cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js', self.html)
+        self.assertIn('accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"', self.html)
+        self.assertIn('XLSX.read(bytes,{type:"array",cellDates:true,sheetRows:10002})', self.html)
+        self.assertIn('XLSX.utils.sheet_to_json', self.html)
+        self.assertIn('id="excel-sheet"', self.html)
+        self.assertIn('names.length>20', self.html)
+        self.assertIn('ch==="\\n"', self.html)
+        self.assertIn('ch==="\\r"', self.html)
+        self.assertIn(r'/\s/g', self.html)
+        self.assertIn(r'/^\uFEFF/', self.html)
+        self.assertIn('serverga yuborilmaydi', self.html)
+        self.assertNotIn('/sc-api/v1/imports', self.html)
+
     def test_reports_export_only_uses_read_endpoints_and_csv_download(self):
         self.assertIn('data-view="reports"', self.html)
         self.assertIn('id="export-inventory"', self.html)
