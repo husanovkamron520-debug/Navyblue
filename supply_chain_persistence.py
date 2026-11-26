@@ -161,3 +161,64 @@ class SerializedCommitAdapter:
                 "result": copy.deepcopy(result),
                 "replayed": False,
             }
+
+
+class SnapshotWriteQueue:
+    """Thread-safe, latest-snapshot queue with one in-flight write per key.
+
+    The queue preserves newest-wins semantics when a write fails while a newer
+    snapshot is already waiting. It coordinates one process only; it is not a
+    database transaction or a cross-instance concurrency mechanism.
+    """
+
+    def __init__(self) -> None:
+        self._condition = threading.Condition(threading.RLock())
+        self._pending: dict[str, dict] = {}
+        self._inflight: set[str] = set()
+
+    def enqueue(self, key: str, snapshot: dict) -> None:
+        if not isinstance(key, str) or not key:
+            raise ValueError("storage key must be a non-empty string")
+        if not isinstance(snapshot, dict):
+            raise TypeError("snapshot must be a dictionary")
+        with self._condition:
+            self._pending[key] = copy.deepcopy(snapshot)
+            self._condition.notify_all()
+
+    def take(self) -> tuple[str, dict]:
+        """Wait until a snapshot is available and mark its key in-flight."""
+        with self._condition:
+            while not self._pending:
+                self._condition.wait()
+            key = next(iter(self._pending))
+            snapshot = self._pending.pop(key)
+            self._inflight.add(key)
+            return key, snapshot
+
+    def finish(self, key: str, snapshot: dict, *, saved: bool) -> None:
+        """Complete a write; on failure requeue only if no newer snapshot exists."""
+        with self._condition:
+            self._inflight.discard(key)
+            if not saved and key not in self._pending:
+                self._pending[key] = copy.deepcopy(snapshot)
+            self._condition.notify_all()
+
+    def wait_empty(self, timeout: float = 15.0) -> bool:
+        deadline = time.monotonic() + max(0.0, float(timeout))
+        with self._condition:
+            while self._pending or self._inflight:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return False
+                self._condition.wait(timeout=remaining)
+            return True
+
+    @property
+    def pending_count(self) -> int:
+        with self._condition:
+            return len(self._pending)
+
+    @property
+    def inflight_count(self) -> int:
+        with self._condition:
+            return len(self._inflight)
