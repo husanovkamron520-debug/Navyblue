@@ -648,37 +648,53 @@ def _db_save(key, data):
 
 
 def _writer_loop():
+    """Single ordered writer: only this thread sends queued snapshots to Supabase."""
     while True:
         with _pending_cv:
             while not _pending:
                 _pending_cv.wait()
             key, data = next(iter(_pending.items()))
             del _pending[key]
+            _pending_inflight.add(key)
+        saved = False
         for attempt in range(4):
             try:
                 _db_save(key, data)
+                saved = True
                 break
             except Exception:
                 logger.warning("Supabase'ga yozib bo'lmadi (%s, urinish %s)", key, attempt + 1, exc_info=True)
                 time.sleep(2 * (attempt + 1))
-        else:
-            with _pending_cv:  # yangiroq versiya bo'lmasa, qayta navbatga qo'yamiz
+        with _pending_cv:
+            _pending_inflight.discard(key)
+            if not saved:
+                # A newer snapshot already queued for this key always wins.
                 _pending.setdefault(key, data)
+            _pending_cv.notify_all()
+        if not saved:
             time.sleep(10)
 
 
 def flush_storage(timeout=15):
-    """Dastur to'xtashidan oldin kutayotgan yozuvlarni yuboradi."""
+    """Wait for the single writer to drain queued and in-flight snapshots.
+
+    This is a bounded best-effort shutdown wait, not a durable transaction
+    acknowledgement and not a substitute for database-side compare-and-swap.
+    """
     if not USE_DB:
-        return
+        return True
+    deadline = time.monotonic() + max(0.0, float(timeout))
     with _pending_cv:
-        items = dict(_pending)
-        _pending.clear()
-    for key, data in items.items():
-        try:
-            _db_save(key, data)
-        except Exception:
-            logger.exception("Yakuniy saqlash xatosi: %s", key)
+        while _pending or _pending_inflight:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                logger.warning(
+                    "Storage flush timed out; pending=%s inflight=%s",
+                    len(_pending), len(_pending_inflight),
+                )
+                return False
+            _pending_cv.wait(timeout=remaining)
+    return True
 
 
 def _file_load(filepath, default):
