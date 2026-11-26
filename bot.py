@@ -512,7 +512,9 @@ STORAGE_TABLE = "bot_storage"
 _cache = {}
 _cache_lock = threading.RLock()
 _pending = {}
+_pending_inflight = set()
 _pending_cv = threading.Condition()
+_storage_save_lock = threading.RLock()
 _writer_started = False
 
 
