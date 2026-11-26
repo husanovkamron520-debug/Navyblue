@@ -498,7 +498,7 @@
       const get=key=>m[key]?String(r[csvState.headers.indexOf(m[key])]??"").trim():"";
       const line=i+2,sku=get("sku"),name=get("name"),qty=get("quantity"),unit=get("unit"),cost=get("cost"),reorder=get("reorder");
       const issue=missing.length||errorByLine.has(line);
-      const tr=el("tr","");[sku,name,qty,unit||"pcs (default)",cost||"—",reorder||"—",issue?"Tekshirish kerak":"Yaroqli"].forEach(v=>tr.append(el("td","",v)));body.append(tr);
+      const tr=el("tr","");[sku,name,qty,unit||"— (mavjud qiymat saqlanadi; yangi SKU: pcs)",cost||"—",reorder||"—",issue?"Tekshirish kerak":"Yaroqli"].forEach(v=>tr.append(el("td","",v)));body.append(tr);
     });
     if(csvState.rows.length>20){const tr=el("tr","");tr.append(el("td","muted","Yana "+(csvState.rows.length-20)+" qator preview’da ko‘rsatilmagan"));body.append(tr);}
     renderImportDiff(valid);
@@ -536,7 +536,7 @@
       inventoryBaseline=new Map(products.map(p=>[String(p.sku).toLocaleLowerCase(),p]));
       const diffs=importRows.map(row=>{
         const old=inventoryBaseline.get(row.sku.toLocaleLowerCase());
-        if(!old)return {row,action:"Yangi SKU",before:null,after:row.quantity,details:["Miqdor: — → "+fmt(row.quantity,2)]};
+        if(!old)return {row,action:"Yangi SKU",before:null,after:row.quantity,details:["Birlik: "+(row.unit||"pcs (default)"),"Miqdor: — → "+fmt(row.quantity,2)]};
         const details=[];
         if(String(old.name||"")!==row.name)details.push("Nom: "+(old.name||"—")+" → "+row.name);
         if(row.unit&&String(old.unit||"")!==row.unit)details.push("Birlik: "+(old.unit||"—")+" → "+row.unit);
