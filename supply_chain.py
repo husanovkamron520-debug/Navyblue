@@ -1319,8 +1319,10 @@ def _ask_gemini_sync(client: Any, model: str, question: str, snapshot: dict[str,
         "Avvalgi javobdagi tavsiyani faqat joriy JSON bilan qayta tasdiqlangandan keyin takrorla.\n"
         "Tavsiya berishing mumkin, lekin hech qanday amal bajarmaysan: ombor, buyurtma, transport yoki boshqa yozuvlarni o‘zgartirma. "
         "Har qanday xarid yoki boshqa o‘zgarish uchun egadan alohida tasdiq talab qilinishini eslat.\n"
-        "Javob tuzilishi: 1) qisqa xulosa; 2) dalillar; 3) tavsiyalar; 4) ma’lumot cheklovlari. "
-        "Barcha bo‘limlarni tugat; javobni o‘rtada qoldirma. Keraksiz umumiy gaplarni kamaytir.\n\n"
+        "Odatiy javob 4–5 qisqa qatordan oshmasin: avval xulosa, keyin 1–2 dalil va bitta amaliy keyingi qadam. "
+        "Faqat foydalanuvchi batafsil tahlil so‘rasa, kengroq tushuntir. "
+        "Mijozga API, JSON, callback, deploy, database kabi dasturchilik atamalarini ko‘rsatma; oddiy biznes tilida gapir. "
+        "Javobni keraksiz sarlavha va uzun kirish bilan cho‘zma.\n\n"
         f"EGANING SAVOLI:\n{question[:2000]}\n\n"
         f"SUPPLY CHAIN MA’LUMOTLARI (to‘liq JSON):\n{payload}"
     )
@@ -2224,8 +2226,8 @@ async def _text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
                 await update.message.reply_text(part)
         except asyncio.TimeoutError:
             await status.edit_text("⏱ Gemini 42 soniyada javob bermadi. Keyinroq urinib ko'ring.", reply_markup=_home_keyboard())
-        except Exception as exc:
-            await status.edit_text("⚠️ AI tahlili bajarilmadi.\n" + str(exc)[:500], reply_markup=_home_keyboard())
+        except Exception:
+            await status.edit_text("⚠️ Hozir tahlilni yakunlay olmadim. Birozdan keyin qayta urinib ko‘ring.", reply_markup=_home_keyboard())
         return True
     if action == "excel_upload":
         if raw:
