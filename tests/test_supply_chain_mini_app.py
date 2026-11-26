@@ -1,4 +1,4 @@
-"""Static contract checks for the read-only Telegram Mini App shell."""
+"""Static contract checks for the Telegram Mini App shell and guarded import."""
 from pathlib import Path
 import unittest
 
@@ -96,7 +96,7 @@ class SupplyChainMiniAppShellTests(unittest.TestCase):
         self.assertIn('ch==="\\r"', self.html)
         self.assertIn(r'/\s/g', self.html)
         self.assertIn(r'/^\uFEFF/', self.html)
-        self.assertIn('serverga yuborilmaydi', self.html)
+        self.assertIn('faqat tasdiqdan keyin serverga yuboriladi', self.html)
         self.assertNotIn('/sc-api/v1/imports', self.html)
 
     def test_reports_export_only_uses_read_endpoints_and_csv_download(self):
