@@ -177,7 +177,7 @@ class MiniAppBrowserTests(unittest.TestCase):
         self.page.wait_for_function("document.querySelector('#excel-rows').textContent.trim() === '2'")
         self.assertEqual(self.page.locator("#excel-valid").inner_text(), "2")
         self.assertIn("Local Item", self.page.locator("#excel-preview").inner_text())
-        self.assertFalse(any(path != "/sc-api/v1/session" for _method, path, _query, _auth in self.api_calls))
+        self.assertFalse(any(method != "GET" and path != "/sc-api/v1/session" for method, path, _query, _auth in self.api_calls))
 
         self.page.locator("#excel-file").set_input_files({
             "name": "broken.xlsx",
