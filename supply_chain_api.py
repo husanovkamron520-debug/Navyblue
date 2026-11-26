@@ -416,7 +416,7 @@ def get_inventory_detail(snapshot: dict, sku: str) -> dict:
 def _safe_version(data: dict) -> int:
     """Keep malformed persisted metadata from turning otherwise readable views into 500s."""
     try:
-        version = _safe_version(data)
+        version = int(data.get("version") or 1)
         return version if version > 0 else 1
     except (AttributeError, TypeError, ValueError, OverflowError):
         return 1
