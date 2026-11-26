@@ -38,7 +38,7 @@
     document.head.append(style);
     const grid = document.createElement("div");
     grid.className = "live-chart-grid";
-    grid.innerHTML = '<section class="live-chart-card"><div class="live-chart-title">X–Y koordinata grafigi: zaxira holati</div><div class="live-chart-sub">X — qayta buyurtma nuqtasi · Y — joriy zaxira. Har bir nuqta bitta mahsulot.</div><div id="live-xy-scatter"><div class="live-empty">Koordinata grafigi yuklanmoqda…</div></div></section><section class="live-chart-card"><div class="live-chart-title">Zaxira va buyurtma chegarasi</div><div class="live-chart-sub">Joriy miqdor reorder nuqtasi bilan taqqoslanadi</div><div id="live-stock-bars" class="live-bars"><div class="live-empty">Ma’lumot yuklanmoqda…</div></div><div class="live-legend"><span><i></i> Joriy zaxira</span><span><i style="background:#bd7b18"></i> Kam zaxira</span></div></section><section class="live-chart-card"><div class="live-chart-title">Keyingi oy talab prognozi</div><div class="live-chart-sub">API hisoblagan prognozlar, mahsulotlar kesimida</div><div id="live-demand-bars" class="live-forecast"><div class="live-empty">Prognoz yuklanmoqda…</div></div></section>';
+    grid.innerHTML = '<section class="live-chart-card"><div class="live-chart-title">X–Y koordinata grafigi: zaxira holati</div><div class="live-chart-sub">X — qayta buyurtma nuqtasi · Y — joriy zaxira. Har bir nuqta bitta mahsulot.</div><div id="live-xy-scatter"><div class="live-empty">Koordinata grafigi yuklanmoqda…</div></div></section><section class="live-chart-card"><div class="live-chart-title">Zaxira va buyurtma chegarasi</div><div class="live-chart-sub">Joriy miqdor reorder nuqtasi bilan taqqoslanadi</div><div id="live-stock-bars" class="live-bars"><div class="live-empty">Ma’lumot yuklanmoqda…</div></div><div class="live-legend"><span><i></i> Joriy zaxira</span><span><i style="background:#bd7b18"></i> Kam zaxira</span></div></section><section class="live-chart-card" style="grid-column:1/-1"><div class="live-chart-title">Talab dinamikasi · X–Y chiziqli grafik</div><div class="live-chart-sub">X — oylar · Y — real talab miqdori. Mahsulotni tanlab, tarixiy o‘zgarishni ko‘ring.</div><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px"><label for="live-demand-product" style="font-size:12px;font-weight:650">Mahsulot</label><select id="live-demand-product" style="min-width:180px;max-width:100%;padding:9px;border:1px solid var(--line);border-radius:9px;background:#fff;color:var(--navy)"></select></div><div id="live-demand-line"><div class="live-empty">Talab tarixi yuklanmoqda…</div></div></section><section class="live-chart-card"><div class="live-chart-title">Keyingi oy talab prognozi</div><div class="live-chart-sub">API hisoblagan prognozlar, mahsulotlar kesimida</div><div id="live-demand-bars" class="live-forecast"><div class="live-empty">Prognoz yuklanmoqda…</div></div></section>';
     const controls = view.querySelector(".analytics-controls");
     if (controls) controls.insertAdjacentElement("afterend", grid);
     const stock = $("stock-chart"), forecast = $("forecast-table");
@@ -117,6 +117,34 @@
         col.append(value,bar,label);target.append(col);
       });
     };
+    let demandPayload=null;
+    function renderDemandLine(){
+      const target=$("live-demand-line"),select=$("live-demand-product");
+      if(!target||!select||!demandPayload)return;
+      const items=(demandPayload.items||[]).filter(item=>Array.isArray(item.history)&&item.history.length);
+      const previous=select.value;
+      select.replaceChildren();
+      items.forEach(item=>{const option=document.createElement("option");option.value=item.sku;option.textContent=item.name+" · "+item.sku;select.append(option);});
+      if(items.some(item=>item.sku===previous))select.value=previous;
+      const chosen=items.find(item=>item.sku===select.value)||items[0];
+      target.replaceChildren();
+      if(!chosen){target.innerHTML='<div class="live-empty">Talab tarixi hali kiritilmagan. Haqiqiy oylik yozuvlar qo‘shilgach grafik paydo bo‘ladi.</div>';return;}
+      const points=chosen.history.filter(p=>Number.isFinite(Number(p.quantity))&&Number(p.quantity)>=0).slice(-6);
+      if(!points.length){target.innerHTML='<div class="live-empty">Tanlangan mahsulot uchun chizishga yaroqli tarix yo‘q.</div>';return;}
+      const ns="http://www.w3.org/2000/svg",W=560,H=300,L=58,R=22,T=22,B=52;
+      const max=Math.max(1,...points.map(p=>Number(p.quantity)))*1.15;
+      const sx=i=>points.length===1?(L+W-R)/2:L+i*(W-L-R)/(points.length-1);
+      const sy=v=>H-B-(Number(v)/max)*(H-T-B);
+      const svg=document.createElementNS(ns,"svg");svg.setAttribute("viewBox","0 0 "+W+" "+H);svg.setAttribute("role","img");svg.setAttribute("aria-label",chosen.name+" mahsulotining oylik talab chiziqli grafigi");svg.style.width="100%";svg.style.height="auto";
+      for(let i=0;i<=4;i++){const y=H-B-(H-T-B)*i/4;const gridline=document.createElementNS(ns,"line");gridline.setAttribute("x1",L);gridline.setAttribute("x2",W-R);gridline.setAttribute("y1",y);gridline.setAttribute("y2",y);gridline.setAttribute("stroke","#e7edf3");svg.append(gridline);const label=document.createElementNS(ns,"text");label.setAttribute("x",L-9);label.setAttribute("y",y+4);label.setAttribute("text-anchor","end");label.setAttribute("font-size","10");label.setAttribute("fill","#64748b");label.textContent=new Intl.NumberFormat("uz-UZ",{maximumFractionDigits:1}).format(max*i/4);svg.append(label);}
+      const axis=document.createElementNS(ns,"line");axis.setAttribute("x1",L);axis.setAttribute("x2",W-R);axis.setAttribute("y1",H-B);axis.setAttribute("y2",H-B);axis.setAttribute("stroke","#526174");svg.append(axis);
+      const path=document.createElementNS(ns,"path");path.setAttribute("d",points.map((p,i)=>(i?"L":"M")+sx(i)+" "+sy(p.quantity)).join(" "));path.setAttribute("fill","none");path.setAttribute("stroke","#3679ad");path.setAttribute("stroke-width","3");path.setAttribute("stroke-linecap","round");path.setAttribute("stroke-linejoin","round");svg.append(path);
+      points.forEach((p,i)=>{const circle=document.createElementNS(ns,"circle");circle.setAttribute("cx",sx(i));circle.setAttribute("cy",sy(p.quantity));circle.setAttribute("r","5");circle.setAttribute("fill","#244d78");circle.setAttribute("stroke","#fff");circle.setAttribute("stroke-width","2");const title=document.createElementNS(ns,"title");title.textContent=p.month+" · "+p.quantity+" "+(chosen.unit||"");circle.append(title);svg.append(circle);const label=document.createElementNS(ns,"text");label.setAttribute("x",sx(i));label.setAttribute("y",H-B+20);label.setAttribute("text-anchor","middle");label.setAttribute("font-size","10");label.setAttribute("fill","#526174");label.textContent=p.month;svg.append(label);});
+      const yLabel=document.createElementNS(ns,"text");yLabel.setAttribute("x",15);yLabel.setAttribute("y",(T+H-B)/2);yLabel.setAttribute("transform","rotate(-90 15 "+((T+H-B)/2)+")");yLabel.setAttribute("text-anchor","middle");yLabel.setAttribute("font-size","11");yLabel.setAttribute("font-weight","700");yLabel.setAttribute("fill","#18395e");yLabel.textContent="Talab ("+(chosen.unit||"miqdor")+")";svg.append(yLabel);
+      target.append(svg);const note=document.createElement("div");note.className="live-chart-sub";note.textContent=points.length+" oylik real tarix · keyingi oy prognozi: "+(chosen.forecast_next_month==null?"yetarli tarix yo‘q":new Intl.NumberFormat("uz-UZ",{maximumFractionDigits:2}).format(chosen.forecast_next_month)+" "+(chosen.unit||""));target.append(note);
+    }
+    window.addEventListener("sc-demand-analytics",event=>{demandPayload=event.detail;renderDemandLine();});
+    $("live-demand-product")?.addEventListener("change",renderDemandLine);
     const observe = (node, fn) => {
       if (!node) return;
       new MutationObserver(fn).observe(node,{childList:true,subtree:true,attributes:true});
