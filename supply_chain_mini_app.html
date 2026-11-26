@@ -379,6 +379,47 @@
     if(headers.length>100)throw new Error("CSV faylda 100 tadan ko‘p ustun bor; faylni qisqartiring.");
     return {headers,rows:rows.slice(1).map(r=>headers.map((_,i)=>(r[i]||"").trim()))};
   }
+  function inspectXlsxArchive(bytes){
+    const view=new DataView(bytes);
+    const minimumEocd=22,maximumComment=65535;
+    const searchStart=Math.max(0,bytes.byteLength-minimumEocd-maximumComment);
+    let eocd=-1;
+    for(let offset=bytes.byteLength-minimumEocd;offset>=searchStart;offset--){
+      if(view.getUint32(offset,true)!==0x06054b50)continue;
+      const commentLength=view.getUint16(offset+20,true);
+      if(offset+minimumEocd+commentLength===bytes.byteLength){eocd=offset;break;}
+    }
+    if(eocd<0)throw new Error("Excel fayli to‘g‘ri ZIP/XLSX arxiv emas.");
+    const disk=view.getUint16(eocd+4,true),centralDisk=view.getUint16(eocd+6,true);
+    const diskEntries=view.getUint16(eocd+8,true),entryCount=view.getUint16(eocd+10,true);
+    const centralSize=view.getUint32(eocd+12,true),centralOffset=view.getUint32(eocd+16,true);
+    if(disk!==0||centralDisk!==0||diskEntries!==entryCount)throw new Error("Ko‘p qismli Excel arxivlari qo‘llab-quvvatlanmaydi.");
+    if(entryCount===0xffff||centralSize===0xffffffff||centralOffset===0xffffffff)throw new Error("ZIP64 Excel arxivi qo‘llab-quvvatlanmaydi.");
+    if(entryCount>2000)throw new Error("Excel arxivida juda ko‘p ichki fayl bor.");
+    const centralEnd=centralOffset+centralSize;
+    if(centralEnd>eocd||centralEnd>bytes.byteLength)throw new Error("Excel arxivining markaziy katalogi noto‘g‘ri.");
+    let cursor=centralOffset,totalUncompressed=0;
+    for(let index=0;index<entryCount;index++){
+      if(cursor+46>centralEnd||view.getUint32(cursor,true)!==0x02014b50)throw new Error("Excel arxivining ichki tuzilishi noto‘g‘ri.");
+      const flags=view.getUint16(cursor+8,true),method=view.getUint16(cursor+10,true);
+      const compressed=view.getUint32(cursor+20,true),uncompressed=view.getUint32(cursor+24,true);
+      const nameLength=view.getUint16(cursor+28,true),extraLength=view.getUint16(cursor+30,true),commentLength=view.getUint16(cursor+32,true);
+      const localOffset=view.getUint32(cursor+42,true);
+      const next=cursor+46+nameLength+extraLength+commentLength;
+      if(next>centralEnd)throw new Error("Excel arxivida noto‘g‘ri katalog yozuvi bor.");
+      if(flags&1)throw new Error("Parol bilan himoyalangan Excel fayllari qo‘llab-quvvatlanmaydi.");
+      if(method!==0&&method!==8)throw new Error("Excel arxivida qo‘llab-quvvatlanmaydigan siqish turi bor.");
+      if(uncompressed>20*1024*1024)throw new Error("Excel faylining ichki qismi 20 MB limitdan katta.");
+      totalUncompressed+=uncompressed;
+      if(totalUncompressed>40*1024*1024)throw new Error("Excel faylining ochilgan umumiy hajmi 40 MB limitdan katta.");
+      if(localOffset+30>centralOffset||view.getUint32(localOffset,true)!==0x04034b50)throw new Error("Excel arxivida noto‘g‘ri fayl sarlavhasi bor.");
+      const localName=view.getUint16(localOffset+26,true),localExtra=view.getUint16(localOffset+28,true);
+      const dataStart=localOffset+30+localName+localExtra;
+      if(dataStart+compressed>centralOffset)throw new Error("Excel arxivida fayl chegarasi noto‘g‘ri.");
+      cursor=next;
+    }
+    return {entries:entryCount,uncompressedBytes:totalUncompressed};
+  }
   function workbookSheetRows(sheetName){
     if(!window.XLSX||!csvState.workbook)throw new Error("Excel o‘qish moduli yuklanmagan yoki fayl ochilmagan.");
     const sheet=csvState.workbook.Sheets[sheetName];
@@ -466,6 +507,7 @@
       if(isXlsx){
         if(!window.XLSX)throw new Error("Excel kutubxonasi yuklanmadi. Internet aloqasini tekshirib, sahifani qayta oching.");
         const bytes=await file.arrayBuffer();
+        inspectXlsxArchive(bytes);
         csvState.workbook=XLSX.read(bytes,{type:"array",cellDates:true,sheetRows:10002});
         const names=csvState.workbook.SheetNames||[];
         if(names.length>20)throw new Error("Faylda 20 tadan ko‘p ish varag‘i bor; faylni qisqartirib qayta yuklang.");
