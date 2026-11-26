@@ -1,6 +1,7 @@
 """Concurrency regression tests for Supply Chain Telegram mutation handlers."""
 import asyncio
 import unittest
+import threading
 from unittest.mock import patch
 
 import supply_chain
@@ -34,6 +35,20 @@ class SupplyChainMutationSerializationTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(maximum_active, 1)
         self.assertEqual(results, [None, None, True])
+
+
+    async def test_sync_storage_callback_runs_off_event_loop_thread(self):
+        loop_thread = threading.get_ident()
+        callback_threads = []
+
+        def fake_save(path, data):
+            callback_threads.append(threading.get_ident())
+
+        with patch.object(supply_chain, "_SAVE", fake_save):
+            await supply_chain._save({"version": 1})
+
+        self.assertEqual(len(callback_threads), 1)
+        self.assertNotEqual(callback_threads[0], loop_thread)
 
 
 if __name__ == "__main__":
