@@ -1600,20 +1600,36 @@ async def _weekly_supply_summary_job(context: ContextTypes.DEFAULT_TYPE) -> None
         return
 
 
-def _vision_extract_movements_sync(raw: bytes, mime: str, caption: str = "") -> list[dict[str, Any]]:
+def _vision_extract_movements_sync(raw: bytes, mime: str, caption: str = "", products: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     if _AI_CLIENT is None:
         raise RuntimeError("Rasmni o‘qish uchun AI yordamchi ulanmagan.")
     from google.genai import types
     part = types.Part.from_bytes(data=raw, mime_type=mime or "image/jpeg")
+    catalog = []
+    for sku, product in (products or {}).items():
+        if not isinstance(product, dict):
+            continue
+        catalog.append({
+            "sku": str(sku),
+            "name": str(product.get("name") or ""),
+            "unit": str(product.get("unit") or ""),
+        })
+    catalog_text = json.dumps(catalog[:500], ensure_ascii=False)
     prompt = (
         "You are extracting inventory movements from a warehouse note, handwritten ledger or delivery note. "
-        "Return ONLY valid JSON with this schema: {\"movements\":[{\"product\":\"exact visible product name or SKU\","
+        "Return ONLY valid JSON with this schema: {\"movements\":[{\"product\":\"exact catalog name or SKU\","
         "\"direction\":\"in|out\",\"quantity\":number,\"unit\":\"unit as written or empty\","
         "\"confidence\":0.0}]}. "
+        "Match each visible product to the supplied inventory catalog. When a visible label is a clear shortened "
+        "form of exactly one catalog item (for example, 'Shakar (Xorazm)' matches 'Shakar (Xorazm, 50 kg qop)'), "
+        "return that catalog item's exact name or SKU, not the shortened label. Ignore harmless differences in "
+        "parentheses, packaging suffixes and spacing, but never guess between similar products. If no unique "
+        "catalog item is clear, return the visible label unchanged so the system can request clarification. "
         "Include only explicit, legible stock movements. Do not infer missing quantities, do not add totals, "
         "do not calculate conversions, do not treat prices or invoice totals as quantities. "
         "If direction or quantity is unclear, omit that line. Keep product names in the original language. "
         "Confidence must reflect visual certainty; use below 0.85 when uncertain. "
+        "Inventory catalog (JSON): " + catalog_text + ". "
         "User caption/context: " + (caption or "none")[:500]
     )
     response = _AI_CLIENT.models.generate_content(model=_AI_MODEL, contents=[prompt, part])
@@ -1630,15 +1646,40 @@ def _vision_extract_movements_sync(raw: bytes, mime: str, caption: str = "") -> 
 
 def _magic_resolve_product(data: dict[str, Any], label: str) -> tuple[str, dict[str, Any]]:
     target = _norm(label)
-    matches = [
+    products = [
         (str(sku), product) for sku, product in data.get("products", {}).items()
-        if isinstance(product, dict) and target in {str(sku).casefold(), _norm(product.get("name"))}
+        if isinstance(product, dict)
     ]
-    if len(matches) == 1:
-        return matches[0]
-    if len(matches) > 1:
+    # First prefer an exact SKU or exact canonical product name.
+    exact = [
+        (sku, product) for sku, product in products
+        if target in {sku.casefold(), _norm(product.get("name"))}
+    ]
+    if len(exact) == 1:
+        return exact[0]
+    if len(exact) > 1:
         raise ValueError(f"«{label}» bir nechta mahsulotga mos keldi. SKU yoki to‘liq nomni aniqlashtiring.")
-    raise ValueError(f"«{label}» nomi ombordagi mahsulot bilan aniq mos kelmadi. Mahsulot nomini tekshiring.")
+
+    # Accept a clear shortened label only when all its meaningful tokens occur
+    # in exactly one catalog name. This handles omitted package/parenthetical
+    # suffixes without making a guess between similarly named products.
+    label_tokens = [w for w in _words(target) if len(w) >= 2]
+    if len(label_tokens) >= 2:
+        subset = []
+        for sku, product in products:
+            name_tokens = _words(product.get("name", ""))
+            if all(token in name_tokens for token in label_tokens):
+                subset.append((sku, product))
+        if len(subset) == 1:
+            return subset[0]
+        if len(subset) > 1:
+            names = " / ".join(str(p.get("name")) for _, p in subset[:5])
+            raise ValueError(f"«{label}» bir nechta mahsulotga o‘xshaydi: {names}. Aniqlashtiring.")
+
+    raise ValueError(
+        f"«{label}» ombordagi mahsulot nomiga aniq bog‘lanmadi. "
+        "Yaqin mos mahsulot topilmadi yoki nom noaniq — mahsulotni aniqlashtiring."
+    )
 
 
 def _magic_prepare_movements(data: dict[str, Any], entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -1720,7 +1761,7 @@ async def _serialized_magic_photo(update: Update, context: ContextTypes.DEFAULT_
                 await status.edit_text("Rasm 10 MB dan kichik bo‘lishi kerak.")
                 return
             entries = await asyncio.wait_for(
-                asyncio.to_thread(_vision_extract_movements_sync, raw, "image/jpeg", message.caption or ""),
+                asyncio.to_thread(_vision_extract_movements_sync, raw, "image/jpeg", message.caption or "", _data().get("products", {})),
                 timeout=60,
             )
             proposals = _magic_prepare_movements(_data(), entries)
