@@ -471,10 +471,10 @@ def build_bootstrap(snapshot: dict) -> dict:
             "file_name": str(item.get("file_name", ""))[:180],
             "sheet": str(item.get("sheet", ""))[:120],
             "created_at": str(item.get("created_at", ""))[:40],
-            "processed": _safe_number(item.get("processed")),
-            "created": _safe_number(item.get("created")),
-            "updated": _safe_number(item.get("updated")),
-            "unchanged_quantity": _safe_number(item.get("unchanged_quantity")),
+            "processed": _number(item.get("processed")),
+            "created": _number(item.get("created")),
+            "updated": _number(item.get("updated")),
+            "unchanged_quantity": _number(item.get("unchanged_quantity")),
         })
     return _envelope({
         "company": {"mode": "single_company", "label": "Supply Chain"},
