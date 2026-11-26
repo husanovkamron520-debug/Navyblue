@@ -302,7 +302,7 @@ class SupplyChainAIContextRegressionTests(unittest.TestCase):
             "unit": "dona", "unit_cost": 12000,
         }
         report = supply_chain._inventory_report_png(data)
-        self.assertEqual(report.read(8), b"\\x89PNG\\r\\n\\x1a\\n")
+        self.assertEqual(report.read(8), b"\x89PNG\r\n\x1a\n")
 
     def test_long_telegram_answer_is_split_without_losing_ending(self):
         original = ("Muhim tahlil satri.\\n" * 260) + "YAKUNIY TAVSIYA SAQLANDI"
