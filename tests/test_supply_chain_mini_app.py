@@ -55,7 +55,7 @@ class SupplyChainMiniAppShellTests(unittest.TestCase):
         self.assertNotIn('method:"POST"', self.html.replace('method: "POST"', 'method:"POST"').replace('method: \"POST\"', 'method:"POST"')[self.html.find('function renderExcelPreview'):])
 
     def test_excel_workspace_reads_xlsx_locally_and_supports_multiple_sheets(self):
-        self.assertIn('cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js', self.html)
+        self.assertIn('cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js', self.html)
         self.assertIn('accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"', self.html)
         self.assertIn('XLSX.read(bytes,{type:"array",cellDates:true,sheetRows:10002})', self.html)
         self.assertIn('XLSX.utils.sheet_to_json', self.html)
