@@ -96,7 +96,7 @@ The adapter intentionally requires an injected `persist_snapshot(candidate, expe
 
 ## 3.0 Supply Chain handler serialization
 
-The isolated branch also wraps the three state-changing Telegram entry points (callback actions, Excel document import flow, and free-text Supply Chain actions) with one shared `asyncio.Lock`. This serializes their read-modify-save lifecycles within the single bot event loop and prevents two owner actions from simultaneously loading the same old snapshot and overwriting each other's changes. A focused async concurrency test verifies that the three entry points share the same gate.
+The isolated branch also wraps the three state-changing Telegram entry points (callback actions, Excel document import flow, and free-text Supply Chain actions) with one shared `asyncio.Lock`. This serializes their read-modify-save lifecycles within the single bot event loop and prevents two owner actions from simultaneously loading the same old snapshot and overwriting each other's changes. A focused async concurrency test verifies that the three entry points share the same gate. The synchronous Supabase CAS request is dispatched with `asyncio.to_thread`, so waiting for the database does not block the Telegram event loop; a unit test verifies the callback runs on a worker thread.
 
 This is still a single-process guarantee. It does not coordinate multiple bot instances, external writers, process restarts, or any future Mini App write API. The lock is held across each handler's awaited work, so it favors correctness over parallel throughput for this owner-only module.
 
