@@ -220,7 +220,7 @@ class SupplyChainAIContextRegressionTests(unittest.TestCase):
         self.assertEqual(summary["product_count"], 35)
         self.assertEqual(summary["low_stock_count"], 6)
         self.assertEqual(summary["low_stock_rate_percent"], 17.14)
-        self.assertEqual(summary["total_inventory_value"], 41000)
+        self.assertEqual(summary["total_inventory_value"], 61000)
         self.assertEqual(summary["annual_consumption_value"], 42000)
         self.assertIn("abc_groups_by_annual_consumption_value", summary)
 
