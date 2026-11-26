@@ -1312,7 +1312,7 @@ def run_health_server():
                     return
             try:
                 length = int(self.headers.get("Content-Length", "0"))
-                max_length = sc_api.MAX_INIT_DATA_BYTES if is_session else 1_500_000
+                max_length = sc_api.MAX_INIT_DATA_BYTES if is_session else 8_000_000
                 if length <= 0 or length > max_length:
                     self._sc_error("invalid_request", "So'rov hajmi noto'g'ri yoki limitdan katta.", 413)
                     return
