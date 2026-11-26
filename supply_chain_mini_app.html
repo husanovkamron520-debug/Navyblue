@@ -116,6 +116,10 @@
         <div class="table-wrap" style="display:block;margin-top:12px"><table class="table" style="min-width:620px"><thead id="excel-head"></thead><tbody id="excel-preview"></tbody></table></div>
       </div>
       <div class="card" style="margin-top:12px">
+        <div class="chart-title">So‘nggi importlar</div>
+        <div id="excel-history" class="alert-list"><div class="muted">Import tarixi yuklanmoqda…</div></div>
+      </div>
+      <div class="card" style="margin-top:12px">
         <div class="chart-title">4. Ombor bilan farq va tasdiqlash</div>
         <div class="chart-sub">Import mavjud mahsulot miqdorini Excel’dagi qiymatga moslaydi; yangi SKU qo‘shadi. Ixtiyoriy narx yoki reorder ustuni bo‘sh bo‘lsa, saqlangan qiymat o‘zgarmaydi. Har bir miqdor farqi kirim/chiqim tarixiga yoziladi.</div>
         <div id="excel-diff" class="alert-list" style="margin-top:12px"><div class="muted">Avval faylni yuklang va ustunlarni moslang.</div></div>
@@ -499,6 +503,23 @@
     if(csvState.rows.length>20){const tr=el("tr","");tr.append(el("td","muted","Yana "+(csvState.rows.length-20)+" qator preview’da ko‘rsatilmagan"));body.append(tr);}
     renderImportDiff(valid);
   }
+  function renderImportHistory(items){
+    const root=$("excel-history");root.replaceChildren();
+    if(!Array.isArray(items)||!items.length){root.append(el("div","muted","Hozircha import tarixi yo‘q."));return;}
+    items.slice().reverse().forEach(item=>{
+      const row=el("div","alert");
+      const left=el("div","");
+      left.append(el("strong","",item.file_name||"Excel import"));
+      const detail=[item.sheet||"",item.created_at||""].filter(Boolean).join(" · ");
+      left.append(el("div","muted",detail));
+      const right=el("span","pill",fmt(item.processed)+" qator");
+      row.append(left,right);root.append(row);
+    });
+  }
+  async function loadImportHistory(){
+    const bootstrap=await api("/sc-api/v1/bootstrap");
+    renderImportHistory(bootstrap.recent_imports||[]);
+  }
   async function renderImportDiff(rows){
     const seq=++importPreviewSeq;
     importRows=rows.map(r=>({sku:r.sku,name:r.name,quantity:r.quantity,unit:r.unit,unit_cost:r.cost,reorder_point:r.reorder}));
@@ -511,6 +532,7 @@
       const products=await fetchAllPages("/sc-api/v1/inventory");
       if(seq!==importPreviewSeq)return;
       importVersion=Number(bootstrap.data_version||1);
+      renderImportHistory(bootstrap.recent_imports||[]);
       inventoryBaseline=new Map(products.map(p=>[String(p.sku).toLocaleLowerCase(),p]));
       const diffs=importRows.map(row=>{
         const old=inventoryBaseline.get(row.sku.toLocaleLowerCase());
@@ -560,6 +582,7 @@
       $("excel-confirm-check").checked=false;
       importRows=[];inventoryBaseline=null;importVersion=null;
       await refreshAll();
+      await loadImportHistory();
       $("excel-diff").replaceChildren(el("div","alert good","Import saqlandi va ombor yangilandi."));
       $("excel-import-confirm").disabled=true;
     }catch(error){
@@ -652,7 +675,7 @@
     if(view==="analytics")loadAnalytics().catch(e=>showNotice("Analytics yuklanmadi",e.message,true));
     if(view==="procurement")loadProcurement().catch(e=>showNotice("Xarid yuklanmadi",e.message,true));
     if(view==="logistics")loadLogistics().catch(e=>showNotice("Logistika yuklanmadi",e.message,true));
-    if(view==="excel"){}
+    if(view==="excel")loadImportHistory().catch(e=>$("excel-history").replaceChildren(el("div","alert error",e.message)));
     if(view==="reports")$("report-status").textContent="Hisobotlar tayyor. Kerakli eksport turini tanlang.";
   }
   document.querySelectorAll(".nav button").forEach(b=>b.addEventListener("click",()=>switchView(b.dataset.view)));
