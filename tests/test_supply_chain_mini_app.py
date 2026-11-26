@@ -46,7 +46,7 @@ class SupplyChainMiniAppShellTests(unittest.TestCase):
         self.assertIn('rows.length>10001', self.html)
         self.assertIn('renderExcelPreview()', self.html)
         self.assertIn('serverga yuborilmaydi', self.html)
-        self.assertIn('accept=".csv,text/csv"', self.html)
+        self.assertIn('accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"', self.html)
         self.assertNotIn('/sc-api/v1/imports', self.html)
 
     def test_excel_preview_does_not_mutate_inventory(self):
