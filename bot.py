@@ -31,6 +31,7 @@ import museum
 import supply_chain
 import supply_chain_api as sc_api
 import supply_chain_tenants as sc_tenants
+import supply_chain_telegram_tenants as sc_telegram_tenants
 import supply_chain_persistence as sc_persistence
 import supply_chain_mini_app_import as sc_import
 import october_plus
@@ -14931,6 +14932,10 @@ def main():
     app.add_handler(TypeHandler(Update, track_usage), group=-1)
     app.add_handler(CommandHandler("start", start_command))
     supply_chain.install(app, load_json, save_json, OWNER_CHAT_ID, ai_client=ai_client, ai_model=AI_MODEL_NAME)
+    if USE_DB:
+        sc_telegram_tenants.register_telegram_company_selector(
+            app, lambda: sc_tenants.TenantStore(_db_request)
+        )
     app.add_error_handler(_on_error)
     app.add_handler(CommandHandler("rol", role_command))
     app.add_handler(CommandHandler("role", role_command))
