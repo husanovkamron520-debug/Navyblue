@@ -15,7 +15,7 @@ class ArchivedFeatureTests(unittest.TestCase):
         self.assertNotIn("MessageHandler(filters.StatusUpdate.WEB_APP_DATA, puzzle_webapp_data)", BOT_SOURCE)
         self.assertNotIn("cw_match = re.match(", BOT_SOURCE)
 
-    def test_active_menu_contains_only_logistics_and_education_at_top_level(self):
+    def test_collapsed_menu_removes_legacy_keyboard_and_role_menus_hide_archived_tools(self):
         tree = ast.parse(BOT_SOURCE)
         functions = {
             node.name: ast.get_source_segment(BOT_SOURCE, node)
@@ -25,8 +25,9 @@ class ArchivedFeatureTests(unittest.TestCase):
         collapsed = functions["collapsed_menu"]
         teacher = functions["teacher_menu"]
         student = functions["student_menu"]
-        self.assertIn("rows.append([BTN_EDU])", collapsed)
-        self.assertIn("rows.append([BTN_SUPPLY])", collapsed)
+        self.assertIn("return ReplyKeyboardRemove()", collapsed)
+        self.assertNotIn("BTN_EDU", collapsed)
+        self.assertNotIn("BTN_SUPPLY", collapsed)
         for menu in (teacher, student):
             self.assertNotIn("BTN_CROSS", menu)
             self.assertNotIn("BTN_TASK", menu)
