@@ -9,6 +9,7 @@ from supply_chain_telegram_tenants import (
     telegram_company_list,
     telegram_company_select,
     telegram_inventory_overview,
+    telegram_inventory_add,
 )
 
 
@@ -263,6 +264,104 @@ class TelegramCompanySelectorTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertIn("tekshirib bo'lmadi", message.text.lower())
         self.assertEqual(store.snapshot_calls, [])
+
+
+class InventoryWriteStore(SelectorStore):
+    def __init__(self, allowed_company=COMPANY_A, role="warehouse"):
+        super().__init__(allowed_company=allowed_company, role=role)
+        self.data = {"version": 1, "products": {}}
+        self.receipts = {}
+
+    def load_snapshot_record(self, company_id):
+        import copy
+        self.snapshot_calls.append(company_id)
+        return {"company_id": company_id, "version": self.data["version"],
+                "data": copy.deepcopy(self.data)}
+
+    def mutate_snapshot(self, company_id, telegram_user_id, permission, mutator,
+                        expected_version=None, operation_id=None, request_hash=None):
+        import copy
+        self.require_permission(company_id, telegram_user_id, permission)
+        prior = self.receipts.get(operation_id)
+        if prior:
+            if prior["hash"] != request_hash:
+                raise ValueError("idempotency conflict")
+            return {"result": prior["result"], "version": prior["version"],
+                    "replayed": True}
+        if expected_version != self.data["version"]:
+            raise RuntimeError("version conflict")
+        candidate = copy.deepcopy(self.data)
+        result = mutator(candidate)
+        candidate["version"] += 1
+        self.data = candidate
+        self.receipts[operation_id] = {
+            "hash": request_hash, "result": copy.deepcopy(result),
+            "version": candidate["version"],
+        }
+        return {"result": result, "version": candidate["version"], "replayed": False}
+
+
+class TelegramInventoryAddTests(unittest.IsolatedAsyncioTestCase):
+    def make_update(self, text, update_id=700, chat_type="private"):
+        message = FakeMessage()
+        message.text = text
+        return SimpleNamespace(
+            update_id=update_id,
+            effective_chat=SimpleNamespace(type=chat_type),
+            effective_user=SimpleNamespace(id=42),
+            effective_message=message,
+        ), message
+
+    async def test_inventory_add_is_tenant_scoped_and_replay_safe(self):
+        store = InventoryWriteStore()
+        update_obj, message = self.make_update(
+            "/sc_qosh SKU-03 | Shakar | 100 | kg | 10"
+        )
+        context = SimpleNamespace(user_data={"sc_active_company_id": COMPANY_A})
+        await telegram_inventory_add(update_obj, context, lambda: store)
+        self.assertIn("SKU-03", store.data["products"])
+        self.assertEqual(store.data["products"]["SKU-03"]["quantity"], 100)
+        self.assertIn("qo'shildi", message.text.lower())
+        self.assertEqual(store.data["version"], 2)
+
+        # Telegram redelivery uses the same update ID and must replay, not add again.
+        update_obj2, message2 = self.make_update(
+            "/sc_qosh SKU-03 | Shakar | 100 | kg | 10"
+        )
+        update_obj2.update_id = update_obj.update_id
+        await telegram_inventory_add(update_obj2, context, lambda: store)
+        self.assertEqual(len(store.data["products"]), 1)
+        self.assertIn("takroriy so'rov", message2.text.lower())
+        self.assertEqual(store.data["version"], 2)
+
+    async def test_inventory_add_rejects_foreign_company_before_write(self):
+        store = InventoryWriteStore(allowed_company=COMPANY_A)
+        update_obj, message = self.make_update(
+            "/sc_qosh SKU-04 | Un | 20 | qop | 2"
+        )
+        context = SimpleNamespace(user_data={"sc_active_company_id": COMPANY_B})
+        await telegram_inventory_add(update_obj, context, lambda: store)
+        self.assertEqual(store.data["products"], {})
+        self.assertIn("tekshirib bo'lmadi", message.text.lower())
+
+    async def test_inventory_add_rejects_invalid_numbers_and_duplicate_sku(self):
+        store = InventoryWriteStore()
+        update_obj, message = self.make_update(
+            "/sc_qosh SKU-05 | Un | -3 | qop | 2"
+        )
+        context = SimpleNamespace(user_data={"sc_active_company_id": COMPANY_A})
+        await telegram_inventory_add(update_obj, context, lambda: store)
+        self.assertEqual(store.data["products"], {})
+        self.assertIn("manfiy", message.text.lower())
+
+        update_obj2, message2 = self.make_update(
+            "/sc_qosh SKU-06 | Un | 3 | qop | 2"
+        )
+        # Pre-seed the duplicate SKU to verify the mutation refuses overwrite.
+        store.data["products"]["SKU-06"] = {"sku": "SKU-06", "name": "Existing"}
+        await telegram_inventory_add(update_obj2, context, lambda: store)
+        self.assertEqual(store.data["products"]["SKU-06"]["name"], "Existing")
+        self.assertIn("saqlanmadi", message2.text.lower())
 
 
 if __name__ == "__main__":
