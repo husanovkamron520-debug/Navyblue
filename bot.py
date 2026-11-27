@@ -513,6 +513,10 @@ MENU_OPEN = set()  # Ta'lim bo'limi ochilgan chatlar (qayta ishga tushsa yopilad
 SUPABASE_URL = (os.environ.get("SUPABASE_URL") or "").strip().rstrip("/")
 SUPABASE_KEY = (os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or "").strip()
 USE_DB = bool(SUPABASE_URL and SUPABASE_KEY)
+# Public self-service company registration stays disabled until end-to-end tenant
+# isolation is verified. The configured owner can still create the first tenant.
+SC_PUBLIC_SIGNUP_ENABLED = (os.environ.get("SC_PUBLIC_SIGNUP_ENABLED", "false").strip().lower()
+                            in {"1", "true", "yes", "on"})
 STORAGE_TABLE = "bot_storage"
 
 _cache = {}
@@ -1511,6 +1515,11 @@ def run_health_server():
                                        "meta": {"request_id": uuid.uuid4().hex}, "error": None})
                         return
                     if action == "create_company":
+                        if (not SC_PUBLIC_SIGNUP_ENABLED
+                                and (not OWNER_CHAT_ID
+                                     or telegram_user_id != int(OWNER_CHAT_ID))):
+                            raise sc_tenants.PermissionDenied(
+                                "Ommaviy korxona ro'yxati hali yoqilmagan.")
                         company = tenant_store.create_company(
                             payload.get("name"), telegram_user_id)
                         companies = tenant_store.list_companies(telegram_user_id)
