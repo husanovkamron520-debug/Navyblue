@@ -66,8 +66,10 @@ class TenantStore:
     def _slug(value: str) -> str:
         slug = re.sub(r"[^a-z0-9]+", "-", str(value or "").strip().lower()).strip("-")
         slug = slug[:63].strip("-")
+        # Cyrillic and other non-Latin company names are valid. The slug is
+        # an internal URL-safe identifier, so fall back to a random neutral base.
         if len(slug) < 2:
-            raise ValueError("Korxona nomidan yaroqli identifikator yasab bo'lmadi.")
+            slug = "company-" + secrets.token_hex(4)
         return slug
 
     def create_company(self, name: str, owner_telegram_id: int) -> dict:
