@@ -223,6 +223,40 @@ class TenantStoreTests(unittest.TestCase):
             )
         self.assertEqual(len(db.calls), 1)
 
+    def test_mutate_snapshot_rejects_stale_client_version_before_commit(self):
+        import supply_chain_tenants as tenants
+
+        member = {"company_id": COMPANY_A, "telegram_user_id": 101,
+                  "role": "owner", "status": "active"}
+        snapshot = {"version": 4, "products": {"A-1": {"quantity": 3}}}
+        db = SequencedTenantDB([[member], [{
+            "company_id": COMPANY_A, "data": snapshot, "version": 4,
+        }]])
+        store = tenants.TenantStore(db)
+
+        with self.assertRaises(tenants.SnapshotVersionConflict):
+            store.mutate_snapshot(
+                COMPANY_A, 101, "inventory.write",
+                lambda data: data["products"].update({"A-2": {"quantity": 7}}),
+                expected_version=3,
+            )
+
+        self.assertEqual(len(db.calls), 2)
+        self.assertEqual(db.calls[0][0], "GET")
+        self.assertEqual(db.calls[1][0], "GET")
+
+    def test_mutate_snapshot_rejects_boolean_expected_version(self):
+        import supply_chain_tenants as tenants
+
+        db = SequencedTenantDB([])
+        store = tenants.TenantStore(db)
+        with self.assertRaises(ValueError):
+            store.mutate_snapshot(
+                COMPANY_A, 101, "inventory.write", lambda data: None,
+                expected_version=True,
+            )
+        self.assertEqual(db.calls, [])
+
     def test_mutate_snapshot_rejects_mismatched_database_and_document_versions(self):
         import supply_chain_tenants as tenants
 
