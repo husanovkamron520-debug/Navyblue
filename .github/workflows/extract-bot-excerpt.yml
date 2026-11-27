@@ -1,0 +1,32 @@
+name: Extract bot excerpt (analysis only)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "scripts/extract_bot_excerpt.py"
+      - ".github/workflows/extract-bot-excerpt.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Extract excerpt
+        run: python scripts/extract_bot_excerpt.py
+      - name: Push excerpt to a separate branch (does not touch main)
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b analysis-excerpt
+          git add -f analysis/bot_excerpt.txt
+          git commit -m "Bot excerpt for analysis"
+          git push -f origin analysis-excerpt
