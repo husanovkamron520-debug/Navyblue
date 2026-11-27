@@ -50,7 +50,7 @@ A separate `supply_chain_telegram_tenants.py` module now provides a fail-closed 
 
 This is authorization groundwork only. The existing Telegram handlers do not call this resolver, and the owner-only guard remains unchanged.
 
-A private `/sc` command and `sctenant:` callback are now registered when Supabase is configured. They list only the caller's active memberships, then re-check membership before storing the selected company ID in `context.user_data`. The callback explicitly tells the user that selection is not authorization and that Telegram Supply Chain actions are not yet connected. No inventory or other tenant business handler is enabled by this selector.
+A private `/sc` command and `sctenant:` callback are now registered when Supabase is configured. They list only the caller's active memberships, then re-check membership before storing the selected company ID in `context.user_data`. The callback explicitly tells the user that selection is not authorization and that Telegram Supply Chain actions are not yet connected. The read-only `/sc_ombor` command is also enabled: it revalidates `inventory.read` membership before loading the selected company's snapshot and displays at most 15 products. It has no write path. All inventory mutations and other tenant business handlers remain disabled.
 
 
 ## Required design before enabling company-member Telegram handlers
