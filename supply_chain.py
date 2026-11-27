@@ -725,6 +725,54 @@ _APPLY = {
     "scenario_add": _parse_scenario,
 }
 
+# Explicit fail-closed permission inventory for the future tenant Telegram adapter.
+# None means "unknown action: deny"; an empty tuple is a known non-mutating/navigation action.
+_TENANT_ACTION_PERMISSIONS = {
+    "text": {
+        "add": ("inventory.write",), "in": ("inventory.write",), "out": ("inventory.write",),
+        "supplier_add": ("procurement.write",), "order_add": ("procurement.write",),
+        "vehicle_add": ("logistics.write",), "shipment_add": ("logistics.write",),
+        "demand_add": ("planning.write",), "scenario_add": ("planning.write",),
+        "excel_confirm": ("inventory.write",),
+        "excel_upload": (), "excel_map": (), "excel_clarify": (), "ai_ask": (),
+    },
+    "callback": {
+        "home": (), "full_menu": (), "reports": (), "buy": (), "transport": (), "sim": (),
+        "inventory": ("inventory.read",), "low_stock": ("inventory.read",), "today": ("inventory.read",),
+        "dashboard": ("reports.read",), "forecast": ("reports.read",), "abc": ("reports.read",),
+        "eoq": ("reports.read",), "risks": ("reports.read",), "demand_history": ("reports.read",),
+        "scenario_list": ("reports.read",), "suppliers": ("procurement.read",),
+        "orders": ("procurement.read",), "vehicles": ("logistics.read",), "shipments": ("logistics.read",),
+        "export_xlsx": ("reports.read",), "export_pdf": ("reports.read",),
+        "ship_dispatch": ("logistics.write", "inventory.write"),
+        "ship_deliver": ("logistics.write",), "ship_cancel": ("logistics.write",),
+        "ord_ordered": ("procurement.write",), "ord_received": ("procurement.write", "inventory.write"),
+        "ord_cancel": ("procurement.write",),
+        "magic_save_all": ("inventory.write",), "magic_save_matched": ("inventory.write",),
+        "magic_confirm": ("inventory.write",), "magic_remove": (), "magic_link": (),
+        "magic_map": (), "magic_back_doc": (), "magic_cancel": (),
+        "aiq_draft": ("procurement.write",), "ai_cart_confirm": ("procurement.write",),
+        "alert_snooze": ("inventory.write",), "ai": (), "ai_report": (), "ai_custom": (),
+        "ai_cart": (),
+    },
+    "view": {
+        "inventory": ("inventory.read",), "dashboard": ("reports.read",),
+        "forecast": ("reports.read",), "abc": ("reports.read",), "eoq": ("reports.read",),
+        "risks": ("reports.read",), "demand_history": ("reports.read",),
+        "suppliers": ("procurement.read",), "vehicles": ("logistics.read",),
+        "scenario_list": ("reports.read",),
+    },
+}
+
+
+def tenant_permissions_for_action(action: str, source: str = "callback") -> tuple[str, ...] | None:
+    """Return the complete permission set for an action; None means unknown/deny."""
+    if not isinstance(action, str) or source not in _TENANT_ACTION_PERMISSIONS:
+        return None
+    return _TENANT_ACTION_PERMISSIONS[source].get(action)
+
+
+
 
 
 def _safe_num(value: Any) -> float:
