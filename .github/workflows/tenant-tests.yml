@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "bot.py"
+      - "supply_chain_mini_app.html"
       - "supply_chain_api.py"
       - "supply_chain_tenants.py"
       - "tests/test_tenant_sessions.py"
@@ -26,3 +27,15 @@ jobs:
           python-version: "3.11"
       - name: Run tenant session tests
         run: python -m unittest discover -s tests -p "test_tenant_sessions.py" -v
+      - name: Check Mini App JavaScript syntax
+        run: |
+          python - <<'PY'
+          import re
+          from pathlib import Path
+          html = Path("supply_chain_mini_app.html").read_text(encoding="utf-8")
+          scripts = re.findall(r"<script>\\s*(.*?)</script>", html, re.S)
+          if not scripts:
+              raise SystemExit("Inline Mini App script not found")
+          Path("/tmp/supply-chain-mini-app.js").write_text(scripts[0], encoding="utf-8")
+          PY
+          node --check /tmp/supply-chain-mini-app.js
