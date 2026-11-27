@@ -2511,9 +2511,9 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
     await update.message.reply_text(
-        "🚚 Supply Chain tizimiga xush kelibsiz!\\n\\n"
+        "🚚 Supply Chain tizimiga xush kelibsiz!\n\n"
         "Korxona ma'lumotlariga kirish uchun egasidan taklif kodini oling. "
-        "Kirish huquqingizga qarab ombor, xarid, transport va Excel hisobotlari bilan ishlashingiz mumkin.\\n\\n"
+        "Kirish huquqingizga qarab ombor, xarid, transport va Excel hisobotlari bilan ishlashingiz mumkin.\n\n"
         "Taklif kodini keyingi oynada kiriting.",
         reply_markup=InlineKeyboardMarkup([[
             InlineKeyboardButton(
@@ -14598,9 +14598,9 @@ async def telegram_password_recovery_start(update: Update, context: ContextTypes
         )
         return
     await message.reply_text(
-        "🔐 Parolni tiklash\\n\\n"
+        "🔐 Parolni tiklash\n\n"
         "Havolani oching va yangi parol kiriting. Havola 15 daqiqa amal qiladi, "
-        "bir marta ishlatiladi.\\n\\n"
+        "bir marta ishlatiladi.\n\n"
         + recovery_url,
         disable_web_page_preview=True,
     )
