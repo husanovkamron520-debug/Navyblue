@@ -182,6 +182,61 @@ class TenantStoreTests(unittest.TestCase):
         with self.assertRaises(tenants.PermissionDenied):
             tenants.TenantStore(db).require_permission(COMPANY_A, 101, "procurement.write")
 
+    def test_mutate_snapshot_authorizes_and_commits_only_the_bound_company(self):
+        import supply_chain_tenants as tenants
+
+        member = {"company_id": COMPANY_A, "telegram_user_id": 101,
+                  "role": "warehouse", "status": "active"}
+        snapshot = {"version": 4, "products": {"A-1": {"quantity": 3}}}
+        db = SequencedTenantDB([[member], [{
+            "company_id": COMPANY_A, "data": snapshot, "version": 4,
+        }], 5])
+        store = tenants.TenantStore(db)
+
+        result = store.mutate_snapshot(
+            COMPANY_A, 101, "inventory.write",
+            lambda data: data["products"].update({"A-2": {"quantity": 7}}),
+        )
+
+        self.assertEqual(result["company_id"], COMPANY_A)
+        self.assertEqual(result["version"], 5)
+        self.assertEqual(result["snapshot"]["products"]["A-2"]["quantity"], 7)
+        self.assertEqual(db.calls[0][0], "GET")
+        self.assertIn("company_id=eq." + COMPANY_A, db.calls[0][1])
+        self.assertEqual(db.calls[1][0], "GET")
+        self.assertIn("company_id=eq." + COMPANY_A, db.calls[1][1])
+        self.assertEqual(db.calls[2][1], "rpc/sc_commit_company_snapshot")
+        self.assertEqual(db.calls[2][2]["p_company_id"], COMPANY_A)
+        self.assertEqual(db.calls[2][2]["p_expected_version"], 4)
+
+    def test_mutate_snapshot_denies_wrong_role_before_loading_or_writing(self):
+        import supply_chain_tenants as tenants
+
+        member = {"company_id": COMPANY_A, "telegram_user_id": 101,
+                  "role": "warehouse", "status": "active"}
+        db = SequencedTenantDB([[member]])
+        store = tenants.TenantStore(db)
+        with self.assertRaises(tenants.PermissionDenied):
+            store.mutate_snapshot(
+                COMPANY_A, 101, "procurement.write",
+                lambda data: data.update({"tampered": True}),
+            )
+        self.assertEqual(len(db.calls), 1)
+
+    def test_mutate_snapshot_rejects_mismatched_database_and_document_versions(self):
+        import supply_chain_tenants as tenants
+
+        member = {"company_id": COMPANY_A, "telegram_user_id": 101,
+                  "role": "owner", "status": "active"}
+        inconsistent = {"version": 3, "products": {}}
+        db = SequencedTenantDB([[member], [{
+            "company_id": COMPANY_A, "data": inconsistent, "version": 4,
+        }]])
+        store = tenants.TenantStore(db)
+        with self.assertRaises(tenants.TenantError):
+            store.mutate_snapshot(COMPANY_A, 101, "inventory.write", lambda data: None)
+        self.assertEqual(len(db.calls), 2)
+
     def test_snapshot_compare_and_swap_requires_next_version(self):
         import supply_chain_tenants as tenants
 
