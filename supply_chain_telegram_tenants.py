@@ -117,3 +117,102 @@ def resolve_telegram_tenant_context(
         snapshot=snapshot,
         version=version,
     )
+
+
+async def telegram_company_list(update: Any, context: Any, tenant_store_factory: Any) -> None:
+    """Show the caller's active company memberships; this does not open data."""
+    chat = getattr(update, "effective_chat", None)
+    user = getattr(update, "effective_user", None)
+    message = getattr(update, "effective_message", None)
+    if (not chat or not user or str(getattr(chat, "type", "")) != "private"
+            or message is None):
+        return
+    try:
+        store = tenant_store_factory()
+        companies = store.list_companies(int(user.id))
+    except Exception:
+        await message.reply_text("Korxonalar ro'yxatini hozir yuklab bo'lmadi. Keyinroq urinib ko'ring.")
+        return
+
+    if not companies:
+        await message.reply_text(
+            "Siz hali hech qaysi korxonaga faol a'zo emassiz. "
+            "Korxona egasidan taklif havolasi yoki kodini oling."
+        )
+        return
+
+    # Import Telegram UI types lazily so this module's authorization helpers
+    # remain independently testable without Telegram objects.
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
+    rows = []
+    for row in companies[:20]:
+        if not isinstance(row, dict):
+            continue
+        company = row.get("sc_companies")
+        if isinstance(company, list):
+            company = company[0] if company else None
+        if not isinstance(company, dict):
+            continue
+        company_id = company.get("id") or row.get("company_id")
+        name = str(company.get("name") or "Korxona").strip()[:48]
+        if not isinstance(company_id, str) or not _COMPANY_ID.fullmatch(company_id):
+            continue
+        rows.append([InlineKeyboardButton(
+            f"{name} · {str(row.get('role') or 'a’zo')[:16]}",
+            callback_data="sctenant:" + company_id.lower(),
+        )])
+    if not rows:
+        await message.reply_text("Faol korxonalar ro'yxatida yaroqli yozuv topilmadi.")
+        return
+    await message.reply_text(
+        "Ishlamoqchi bo'lgan korxonangizni tanlang. Tanlovning o'zi ruxsat bermaydi; "
+        "har bir amal oldidan a'zolik qayta tekshiriladi.",
+        reply_markup=InlineKeyboardMarkup(rows),
+    )
+
+
+async def telegram_company_select(update: Any, context: Any, tenant_store_factory: Any) -> None:
+    """Select a company only after rechecking the caller's active membership."""
+    query = getattr(update, "callback_query", None)
+    chat = getattr(update, "effective_chat", None)
+    user = getattr(update, "effective_user", None)
+    if (query is None or not chat or not user
+            or str(getattr(chat, "type", "")) != "private"):
+        return
+    raw = str(getattr(query, "data", "") or "")
+    company_id = raw.partition(":")[2]
+    if not _COMPANY_ID.fullmatch(company_id):
+        await query.answer("Korxona identifikatori noto'g'ri.", show_alert=True)
+        return
+    try:
+        store = tenant_store_factory()
+        member = store.membership(company_id, int(user.id))
+        if not isinstance(member, dict) or member.get("status") != "active":
+            await query.answer("Bu korxonaga faol a'zoligingiz yo'q.", show_alert=True)
+            return
+        user_data = getattr(context, "user_data", None)
+        if not isinstance(user_data, dict):
+            await query.answer("Foydalanuvchi sessiyasi mavjud emas.", show_alert=True)
+            return
+        select_active_company(user_data, company_id)
+        await query.answer("Korxona tanlandi.")
+        await query.edit_message_text(
+            "Tanlangan korxona: " + company_id[:8] +
+            "\nBu faqat tanlov. Ombor amallari hali tenant rejimiga ulanmagan."
+        )
+    except Exception:
+        await query.answer("A'zolikni tekshirib bo'lmadi. Keyinroq urinib ko'ring.", show_alert=True)
+
+
+def register_telegram_company_selector(app: Any, tenant_store_factory: Any) -> None:
+    """Register the safe /sc company selector; no business handlers are enabled."""
+    from telegram.ext import CallbackQueryHandler, CommandHandler
+
+    app.add_handler(CommandHandler("sc", lambda update, context: telegram_company_list(
+        update, context, tenant_store_factory
+    )))
+    app.add_handler(CallbackQueryHandler(
+        lambda update, context: telegram_company_select(update, context, tenant_store_factory),
+        pattern=r"^sctenant:",
+    ))
