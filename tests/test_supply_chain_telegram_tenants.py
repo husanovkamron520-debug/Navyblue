@@ -1,4 +1,7 @@
 import unittest
+import sys
+import types
+from unittest.mock import patch
 from types import SimpleNamespace
 
 from supply_chain_telegram_tenants import (
@@ -185,7 +188,20 @@ class TelegramCompanySelectorTests(unittest.IsolatedAsyncioTestCase):
             effective_user=SimpleNamespace(id=42),
             effective_message=message,
         )
-        await telegram_company_list(update_obj, SimpleNamespace(), SelectorStore)
+        class Button:
+            def __init__(self, text, callback_data):
+                self.text = text
+                self.callback_data = callback_data
+
+        class Markup:
+            def __init__(self, inline_keyboard):
+                self.inline_keyboard = inline_keyboard
+
+        telegram_stub = types.ModuleType("telegram")
+        telegram_stub.InlineKeyboardButton = Button
+        telegram_stub.InlineKeyboardMarkup = Markup
+        with patch.dict(sys.modules, {"telegram": telegram_stub}):
+            await telegram_company_list(update_obj, SimpleNamespace(), SelectorStore)
         self.assertIn("tanlang", message.text.lower())
         self.assertEqual(len(message.reply_markup.inline_keyboard), 1)
         self.assertEqual(
