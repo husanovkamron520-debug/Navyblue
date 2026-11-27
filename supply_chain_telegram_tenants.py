@@ -402,12 +402,12 @@ async def telegram_inventory_movement(update: Any, context: Any, tenant_store_fa
     if not separator:
         command = "sc_kirim" if action == "in" else "sc_chiqim"
         await message.reply_text(
-            f"Format: /{command} SKU | Miqdor | Izoh\\n"
+            f"Format: /{command} SKU | Miqdor | Izoh\n"
             f"Misol: /{command} SKU-01 | 25 | Ombor hujjati"
         )
         return
     parts = [part.strip() for part in raw.split("|", 2)]
-    if len(parts) != 3 or not parts[0] or not parts[2] or any("\\n" in p or "\\r" in p for p in parts):
+    if len(parts) != 3 or not parts[0] or not parts[2] or any("\n" in p or "\r" in p for p in parts):
         await message.reply_text("3 ta maydon kerak: SKU | Miqdor | Izoh")
         return
     sku, amount_raw, note = parts
@@ -481,7 +481,7 @@ async def telegram_inventory_movement(update: Any, context: Any, tenant_store_fa
         replay = " (takroriy so'rov — qayta qo'shilmadi)" if result.get("replayed") else ""
         await message.reply_text(
             f"✅ {label}: {item.get('name', sku)} · {item.get('quantity', amount):g} "
-            f"{item.get('unit', 'dona')}\\nQoldiq: {item.get('remaining', 0):g} "
+            f"{item.get('unit', 'dona')}\nQoldiq: {item.get('remaining', 0):g} "
             f"{item.get('unit', 'dona')}{replay}"
         )
     except TelegramTenantContextError as exc:
