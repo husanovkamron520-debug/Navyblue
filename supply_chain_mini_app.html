@@ -91,6 +91,7 @@
     <button data-view="logistics">Logistika</button>
     <button data-view="excel">Excel Workspace</button>
     <button data-view="reports">Hisobotlar</button>
+    <button data-view="ai" id="ai-nav" hidden>AI yordamchi</button>
   </nav>
   <main id="app-main">
     <section id="dashboard-view">
@@ -208,6 +209,15 @@
         <div id="excel-import-status" class="muted" style="font-size:12px;margin-top:10px">Hozircha hech narsa saqlanmadi.</div>
       </div>
     </section>
+    <section id="ai-view" hidden>
+      <div class="section-head"><div><h2>AI yordamchi</h2><p>Faqat tanlangan korxonaning ma’lumotlari asosida maslahat va tahlil</p></div></div>
+      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr))">
+        <div class="card"><div class="chart-title">🤖 AI maslahat</div><div class="chart-sub">Bugungi eng muhim xavf va amaliy tavsiyalar</div><button class="retry" id="ai-advice" style="width:100%;margin-top:14px">Maslahat olish</button></div>
+        <div class="card"><div class="chart-title">📊 AI tahlil</div><div class="chart-sub">Ombor, xarid, yetkazib beruvchi va logistika tahlili</div><button class="retry" id="ai-analysis" style="width:100%;margin-top:14px">To‘liq tahlil</button></div>
+        <div class="card"><div class="chart-title">💬 AI savol-javob</div><div class="chart-sub">Korxonangiz ma’lumotlari bo‘yicha o‘zingiz savol bering</div><textarea id="ai-question" rows="3" maxlength="2000" placeholder="Masalan: Qaysi mahsulotni qayta buyurtma qilishim kerak?" style="width:100%;margin-top:12px;border:1px solid var(--line);border-radius:10px;padding:10px;resize:vertical"></textarea><button class="retry" id="ai-question-submit" style="width:100%;margin-top:8px">Savol yuborish</button></div>
+      </div>
+      <div class="card" style="margin-top:12px"><div class="chart-title">AI javobi</div><div id="ai-status" class="muted" aria-live="polite">Kerakli tugmani tanlang.</div><div id="ai-answer" style="white-space:pre-wrap;overflow-wrap:anywhere;margin-top:10px"></div></div>
+    </section>
     <section id="reports-view" hidden>
       <div class="section-head"><div><h2>Hisobotlar va eksport</h2><p>Joriy ma’lumotlardan CSV yoki Excel hisobotlar yaratish</p></div><button class="retry" id="reports-refresh">Yangilash</button></div>
       <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr))">
@@ -296,6 +306,7 @@
     if(!data.session?.token||!data.selected)throw new Error("Korxona sessiyasi yaratilmadi.");
     token=data.session.token;tenantCompanyId=data.selected.company_id;
     tenantRole=data.selected.role||"";tenantMode=true;
+    $("ai-nav").hidden=false;
     $("tenant-role").textContent=tenantRole;
     $("tenant-owner-tools").hidden=!(tenantRole==="owner"||tenantRole==="admin");
     $("tenant-migrate").hidden=tenantRole!=="owner";
@@ -1024,7 +1035,7 @@
     catch(err){ $("connection").textContent="Xatolik"; $("alerts").replaceChildren(el("div","alert error",err.message||"Ma'lumot yuklanmadi.")); showNotice("Ma’lumot yuklanmadi",err.message,true); }
   }
   function switchView(view) {
-    currentView=view;["dashboard","inventory","analytics","procurement","logistics","excel","reports"].forEach(v=>{const node=$(v+"-view");if(node)node.hidden=view!==v;});
+    currentView=view;["dashboard","inventory","analytics","procurement","logistics","excel","reports","ai"].forEach(v=>{const node=$(v+"-view");if(node)node.hidden=view!==v;});
     document.querySelectorAll(".nav button").forEach(b=>b.classList.toggle("active",b.dataset.view===view));
     if(view==="inventory")loadInventory().catch(e=>showNotice("Ombor yuklanmadi",e.message,true));
     if(view==="analytics")loadAnalytics().catch(e=>showNotice("Analytics yuklanmadi",e.message,true));
@@ -1087,6 +1098,20 @@
     }catch(error){$("tenant-status").textContent="Ko‘chirish bajarilmadi: "+error.message;}
     finally{$("tenant-migrate").disabled=false;}
   });
+  async function runTenantAI(action, question=""){
+    const status=$("ai-status"),answer=$("ai-answer");
+    const buttons=[$("ai-advice"),$("ai-analysis"),$("ai-question-submit")];
+    if(action==="question"&&question.trim().length<3){status.textContent="Savolni kamida 3 belgi bilan yozing.";return;}
+    buttons.forEach(button=>button.disabled=true);status.textContent="AI tanlangan korxona ma’lumotlarini tahlil qilmoqda…";answer.textContent="";
+    try{
+      const result=await api("/sc-api/v1/tenant/ai",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action,question})});
+      answer.textContent=result.answer||"AI javob qaytarmadi.";status.textContent="Tahlil yakunlandi. Ma’lumotlar faqat tanlangan korxonadan olindi.";
+    }catch(error){status.textContent="AI so‘rovi bajarilmadi: "+error.message;}
+    finally{buttons.forEach(button=>button.disabled=false);}
+  }
+  $("ai-advice").addEventListener("click",()=>runTenantAI("advice"));
+  $("ai-analysis").addEventListener("click",()=>runTenantAI("analysis"));
+  $("ai-question-submit").addEventListener("click",()=>runTenantAI("question",$("ai-question").value));
   $("refresh").addEventListener("click",refreshAll);$("inventory-refresh").addEventListener("click",()=>loadInventory().catch(e=>showNotice("Xatolik",e.message,true)));
   $("detail-close").addEventListener("click",()=>{$("inventory-detail").hidden=true;});$("detail-delete").addEventListener("click",()=>archiveInventoryProduct($("detail-sku").textContent,$("detail-name").textContent));
   $("analytics-refresh").addEventListener("click",()=>loadAnalytics().catch(e=>showNotice("Xatolik",e.message,true)));
