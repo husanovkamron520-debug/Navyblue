@@ -98,6 +98,7 @@ _SC_TENANT_SESSIONS = sc_api.TenantSessionStore()
 _SC_SESSION_LIMITER = sc_api.RateLimiter(max_requests=8, window_seconds=60)
 _SC_API_LIMITER = sc_api.RateLimiter(max_requests=120, window_seconds=60)
 _SC_IMPORT_LIMITER = sc_api.RateLimiter(max_requests=3, window_seconds=60)
+_SC_AI_LIMITER = sc_api.RateLimiter(max_requests=8, window_seconds=60)
 # httpx so'rov URL'larida bot tokeni chiqib qolmasligi uchun
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
@@ -1509,7 +1510,8 @@ def run_health_server():
             is_session = parsed.path == "/sc-api/v1/session"
             is_tenant_session = parsed.path == "/sc-api/v1/tenant/session"
             is_import = parsed.path == "/sc-api/v1/inventory/import"
-            if not is_session and not is_tenant_session and not is_import:
+            is_tenant_ai = parsed.path == "/sc-api/v1/tenant/ai"
+            if not is_session and not is_tenant_session and not is_import and not is_tenant_ai:
                 self._sc_error("not_found", "POST endpoint topilmadi.", 404)
                 return
             if not _SC_STORAGE_READY.is_set():
@@ -1520,7 +1522,19 @@ def run_health_server():
                 self._sc_error("rate_limited", "Juda ko'p urinish. Birozdan keyin qayta urinib ko'ring.", 429)
                 return
             tenant_import_context = None
+            tenant_ai_context = None
             is_tenant_import = False
+            if is_tenant_ai:
+                tenant_ai_context = self._sc_tenant_context("reports.read")
+                if tenant_ai_context is None:
+                    self._sc_error("unauthorized", "Korxona sessiyasi yaroqsiz yoki muddati tugagan.", 401)
+                    return
+                if tenant_ai_context is False:
+                    return
+                ai_bucket = str(tenant_ai_context.get("user_id")) + ":" + str(tenant_ai_context.get("company_id"))
+                if not _SC_AI_LIMITER.allow(ai_bucket):
+                    self._sc_error("rate_limited", "AI so‘rovlari limiti tugadi. Bir daqiqadan keyin qayta urinib ko‘ring.", 429)
+                    return
             if is_import:
                 tenant_import_context = self._sc_tenant_context("inventory.write")
                 if tenant_import_context is False:
@@ -1539,7 +1553,8 @@ def run_health_server():
                     return
             try:
                 length = int(self.headers.get("Content-Length", "0"))
-                max_length = sc_api.MAX_INIT_DATA_BYTES if (is_session or is_tenant_session) else 8_000_000
+                max_length = (sc_api.MAX_INIT_DATA_BYTES if (is_session or is_tenant_session)
+                              else (16_000 if is_tenant_ai else 8_000_000))
                 if length <= 0 or length > max_length:
                     self._sc_error("invalid_request", "So'rov hajmi noto'g'ri yoki limitdan katta.", 413)
                     return
@@ -1551,6 +1566,40 @@ def run_health_server():
                     self._sc_error("invalid_request", "So'rov to'liq kelmadi.", 400)
                     return
                 payload = json.loads(raw.decode("utf-8"))
+                if is_tenant_ai:
+                    if not isinstance(payload, dict):
+                        raise ValueError("AI so‘rovi noto‘g‘ri.")
+                    action = str(payload.get("action") or "").strip().lower()
+                    if action not in {"advice", "analysis", "question"}:
+                        raise ValueError("AI rejimi noto‘g‘ri.")
+                    user_question = str(payload.get("question") or "").strip()
+                    if action == "question" and not 3 <= len(user_question) <= 2000:
+                        raise ValueError("Savol 3–2000 belgi oralig‘ida bo‘lishi kerak.")
+                    if supply_chain._AI_CLIENT is None:
+                        self._sc_error("ai_unavailable", "AI hozir ulanmagan. Keyinroq urinib ko‘ring.", 503)
+                        return
+                    tenant_store = sc_tenants.TenantStore(_db_request)
+                    snapshot_record = tenant_store.load_snapshot_record(tenant_ai_context["company_id"])
+                    company_data = snapshot_record.get("data")
+                    if not isinstance(company_data, dict):
+                        raise sc_tenants.TenantError("Korxona ma’lumotlari topilmadi.")
+                    ai_snapshot = supply_chain._ai_snapshot(company_data)
+                    if action == "advice":
+                        prompt = "Bugungi korxona ma’lumotlariga qarab eng muhim 3 ta amaliy Supply Chain tavsiyasini ber. Avval eng muhim xavfni ayt, faqat dalil bilan gapir."
+                        answer = supply_chain._ask_gemini_quick_sync(
+                            supply_chain._AI_CLIENT, supply_chain._AI_MODEL, prompt, ai_snapshot, "")
+                    elif action == "analysis":
+                        prompt = "Korxonaning ombor, xarid, yetkazib beruvchilar va logistika holatini mavjud ma’lumotlar asosida tahlil qil. Kuchli tomonlar, xavflar, ma’lumot yetishmovchiligi va ustuvor choralarni ajrat. Hisoblanmagan KPIlarni taxmin qilma."
+                        answer = supply_chain._ask_gemini_sync(
+                            supply_chain._AI_CLIENT, supply_chain._AI_MODEL, prompt, ai_snapshot, "")
+                    else:
+                        answer = supply_chain._ask_gemini_sync(
+                            supply_chain._AI_CLIENT, supply_chain._AI_MODEL, user_question, ai_snapshot, "")
+                    note_ai_call()
+                    self._sc_json({"data": {"answer": answer, "action": action},
+                                   "meta": {"request_id": uuid.uuid4().hex}, "error": None})
+                    return
+
                 if is_session:
                     init_data = payload.get("initData") if isinstance(payload, dict) else None
                     user = sc_api.validate_init_data(init_data, TELEGRAM_BOT_TOKEN, OWNER_CHAT_ID)
