@@ -15,6 +15,8 @@ from supply_chain_telegram_tenants import (
     telegram_inventory_add,
     telegram_inventory_movement,
     telegram_supplier_add,
+    telegram_purchase_order_add,
+    telegram_purchase_order_transition,
 )
 
 
@@ -504,6 +506,100 @@ class TelegramSupplierAddTests(unittest.IsolatedAsyncioTestCase):
         await telegram_supplier_add(update_obj, context, lambda: store)
         self.assertEqual(store.data["suppliers"], {})
         self.assertIn("0–3650", message.text)
+
+
+class PurchaseOrderWriteStore(InventoryWriteStore):
+    def __init__(self, role="owner", allowed_company=COMPANY_A):
+        super().__init__(allowed_company=allowed_company, role=role)
+        self.data["products"] = {
+            "SKU-01": {"sku": "SKU-01", "name": "Un", "quantity": 10,
+                       "unit": "qop", "unit_cost": 100.0}
+        }
+        self.data["suppliers"] = {
+            "SUP-01": {"id": "SUP-01", "name": "Atlas Textile", "lead_time_days": 5}
+        }
+        self.data["orders"] = []
+
+class TelegramPurchaseOrderTests(unittest.IsolatedAsyncioTestCase):
+    def make_update(self, text, update_id=2201):
+        message = FakeMessage()
+        message.text = text
+        return SimpleNamespace(
+            update_id=update_id,
+            effective_chat=SimpleNamespace(type="private"),
+            effective_user=SimpleNamespace(id=42),
+            effective_message=message,
+        ), message
+
+    async def test_create_order_is_company_scoped_and_replay_safe(self):
+        store = PurchaseOrderWriteStore(role="purchasing")
+        context = SimpleNamespace(user_data={"sc_active_company_id": COMPANY_A})
+        update_obj, message = self.make_update(
+            "/sc_buyurtma SKU-01 | SUP-01 | 5 | 200 | 2026-12-05"
+        )
+        await telegram_purchase_order_add(update_obj, context, lambda: store)
+        self.assertEqual(len(store.data["orders"]), 1)
+        order = store.data["orders"][0]
+        self.assertEqual(order["sku"], "SKU-01")
+        self.assertEqual(order["supplier_id"], "SUP-01")
+        self.assertEqual(order["status"], "draft")
+        self.assertEqual(store.data["products"]["SKU-01"]["quantity"], 10)
+
+        replay, replay_message = self.make_update(
+            "/sc_buyurtma SKU-01 | SUP-01 | 5 | 200 | 2026-12-05",
+            update_id=update_obj.update_id,
+        )
+        await telegram_purchase_order_add(replay, context, lambda: store)
+        self.assertEqual(len(store.data["orders"]), 1)
+        self.assertIn("ikkinchi buyurtma yaratilmadi", replay_message.text)
+
+    async def test_order_requires_supplier_and_product_from_same_company(self):
+        store = PurchaseOrderWriteStore()
+        context = SimpleNamespace(user_data={"sc_active_company_id": COMPANY_B})
+        update_obj, message = self.make_update(
+            "/sc_buyurtma SKU-01 | SUP-01 | 5 | 200 | 2026-12-05"
+        )
+        await telegram_purchase_order_add(update_obj, context, lambda: store)
+        self.assertEqual(store.data["orders"], [])
+        self.assertIn("saqlanmadi", message.text.lower())
+
+    async def test_order_transition_and_receipt_update_avco_once(self):
+        store = PurchaseOrderWriteStore(role="owner")
+        context = SimpleNamespace(user_data={"sc_active_company_id": COMPANY_A})
+        create, created_message = self.make_update(
+            "/sc_buyurtma SKU-01 | SUP-01 | 5 | 200 | 2026-12-05", 2202
+        )
+        await telegram_purchase_order_add(create, context, lambda: store)
+        order_id = store.data["orders"][0]["id"]
+        mark, mark_message = self.make_update(f"/sc_buyurtma_ber {order_id}", 2203)
+        await telegram_purchase_order_transition(mark, context, lambda: store, "ordered")
+        self.assertEqual(store.data["orders"][0]["status"], "ordered")
+        receive, receive_message = self.make_update(f"/sc_buyurtma_qabul {order_id}", 2204)
+        await telegram_purchase_order_transition(receive, context, lambda: store, "received")
+        self.assertEqual(store.data["orders"][0]["status"], "received")
+        self.assertEqual(store.data["products"]["SKU-01"]["quantity"], 15)
+        self.assertEqual(store.data["products"]["SKU-01"]["unit_cost"], (10*100+5*200)/15)
+        self.assertEqual(len(store.data["movements"]), 1)
+
+        replay, replay_message = self.make_update(f"/sc_buyurtma_qabul {order_id}", 2204)
+        await telegram_purchase_order_transition(replay, context, lambda: store, "received")
+        self.assertEqual(store.data["products"]["SKU-01"]["quantity"], 15)
+        self.assertEqual(len(store.data["movements"]), 1)
+        self.assertIn("qayta qo'llanmadi", replay_message.text)
+
+    async def test_purchasing_role_cannot_receive_without_inventory_write(self):
+        store = PurchaseOrderWriteStore(role="purchasing")
+        store.data["orders"].append({
+            "id": "PO-TEST", "sku": "SKU-01", "quantity": 2, "unit_price": 150,
+            "status": "ordered"
+        })
+        context = SimpleNamespace(user_data={"sc_active_company_id": COMPANY_A})
+        update_obj, message = self.make_update("/sc_buyurtma_qabul PO-TEST", 2205)
+        await telegram_purchase_order_transition(update_obj, context, lambda: store, "received")
+        self.assertEqual(store.data["products"]["SKU-01"]["quantity"], 10)
+        self.assertEqual(store.data["orders"][0]["status"], "ordered")
+        self.assertIn("huquqi", message.text.lower())
+
 
 
 if __name__ == "__main__":
