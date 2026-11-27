@@ -255,7 +255,7 @@ async def telegram_inventory_overview(update: Any, context: Any, tenant_store_fa
 
 
 def register_telegram_company_selector(app: Any, tenant_store_factory: Any) -> None:
-    """Register the safe /sc company selector; no business handlers are enabled."""
+    """Register the company selector and the isolated read-only inventory command."""
     from telegram.ext import CallbackQueryHandler, CommandHandler
 
     app.add_handler(CommandHandler("sc", lambda update, context: telegram_company_list(
