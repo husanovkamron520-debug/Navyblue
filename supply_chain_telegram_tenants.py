@@ -817,6 +817,133 @@ async def telegram_shipment_list(update: Any, context: Any, tenant_store_factory
 
 
 
+
+
+async def telegram_shipment_transition(update: Any, context: Any, tenant_store_factory: Any,
+                                       action: str) -> None:
+    """Dispatch/deliver/cancel a shipment with live permissions and replay-safe CAS."""
+    import hashlib
+    import json
+    import math
+    from datetime import datetime, timezone
+    from supply_chain_tenants import SnapshotVersionConflict, PermissionDenied, MembershipRequired
+
+    permissions = {
+        "dispatch": ("logistics.write", "inventory.write"),
+        "deliver": ("logistics.write",),
+        "cancel": ("logistics.write",),
+    }
+    if action not in permissions:
+        return
+    message = getattr(update, "effective_message", None)
+    chat = getattr(update, "effective_chat", None)
+    user = getattr(update, "effective_user", None)
+    if message is None or not chat or not user or str(getattr(chat, "type", "")) != "private":
+        return
+    _command, separator, shipment_id = str(getattr(message, "text", "") or "").partition(" ")
+    shipment_id = shipment_id.strip()
+    if not separator or not shipment_id or len(shipment_id) > 40:
+        command = {"dispatch": "sc_yuk_junat", "deliver": "sc_yuk_yetkazildi",
+                   "cancel": "sc_yuk_bekor"}[action]
+        await message.reply_text(f"Format: /{command} SH-ID")
+        return
+    update_id = getattr(update, "update_id", None)
+    if isinstance(update_id, bool) or not isinstance(update_id, int) or update_id < 0:
+        await message.reply_text("Telegram amal identifikatori aniqlanmadi. Qayta yuboring.")
+        return
+    try:
+        store = tenant_store_factory()
+        tenant_context = resolve_telegram_tenant_context(
+            update, getattr(context, "user_data", {}), store, permissions[action]
+        )
+        payload = {"action": action, "shipment_id": shipment_id}
+        request_hash = hashlib.sha256(json.dumps(
+            {"company_id": tenant_context.company_id, "request": payload},
+            sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        ).encode()).hexdigest()
+        operation_id = f"tg-{update_id}-{tenant_context.company_id[:8]}-shipment-{action}"
+
+        def mutate(snapshot: dict[str, Any]) -> dict[str, Any]:
+            shipments = snapshot.get("shipments")
+            if not isinstance(shipments, list):
+                raise TelegramTenantContextError("Yuklar ro'yxati noto'g'ri.")
+            shipment = next((row for row in shipments if isinstance(row, dict)
+                             and str(row.get("id")) == shipment_id), None)
+            if not shipment:
+                raise TelegramTenantContextError("Bu korxonada yuk topilmadi.")
+            status = shipment.get("status")
+            now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+            if action == "dispatch":
+                if status != "planned":
+                    raise TelegramTenantContextError("Faqat rejalashtirilgan yukni jo'natish mumkin.")
+                products = snapshot.get("products")
+                movements = snapshot.setdefault("movements", [])
+                if not isinstance(products, dict) or not isinstance(movements, list):
+                    raise TelegramTenantContextError("Ombor harakatlari ro'yxati noto'g'ri.")
+                sku = str(shipment.get("sku") or "")
+                product = next((v for k, v in products.items() if str(k).casefold() == sku.casefold()), None)
+                if not isinstance(product, dict):
+                    raise TelegramTenantContextError("Yuk mahsuloti omborda topilmadi.")
+                try:
+                    qty = float(shipment.get("quantity", 0))
+                    stock = float(product.get("quantity", 0))
+                except (TypeError, ValueError, OverflowError):
+                    raise TelegramTenantContextError("Yuk miqdori yoki ombor qoldig'i noto'g'ri.")
+                if not math.isfinite(qty) or not math.isfinite(stock) or qty <= 0 or stock < qty:
+                    raise TelegramTenantContextError("Omborda yukni jo'natish uchun yetarli qoldiq yo'q.")
+                product["quantity"] = stock - qty
+                product["updated_at"] = now
+                movement_id = hashlib.sha256(
+                    f"{tenant_context.company_id}:{update_id}:shipment-dispatch".encode()
+                ).hexdigest()[:12]
+                movements.append({
+                    "id": movement_id, "sku": product.get("sku") or sku, "type": "out",
+                    "quantity": qty, "note": f"Yuk {shipment_id} jo'natildi",
+                    "created_at": now, "shipment_id": shipment_id,
+                })
+                if len(movements) > 50000:
+                    del movements[:-50000]
+                shipment["status"] = "dispatched"
+                shipment["dispatched_at"] = now
+                return {"id": shipment_id, "status": "dispatched", "remaining": stock - qty,
+                        "quantity": qty, "unit": str(product.get("unit") or "dona")}
+            if action == "deliver":
+                if status != "dispatched":
+                    raise TelegramTenantContextError("Faqat jo'natilgan yukni yetkazildi deb belgilash mumkin.")
+                shipment["status"] = "delivered"
+                shipment["delivered_at"] = now
+                return {"id": shipment_id, "status": "delivered"}
+            if status != "planned":
+                raise TelegramTenantContextError("Faqat jo'natilmagan rejalashtirilgan yukni bekor qilish mumkin.")
+            shipment["status"] = "cancelled"
+            shipment["cancelled_at"] = now
+            return {"id": shipment_id, "status": "cancelled"}
+
+        result = store.mutate_snapshot(
+            tenant_context.company_id, tenant_context.telegram_user_id,
+            "inventory.write" if action == "dispatch" else "logistics.write",
+            mutate, expected_version=tenant_context.version, operation_id=operation_id,
+            request_hash=request_hash,
+        )
+        item = result.get("result") or {}
+        replay = " (takroriy so'rov — qayta qo'llanmadi)" if result.get("replayed") else ""
+        if action == "dispatch":
+            reply = (f"🚚 Yuk jo'natildi: {shipment_id} · -{item.get('quantity'):g} {item.get('unit')}\n"
+                     f"Ombordagi qoldiq: {item.get('remaining'):g} {item.get('unit')}{replay}")
+        elif action == "deliver":
+            reply = f"✅ Yuk yetkazildi: {shipment_id}{replay}"
+        else:
+            reply = f"🛑 Rejalashtirilgan yuk bekor qilindi: {shipment_id}{replay}"
+        await message.reply_text(reply)
+    except TelegramTenantContextError as exc:
+        await message.reply_text(str(exc))
+    except (SnapshotVersionConflict, PermissionDenied, MembershipRequired):
+        await message.reply_text("Yuk amali uchun ruxsat yoki korxona versiyasi mos kelmadi.")
+    except Exception:
+        await message.reply_text("Yuk holati saqlanmadi. Ruxsat va baza holatini tekshiring.")
+
+
+
 def register_telegram_company_selector(app: Any, tenant_store_factory: Any) -> None:
     """Register the company selector and the isolated read-only inventory command."""
     from telegram.ext import CallbackQueryHandler, CommandHandler
@@ -847,6 +974,15 @@ def register_telegram_company_selector(app: Any, tenant_store_factory: Any) -> N
     )))
     app.add_handler(CommandHandler("sc_yuklar", lambda update, context: telegram_shipment_list(
         update, context, tenant_store_factory
+    )))
+    app.add_handler(CommandHandler("sc_yuk_junat", lambda update, context: telegram_shipment_transition(
+        update, context, tenant_store_factory, "dispatch"
+    )))
+    app.add_handler(CommandHandler("sc_yuk_yetkazildi", lambda update, context: telegram_shipment_transition(
+        update, context, tenant_store_factory, "deliver"
+    )))
+    app.add_handler(CommandHandler("sc_yuk_bekor", lambda update, context: telegram_shipment_transition(
+        update, context, tenant_store_factory, "cancel"
     )))
     app.add_handler(CommandHandler("sc_buyurtma", lambda update, context: telegram_purchase_order_add(
         update, context, tenant_store_factory
