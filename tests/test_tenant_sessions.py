@@ -227,6 +227,54 @@ class TenantStoreTests(unittest.TestCase):
         self.assertIn("company_id=eq." + COMPANY_B, db.calls[0][1])
         self.assertNotEqual(member_a["company_id"], COMPANY_B)
 
+    def test_mutate_snapshot_replays_same_operation_without_mutating_twice(self):
+        import supply_chain_tenants as tenants
+
+        member = {"company_id": COMPANY_A, "telegram_user_id": 101,
+                  "role": "owner", "status": "active"}
+        receipt = {"operation_id": "op-1", "request_hash": "a" * 64,
+                   "actor_id": "101", "permission": "inventory.write",
+                   "committed_version": 5, "result": {"created": 1}}
+        snapshot = {"version": 5, "products": {"SKU-1": {"quantity": 4}},
+                    "_operation_receipts": [receipt]}
+        db = SequencedTenantDB([[member], [{
+            "company_id": COMPANY_A, "data": snapshot, "version": 5,
+        }]])
+        store = tenants.TenantStore(db)
+
+        def must_not_run(data):
+            raise AssertionError("replayed mutation must not run")
+
+        result = store.mutate_snapshot(
+            COMPANY_A, 101, "inventory.write", must_not_run,
+            expected_version=4, operation_id="op-1", request_hash="a" * 64,
+        )
+        self.assertTrue(result["replayed"])
+        self.assertEqual(result["result"], {"created": 1})
+        self.assertEqual(result["version"], 5)
+        self.assertEqual(len(db.calls), 2)
+
+    def test_mutate_snapshot_rejects_reused_operation_id_with_different_payload(self):
+        import supply_chain_tenants as tenants
+
+        member = {"company_id": COMPANY_A, "telegram_user_id": 101,
+                  "role": "owner", "status": "active"}
+        receipt = {"operation_id": "op-1", "request_hash": "a" * 64,
+                   "actor_id": "101", "permission": "inventory.write",
+                   "committed_version": 5, "result": {"created": 1}}
+        snapshot = {"version": 5, "products": {},
+                    "_operation_receipts": [receipt]}
+        db = SequencedTenantDB([[member], [{
+            "company_id": COMPANY_A, "data": snapshot, "version": 5,
+        }]])
+        store = tenants.TenantStore(db)
+        with self.assertRaises(tenants.TenantOperationConflict):
+            store.mutate_snapshot(
+                COMPANY_A, 101, "inventory.write", lambda data: None,
+                operation_id="op-1", request_hash="b" * 64,
+            )
+        self.assertEqual(len(db.calls), 2)
+
     def test_mutate_snapshot_denies_wrong_role_before_loading_or_writing(self):
         import supply_chain_tenants as tenants
 
