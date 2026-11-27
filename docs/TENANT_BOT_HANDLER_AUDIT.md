@@ -30,6 +30,13 @@ The Mini App tenant bearer is not a Telegram bot authorization token. A company 
 - Planning: demand-history records and scenario records.
 - Alerting: snooze/alert-state changes and scheduled alert bookkeeping.
 
+## Permission groundwork added (not yet enforced by Telegram handlers)
+
+- `supply_chain.tenant_permissions_for_action(action, source)` now provides an explicit, fail-closed action permission map for text, callback and view actions.
+- Unknown action/source returns `None` (deny); known navigation/preview actions return an empty permission tuple.
+- Shipment dispatch requires both `logistics.write` and `inventory.write`; purchase-order receipt requires both `procurement.write` and `inventory.write`.
+- The mapping is currently groundwork only. The Telegram handlers still use the owner-only guard and do not yet invoke this map for tenant authorization.
+
 ## Required design before enabling company-member Telegram handlers
 
 1. Establish an explicit company selection for each Telegram user, but treat it only as a selector. Re-read active membership and role from Supabase on every command, callback and message.
