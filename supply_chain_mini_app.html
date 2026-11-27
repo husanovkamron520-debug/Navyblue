@@ -1031,6 +1031,59 @@
     if(view==="reports")$("report-status").textContent="Hisobotlar tayyor. Kerakli eksport turini tanlang.";
   }
   document.querySelectorAll(".nav button").forEach(b=>b.addEventListener("click",()=>switchView(b.dataset.view)));
+  $("tenant-select").addEventListener("click",async()=>{
+    try{await activateTenantCompany($("tenant-company").value);await refreshAll();}
+    catch(error){$("tenant-status").textContent="Korxonaga ulanib bo‘lmadi: "+error.message;}
+  });
+  $("tenant-create").addEventListener("click",async()=>{
+    const name=$("tenant-company-name").value.trim();
+    if(name.length<2){$("tenant-status").textContent="Korxona nomini kamida 2 belgi kiriting.";return;}
+    $("tenant-create").disabled=true;
+    try{
+      const data=await tenantAction("create_company",{name});
+      tenantCompanies=Array.isArray(data.companies)?data.companies:[];
+      renderTenantCompanies();$("tenant-company-name").value="";
+      const id=data.created?.id;
+      if(id){await activateTenantCompany(id);await refreshAll();}
+      $("tenant-status").textContent="Korxona yaratildi. Eski ma’lumotlarni ko‘chirish uchun alohida tugmani bosing.";
+    }catch(error){$("tenant-status").textContent="Korxona yaratilmadi: "+error.message;}
+    finally{$("tenant-create").disabled=false;}
+  });
+  $("tenant-join").addEventListener("click",async()=>{
+    const code=$("tenant-invite-code").value.trim();
+    if(!code){$("tenant-status").textContent="Taklif kodini kiriting.";return;}
+    $("tenant-join").disabled=true;
+    try{
+      const data=await tenantAction("redeem_invite",{code});
+      tenantCompanies=Array.isArray(data.companies)?data.companies:[];
+      $("tenant-invite-code").value="";renderTenantCompanies();
+      if(tenantCompanies.length===1){await activateTenantCompany(tenantCompanies[0].company_id);await refreshAll();}
+      else{$("tenant-status").textContent="Korxonaga qo‘shildingiz. Endi ro‘yxatdan korxonani tanlang.";}
+    }catch(error){$("tenant-status").textContent="Taklif kodi qabul qilinmadi: "+error.message;}
+    finally{$("tenant-join").disabled=false;}
+  });
+  $("tenant-invite-create").addEventListener("click",async()=>{
+    if(!tenantCompanyId){$("tenant-status").textContent="Avval korxonani tanlang.";return;}
+    $("tenant-invite-create").disabled=true;
+    try{
+      const data=await tenantAction("create_invite",{company_id:tenantCompanyId,role:$("tenant-invite-role").value,expires_in_hours:72,max_uses:1});
+      const invite=data.invite;
+      $("tenant-invite-result").hidden=false;
+      $("tenant-invite-result").textContent="Taklif kodi ("+invite.role+", 72 soat): "+invite.code+" — bu kod faqat bir marta ko‘rsatiladi. Uni xodimga xavfsiz yuboring.";
+    }catch(error){$("tenant-status").textContent="Taklif yaratilmadi: "+error.message;}
+    finally{$("tenant-invite-create").disabled=false;}
+  });
+  $("tenant-migrate").addEventListener("click",async()=>{
+    if(!tenantCompanyId)return;
+    if(!confirm("Eski ombordagi ma’lumotlar tanlangan yangi korxonaga nusxalanadi. Eski ma’lumot o‘chirilmaydi. Davom etasizmi?"))return;
+    $("tenant-migrate").disabled=true;
+    try{
+      const data=await tenantAction("migrate_legacy",{company_id:tenantCompanyId});
+      $("tenant-status").textContent="Ko‘chirildi: "+fmt(data.migration?.product_count)+" mahsulot. Eski ombor saqlanib qoldi.";
+      await refreshAll();
+    }catch(error){$("tenant-status").textContent="Ko‘chirish bajarilmadi: "+error.message;}
+    finally{$("tenant-migrate").disabled=false;}
+  });
   $("refresh").addEventListener("click",refreshAll);$("inventory-refresh").addEventListener("click",()=>loadInventory().catch(e=>showNotice("Xatolik",e.message,true)));
   $("detail-close").addEventListener("click",()=>{$("inventory-detail").hidden=true;});$("detail-delete").addEventListener("click",()=>archiveInventoryProduct($("detail-sku").textContent,$("detail-name").textContent));
   $("analytics-refresh").addEventListener("click",()=>loadAnalytics().catch(e=>showNotice("Xatolik",e.message,true)));
