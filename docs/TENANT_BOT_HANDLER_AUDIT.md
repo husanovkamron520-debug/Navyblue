@@ -37,6 +37,19 @@ The Mini App tenant bearer is not a Telegram bot authorization token. A company 
 - Shipment dispatch requires both `logistics.write` and `inventory.write`; purchase-order receipt requires both `procurement.write` and `inventory.write`.
 - The mapping is currently groundwork only. The Telegram handlers still use the owner-only guard and do not yet invoke this map for tenant authorization.
 
+## Tenant context boundary added (not yet connected to handlers)
+
+A separate `supply_chain_telegram_tenants.py` module now provides a fail-closed resolver for future Telegram tenant handlers:
+
+- The active company ID in `context.user_data` is treated only as a selector; it never grants access.
+- The actor ID is taken from Telegram's authenticated `effective_user`, and tenant access is restricted to private chats.
+- Every declared permission is rechecked against live Supabase membership before the company snapshot is loaded.
+- Empty permission declarations, missing/invalid selectors, group chats, membership failures and snapshot mismatches are denied.
+- The returned role comes from the live membership lookup, not client/user state.
+- Unit tests cover cross-company selection, permission ordering, no-selector behavior, role spoofing and selector validation.
+
+This is authorization groundwork only. The existing Telegram handlers do not call this resolver, and the owner-only guard remains unchanged.
+
 ## Required design before enabling company-member Telegram handlers
 
 1. Establish an explicit company selection for each Telegram user, but treat it only as a selector. Re-read active membership and role from Supabase on every command, callback and message.
