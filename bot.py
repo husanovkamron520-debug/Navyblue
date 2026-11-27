@@ -1399,6 +1399,12 @@ def run_health_server():
                 result = sc_api.list_vehicles(snapshot)
             else:
                 result = sc_api.build_replenishment(snapshot)
+            if is_tenant_request and isinstance(result, dict):
+                if isinstance(result.get("meta"), dict):
+                    result["meta"]["source"] = "sc_company_snapshots"
+                if parsed.path == "/sc-api/v1/bootstrap" and isinstance(result.get("data"), dict):
+                    result["data"]["company"] = {
+                        "mode": "multi_company", "label": "Tanlangan korxona"}
             self._sc_json(result)
 
         def _sc_api_delete(self, parsed):
