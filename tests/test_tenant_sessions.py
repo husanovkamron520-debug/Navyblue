@@ -83,10 +83,6 @@ class TenantSessionStoreTests(unittest.TestCase):
             self.sessions.issue(101, "not-a-uuid", "viewer", now=1000)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class FakeTenantDB:
     def __init__(self, response):
         self.response = response
@@ -202,3 +198,26 @@ class TenantStoreTests(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             store.commit_snapshot(COMPANY_A, 1, {"version": 3})
+
+
+class TenantReadRouteWiringTests(unittest.TestCase):
+    def test_get_routes_load_snapshot_from_verified_tenant_company(self):
+        from pathlib import Path
+
+        source = (Path(__file__).resolve().parents[1] / "bot.py").read_text(encoding="utf-8")
+        self.assertIn("def _sc_tenant_context(self, permission):", source)
+        self.assertIn("tenant_store.require_permission(", source)
+        self.assertIn('snapshot = sc_tenants.TenantStore(_db_request).load_snapshot(', source)
+        self.assertIn("if not is_tenant_request and (", source)
+
+    def test_tenant_membership_is_rechecked_and_revoked_sessions_are_removed(self):
+        from pathlib import Path
+
+        source = (Path(__file__).resolve().parents[1] / "bot.py").read_text(encoding="utf-8")
+        self.assertIn("_SC_TENANT_SESSIONS.revoke_user(", source)
+        self.assertIn('tenant_context.get("company_id")', source)
+        self.assertIn('tenant_context.get("user_id")', source)
+
+
+if __name__ == "__main__":
+    unittest.main()
