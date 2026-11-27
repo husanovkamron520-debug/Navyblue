@@ -31,7 +31,7 @@ Roles: `owner`, `admin`, `warehouse`, `purchasing`, `transport`, `viewer`.
 The current work is a staged migration, not a finished SaaS release:
 
 - The company onboarding UI is implemented; its latest frontend changes are awaiting deployment verification.
-- Inventory archive and Excel import are tenant-aware. Telegram has a narrow tenant inventory path: `/sc` company selection, `/sc_ombor` read-only overview, `/sc_qosh` product creation, and `/sc_kirim` / `/sc_chiqim` stock movements. These writes use live role checks, company-scoped CAS and replay receipts. The legacy bot menu and all other domain workflows remain owner-only.
+- Inventory archive and Excel import are tenant-aware. Telegram has a narrow tenant inventory path: `/sc` company selection, `/sc_ombor` read-only overview, `/sc_qosh` product creation, and `/sc_kirim` / `/sc_chiqim` stock movements, and `/sc_yetkazuvchi` supplier creation. These writes use live role checks, company-scoped CAS and replay receipts. The legacy bot menu and all other domain workflows remain owner-only.
 - Telegram bot handlers, exports, AI context, scheduled jobs, and background workflows have not all been threaded through verified tenant context.
 - Cross-company read isolation is wired for the tenant GET path; full end-to-end read/write/export/import isolation tests are not complete.
 - Public signup and public company access must remain disabled until all paths are tenant-aware.
