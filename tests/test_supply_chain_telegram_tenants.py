@@ -8,6 +8,7 @@ from supply_chain_telegram_tenants import (
     select_active_company,
     telegram_company_list,
     telegram_company_select,
+    telegram_inventory_overview,
 )
 
 
@@ -139,6 +140,23 @@ class FakeMessage:
 
 
 class SelectorStore(FakeTenantStore):
+    def load_snapshot_record(self, company_id):
+        self.snapshot_calls.append(company_id)
+        return {"company_id": company_id, "version": 3, "data": {
+            "version": 3, "products": {
+                "SKU-2": {"name": "Shakar", "quantity": 100700, "unit": "kg", "reorder_point": 700},
+                "SKU-1": {"name": "Un", "quantity": 50, "unit": "qop", "reorder_point": 5},
+            }}}
+
+    def require_permission(self, company_id, telegram_user_id, permission):
+        self.permission_calls.append((company_id, telegram_user_id, permission))
+        if company_id != self.allowed_company or telegram_user_id != 42:
+            raise PermissionError("membership denied")
+        if permission != "inventory.read" or self.role not in {"owner", "admin", "warehouse", "purchasing", "transport", "viewer"}:
+            raise PermissionError("permission denied")
+        return {"company_id": company_id, "telegram_user_id": telegram_user_id,
+                "role": self.role, "status": "active"}
+
     def list_companies(self, user_id):
         if user_id != 42:
             raise PermissionError("wrong user")
@@ -210,6 +228,41 @@ class TelegramCompanySelectorTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(user_data, {})
         self.assertEqual(query.answers, [])
+
+
+    async def test_inventory_overview_reads_only_selected_company_and_is_read_only(self):
+        message = FakeMessage()
+        update_obj = SimpleNamespace(
+            effective_chat=SimpleNamespace(type="private"),
+            effective_user=SimpleNamespace(id=42),
+            effective_message=message,
+        )
+        user_data = {"sc_active_company_id": COMPANY_A}
+        store = SelectorStore()
+        await telegram_inventory_overview(
+            update_obj, SimpleNamespace(user_data=user_data), lambda: store
+        )
+        self.assertIn("Ombor", message.text)
+        self.assertIn("Shakar", message.text)
+        self.assertIn("100700 kg", message.text)
+        self.assertIn("faqat ko'rish", message.text)
+        self.assertEqual(store.permission_calls, [(COMPANY_A, 42, "inventory.read")])
+        self.assertEqual(store.snapshot_calls, [COMPANY_A])
+
+    async def test_inventory_overview_does_not_read_snapshot_without_permission(self):
+        message = FakeMessage()
+        update_obj = SimpleNamespace(
+            effective_chat=SimpleNamespace(type="private"),
+            effective_user=SimpleNamespace(id=42),
+            effective_message=message,
+        )
+        user_data = {"sc_active_company_id": COMPANY_B}
+        store = SelectorStore(allowed_company=COMPANY_A)
+        await telegram_inventory_overview(
+            update_obj, SimpleNamespace(user_data=user_data), lambda: store
+        )
+        self.assertIn("a'zoligingiz", message.text.lower())
+        self.assertEqual(store.snapshot_calls, [])
 
 
 if __name__ == "__main__":
