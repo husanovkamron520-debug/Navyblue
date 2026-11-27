@@ -12,6 +12,8 @@ on:
       - ".github/workflows/tenant-tests.yml"
   pull_request:
     paths:
+      - "bot.py"
+      - "supply_chain_mini_app.html"
       - "supply_chain_api.py"
       - "supply_chain_tenants.py"
       - "tests/test_tenant_sessions.py"
