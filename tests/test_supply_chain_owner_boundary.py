@@ -32,7 +32,7 @@ class SupplyChainOwnerBoundaryTests(unittest.TestCase):
         self.assertFalse(supply_chain._allowed(self.update(100, 101)))
         self.assertFalse(supply_chain._allowed(self.update(200, 100)))
         self.assertFalse(supply_chain._allowed(
-            self.update(100, 100, chat_type=ChatType.GROUP)
+            self.update(100, 100, chat_type="group")
         ))
 
     def test_missing_owner_configuration_denies_everyone(self):
