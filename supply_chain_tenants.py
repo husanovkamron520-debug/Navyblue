@@ -187,6 +187,41 @@ class TenantStore:
             raise TenantError("Korxona ombor ma'lumotlari topilmadi.")
         return rows[0]["data"]
 
+    def migrate_legacy_snapshot(self, company_id: str, telegram_user_id: int,
+                                configured_owner_id: int, legacy_snapshot: dict) -> dict:
+        """Copy the legacy owner dataset once into a newly-created empty company.
+
+        The original bot_storage row is never modified. This operation is
+        restricted to the configured owner and a company whose snapshot is
+        still the pristine version-1 default.
+        """
+        actor_id = self._telegram_id(telegram_user_id)
+        owner_id = self._telegram_id(configured_owner_id)
+        if actor_id != owner_id:
+            raise PermissionDenied("Eski ombor ma'lumotlarini faqat tizim egasi ko'chira oladi.")
+        member = self.membership(company_id, actor_id)
+        if not member or member.get("role") != "owner":
+            raise PermissionDenied("Ko'chirish uchun korxona egasi bo'lishingiz kerak.")
+        if not isinstance(legacy_snapshot, dict):
+            raise ValueError("Eski ombor ma'lumotlari noto'g'ri.")
+
+        current = self.load_snapshot(company_id)
+        if current.get("version") != 1:
+            raise TenantError("Korxona snapshot versiyasi ko'chirish uchun mos emas.")
+        for key, value in current.items():
+            if key == "version" or value is None or value == "":
+                continue
+            if isinstance(value, (dict, list)) and not value:
+                continue
+            raise TenantError("Korxona omborida ma'lumot bor; eski ma'lumot ustidan yozilmadi.")
+
+        migrated = __import__("copy").deepcopy(legacy_snapshot)
+        migrated["version"] = 2
+        self.commit_snapshot(company_id, 1, migrated)
+        products = migrated.get("products") if isinstance(migrated.get("products"), dict) else {}
+        return {"company_id": company_id, "version": 2, "product_count": len(products),
+                "legacy_preserved": True}
+
     def commit_snapshot(self, company_id: str, expected_version: int,
                         snapshot: dict) -> int:
         if not isinstance(snapshot, dict):
