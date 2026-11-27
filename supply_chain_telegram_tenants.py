@@ -226,10 +226,10 @@ async def telegram_inventory_overview(update: Any, context: Any, tenant_store_fa
         for sku, raw in products.items():
             if not isinstance(raw, dict):
                 continue
-            name = str(raw.get("name") or sku).replace("\\n", " ").strip()[:70]
-            unit = str(raw.get("unit") or "dona").replace("\\n", " ").strip()[:12]
-            quantity = str(raw.get("quantity", 0)).replace("\\n", " ").replace("\\r", " ")[:24]
-            reorder = str(raw.get("reorder_point", 0)).replace("\\n", " ").replace("\\r", " ")[:24]
+            name = str(raw.get("name") or sku).replace("\n", " ").strip()[:70]
+            unit = str(raw.get("unit") or "dona").replace("\n", " ").strip()[:12]
+            quantity = str(raw.get("quantity", 0)).replace("\n", " ").replace("\r", " ")[:24]
+            reorder = str(raw.get("reorder_point", 0)).replace("\n", " ").replace("\r", " ")[:24]
             rows.append((name.casefold(), str(sku)[:40], name, quantity, unit, reorder))
         rows.sort(key=lambda item: (item[0], item[1]))
         if not rows:
@@ -246,7 +246,7 @@ async def telegram_inventory_overview(update: Any, context: Any, tenant_store_fa
         if len(rows) > 15:
             lines.append(f"\nYana {len(rows) - 15} ta mahsulot bor. Dastlabki 15 tasi ko'rsatildi.")
         lines.append("\nBu faqat ko'rish rejimi. Ma'lumot o'zgartirilmaydi.")
-        await message.reply_text("\\n".join(lines))
+        await message.reply_text("\n".join(lines))
     except TelegramTenantContextError as exc:
         await message.reply_text(str(exc))
     except Exception:
