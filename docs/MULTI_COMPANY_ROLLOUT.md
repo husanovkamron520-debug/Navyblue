@@ -31,7 +31,7 @@ Roles: `owner`, `admin`, `warehouse`, `purchasing`, `transport`, `viewer`.
 The current work is a staged migration, not a finished SaaS release:
 
 - The company onboarding UI is implemented; its latest frontend changes are awaiting deployment verification.
-- Inventory archive and Excel import are tenant-aware. Other domain mutations and any non-Mini-App bot write workflows still require audit/integration.
+- Inventory archive and Excel import are tenant-aware. Telegram has a narrow tenant inventory path: `/sc` company selection, `/sc_ombor` read-only overview, `/sc_qosh` product creation, and `/sc_kirim` / `/sc_chiqim` stock movements. These writes use live role checks, company-scoped CAS and replay receipts. The legacy bot menu and all other domain workflows remain owner-only.
 - Telegram bot handlers, exports, AI context, scheduled jobs, and background workflows have not all been threaded through verified tenant context.
 - Cross-company read isolation is wired for the tenant GET path; full end-to-end read/write/export/import isolation tests are not complete.
 - Public signup and public company access must remain disabled until all paths are tenant-aware.
@@ -41,7 +41,7 @@ The current work is a staged migration, not a finished SaaS release:
 1. Add Mini App company selection, company creation, invite joining, and selected-company session handling.
 2. Add a clear owner-only migration confirmation flow. The migration helper checks that the target company's snapshot is still pristine; it copies the legacy data into the company snapshot at the next version and preserves the source row.
 3. Extend company-scoped CAS and role permissions to the remaining domain mutations; archive and Excel inventory import are the first tenant write paths.
-4. Thread verified company context through Telegram handlers, exports, AI snapshot/context, scheduled reports, and background jobs.
+4. Extend verified company context to procurement, logistics, planning, exports, AI snapshot/context, inline search, scheduled reports, and background jobs; retain the owner-only legacy boundary until each path is tested.
 5. Add end-to-end tests using at least three companies and several users. Verify cross-company reads, writes, exports, imports, invitations, role changes, revoked memberships, and CAS conflicts.
 6. Only after all tests pass, enable public onboarding.
 
