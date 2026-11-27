@@ -10,8 +10,17 @@ import sys
 path = sys.argv[1] if len(sys.argv) > 1 else "supply_chain.py"
 s = open(path, encoding="utf-8").read()
 
+import os
+import runpy
+
+
+def _run_format_patch():
+    runpy.run_path(os.path.join(os.path.dirname(os.path.abspath(__file__)), "apply_ai_format_patch.py"), run_name="__main__")
+
+
 if "_ai_history_get" in s:
-    print("Patch already applied; nothing to do.")
+    print("Memory patch already applied.")
+    _run_format_patch()
     sys.exit(0)
 
 updated = s
@@ -152,3 +161,4 @@ rep('''                _ask_gemini_quick_sync, _AI_CLIENT, _AI_MODEL, transcript
 
 open(path, "w", encoding="utf-8").write(updated)
 print("Patch applied.")
+_run_format_patch()
