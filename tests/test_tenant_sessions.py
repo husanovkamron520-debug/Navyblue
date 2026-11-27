@@ -273,6 +273,15 @@ class TenantReadRouteWiringTests(unittest.TestCase):
         self.assertIn('snapshot = sc_tenants.TenantStore(_db_request).load_snapshot(', source)
         self.assertIn("if not is_tenant_request and (", source)
 
+    def test_public_signup_is_disabled_by_default_and_legacy_migration_is_owner_gated(self):
+        from pathlib import Path
+
+        source = (Path(__file__).resolve().parents[1] / "bot.py").read_text(encoding="utf-8")
+        self.assertIn('os.environ.get("SC_PUBLIC_SIGNUP_ENABLED", "false")', source)
+        self.assertIn("if (not SC_PUBLIC_SIGNUP_ENABLED", source)
+        self.assertIn('if action == "migrate_legacy":', source)
+        self.assertIn("telegram_user_id != int(OWNER_CHAT_ID)", source)
+
     def test_tenant_membership_is_rechecked_and_revoked_sessions_are_removed(self):
         from pathlib import Path
 
