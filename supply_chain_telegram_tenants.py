@@ -254,6 +254,107 @@ async def telegram_inventory_overview(update: Any, context: Any, tenant_store_fa
 
 
 
+async def telegram_inventory_add(update: Any, context: Any, tenant_store_factory: Any) -> None:
+    """Add one inventory item to the selected tenant with CAS and replay safety."""
+    import hashlib
+    import json
+    import math
+
+    chat = getattr(update, "effective_chat", None)
+    user = getattr(update, "effective_user", None)
+    message = getattr(update, "effective_message", None)
+    if (not chat or not user or str(getattr(chat, "type", "")) != "private"
+            or message is None):
+        return
+    text = str(getattr(message, "text", "") or "")
+    _command, separator, raw = text.partition(" ")
+    if not separator:
+        await message.reply_text(
+            "Format: /sc_qosh SKU | Nomi | Miqdor | Birlik | ROP\n"
+            "Misol: /sc_qosh SKU-01 | Shakar | 100 | kg | 10"
+        )
+        return
+    parts = [part.strip() for part in raw.split("|")]
+    if len(parts) != 5:
+        await message.reply_text(
+            "5 ta maydon kerak: SKU | Nomi | Miqdor | Birlik | ROP"
+        )
+        return
+    sku, name, quantity_raw, unit, reorder_raw = parts
+    if (not 1 <= len(sku) <= 64 or not 2 <= len(name) <= 120
+            or not 1 <= len(unit) <= 12 or any("\\n" in p or "\\r" in p for p in parts)):
+        await message.reply_text("SKU, nom yoki birlik uzunligi noto'g'ri.")
+        return
+    try:
+        quantity = float(quantity_raw.replace(",", "."))
+        reorder = float(reorder_raw.replace(",", "."))
+        if not math.isfinite(quantity) or not math.isfinite(reorder) or quantity < 0 or reorder < 0:
+            raise ValueError
+    except (TypeError, ValueError):
+        await message.reply_text("Miqdor va ROP manfiy bo'lmagan son bo'lishi kerak.")
+        return
+
+    payload = {
+        "action": "inventory_add", "sku": sku, "name": name,
+        "quantity": quantity, "unit": unit, "reorder_point": reorder,
+    }
+    request_hash = hashlib.sha256(json.dumps(
+        payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    ).encode("utf-8")).hexdigest()
+    update_id = getattr(update, "update_id", None)
+    if isinstance(update_id, bool) or not isinstance(update_id, int) or update_id < 0:
+        await message.reply_text("Telegram amal identifikatori aniqlanmadi. Qayta yuboring.")
+        return
+    operation_id = f"tg-{update_id}-inventory-add"
+
+    try:
+        user_data = getattr(context, "user_data", None)
+        tenant_context = resolve_telegram_tenant_context(
+            update, user_data if isinstance(user_data, dict) else {},
+            tenant_store_factory(), ("inventory.write",),
+        )
+
+        def mutate(snapshot: dict[str, Any]) -> dict[str, Any]:
+            products = snapshot.get("products")
+            if not isinstance(products, dict):
+                raise TelegramTenantContextError("Korxona mahsulotlar ro'yxati noto'g'ri.")
+            if len(products) >= 10000:
+                raise TelegramTenantContextError("Mahsulotlar limiti to'lgan.")
+            if any(str(existing).casefold() == sku.casefold() for existing in products):
+                raise TelegramTenantContextError("Bu SKU korxona omborida allaqachon mavjud.")
+            products[sku] = {
+                "sku": sku, "name": name, "quantity": quantity, "unit": unit,
+                "reorder_point": reorder, "unit_cost": 0.0, "annual_demand": 0.0,
+                "order_cost": 0.0, "holding_cost": 0.0,
+            }
+            return {"sku": sku, "name": name, "quantity": quantity, "unit": unit}
+
+        result = tenant_store_factory().mutate_snapshot(
+            tenant_context.company_id, tenant_context.telegram_user_id,
+            "inventory.write", mutate, expected_version=tenant_context.version,
+            operation_id=operation_id, request_hash=request_hash,
+        )
+        item = result.get("result") or {}
+        replay_note = " (takroriy so'rov — avvalgi natija)" if result.get("replayed") else ""
+        await message.reply_text(
+            f"✅ {item.get('name', name)} qo'shildi: "
+            f"{item.get('quantity', quantity)} {item.get('unit', unit)} · "
+            f"SKU: {item.get('sku', sku)}{replay_note}"
+        )
+    except TelegramTenantContextError as exc:
+        await message.reply_text(str(exc))
+    except Exception as exc:
+        # Keep database/internal details out of Telegram messages.
+        from supply_chain_tenants import SnapshotVersionConflict, PermissionDenied, MembershipRequired
+        if isinstance(exc, SnapshotVersionConflict):
+            await message.reply_text("Ombor ma'lumotlari yangilangan. /sc_ombor bilan tekshirib, qayta urinib ko'ring.")
+        elif isinstance(exc, (PermissionDenied, MembershipRequired)):
+            await message.reply_text("Bu korxonada omborga mahsulot qo'shish huquqingiz yo'q.")
+        else:
+            await message.reply_text("Mahsulot saqlanmadi. Ruxsat va baza holatini tekshiring, keyin qayta urinib ko'ring.")
+
+
+
 def register_telegram_company_selector(app: Any, tenant_store_factory: Any) -> None:
     """Register the company selector and the isolated read-only inventory command."""
     from telegram.ext import CallbackQueryHandler, CommandHandler
@@ -262,6 +363,9 @@ def register_telegram_company_selector(app: Any, tenant_store_factory: Any) -> N
         update, context, tenant_store_factory
     )))
     app.add_handler(CommandHandler("sc_ombor", lambda update, context: telegram_inventory_overview(
+        update, context, tenant_store_factory
+    )))
+    app.add_handler(CommandHandler("sc_qosh", lambda update, context: telegram_inventory_add(
         update, context, tenant_store_factory
     )))
     app.add_handler(CallbackQueryHandler(
