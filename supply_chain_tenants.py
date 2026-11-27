@@ -7,6 +7,7 @@ authorization from a client.
 """
 from __future__ import annotations
 
+import copy
 import hashlib
 import secrets
 import re
@@ -215,7 +216,7 @@ class TenantStore:
                 continue
             raise TenantError("Korxona omborida ma'lumot bor; eski ma'lumot ustidan yozilmadi.")
 
-        migrated = __import__("copy").deepcopy(legacy_snapshot)
+        migrated = copy.deepcopy(legacy_snapshot)
         migrated["version"] = 2
         self.commit_snapshot(company_id, 1, migrated)
         products = migrated.get("products") if isinstance(migrated.get("products"), dict) else {}
