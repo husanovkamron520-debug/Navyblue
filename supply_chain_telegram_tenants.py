@@ -298,9 +298,6 @@ async def telegram_inventory_add(update: Any, context: Any, tenant_store_factory
         "action": "inventory_add", "sku": sku, "name": name,
         "quantity": quantity, "unit": unit, "reorder_point": reorder,
     }
-    request_hash = hashlib.sha256(json.dumps(
-        payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False
-    ).encode("utf-8")).hexdigest()
     update_id = getattr(update, "update_id", None)
     if isinstance(update_id, bool) or not isinstance(update_id, int) or update_id < 0:
         await message.reply_text("Telegram amal identifikatori aniqlanmadi. Qayta yuboring.")
@@ -309,10 +306,15 @@ async def telegram_inventory_add(update: Any, context: Any, tenant_store_factory
 
     try:
         user_data = getattr(context, "user_data", None)
+        store = tenant_store_factory()
         tenant_context = resolve_telegram_tenant_context(
             update, user_data if isinstance(user_data, dict) else {},
-            tenant_store_factory(), ("inventory.write",),
+            store, ("inventory.write",),
         )
+        request_hash = hashlib.sha256(json.dumps(
+            {"company_id": tenant_context.company_id, "request": payload},
+            sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        ).encode("utf-8")).hexdigest()
 
         def mutate(snapshot: dict[str, Any]) -> dict[str, Any]:
             products = snapshot.get("products")
@@ -329,7 +331,7 @@ async def telegram_inventory_add(update: Any, context: Any, tenant_store_factory
             }
             return {"sku": sku, "name": name, "quantity": quantity, "unit": unit}
 
-        result = tenant_store_factory().mutate_snapshot(
+        result = store.mutate_snapshot(
             tenant_context.company_id, tenant_context.telegram_user_id,
             "inventory.write", mutate, expected_version=tenant_context.version,
             operation_id=operation_id, request_hash=request_hash,
