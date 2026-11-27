@@ -85,3 +85,120 @@ class TenantSessionStoreTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FakeTenantDB:
+    def __init__(self, response):
+        self.response = response
+        self.calls = []
+
+    def __call__(self, method, path, payload=None):
+        self.calls.append((method, path, payload))
+        return self.response
+
+
+class TenantStoreTests(unittest.TestCase):
+    def test_create_company_uses_safe_unique_slug_and_authenticated_owner_id(self):
+        import re
+        import supply_chain_tenants as tenants
+
+        company_id = "33333333-3333-4333-8333-333333333333"
+        db = FakeTenantDB({"id": company_id, "name": "Samarqand Logistika"})
+        store = tenants.TenantStore(db)
+        created = store.create_company("Samarqand Logistika", 987654321)
+
+        self.assertEqual(created["id"], company_id)
+        method, path, payload = db.calls[0]
+        self.assertEqual((method, path), ("POST", "rpc/sc_create_company"))
+        self.assertEqual(payload["p_owner_telegram_id"], 987654321)
+        self.assertRegex(payload["p_slug"], re.compile(r"^[a-z0-9-]{2,63}$"))
+
+    def test_non_latin_company_name_gets_safe_slug(self):
+        import re
+        import supply_chain_tenants as tenants
+
+        db = FakeTenantDB({"id": "33333333-3333-4333-8333-333333333333"})
+        tenants.TenantStore(db).create_company("Самарқанд корхонаси", 987654321)
+        slug = db.calls[0][2]["p_slug"]
+        self.assertRegex(slug, re.compile(r"^[a-z0-9-]{2,63}$"))
+
+    def test_invite_persists_only_sha256_hash_and_returns_raw_code_once(self):
+        import supply_chain_tenants as tenants
+
+        invite_id = "44444444-4444-4444-8444-444444444444"
+        db = FakeTenantDB(invite_id)
+        invite = tenants.TenantStore(db).create_invite(
+            "33333333-3333-4333-8333-333333333333",
+            987654321,
+            "warehouse",
+        )
+        payload = db.calls[0][2]
+        self.assertEqual(payload["p_code_hash"], hashlib.sha256(invite["code"].encode()).hexdigest())
+        self.assertNotEqual(payload["p_code_hash"], invite["code"])
+        self.assertEqual(len(payload["p_code_hash"]), 64)
+        self.assertEqual(invite["invite_id"], invite_id)
+        self.assertEqual(invite["role"], "warehouse")
+
+    def test_owner_role_cannot_be_granted_by_invite_helper(self):
+        import supply_chain_tenants as tenants
+
+        db = FakeTenantDB("unused")
+        with self.assertRaises(ValueError):
+            tenants.TenantStore(db).create_invite(
+                "33333333-3333-4333-8333-333333333333",
+                987654321,
+                "owner",
+            )
+        self.assertEqual(db.calls, [])
+
+    def test_membership_permission_is_checked_server_side(self):
+        import supply_chain_tenants as tenants
+
+        row = {
+            "company_id": COMPANY_A,
+            "telegram_user_id": 101,
+            "role": "warehouse",
+            "status": "active",
+        }
+        db = FakeTenantDB([row])
+        store = tenants.TenantStore(db)
+        member = store.require_permission(COMPANY_A, 101, "inventory.write")
+        self.assertEqual(member["role"], "warehouse")
+        self.assertEqual(db.calls[0][0], "GET")
+        self.assertIn("company_id=eq." + COMPANY_A, db.calls[0][1])
+
+    def test_membership_absence_denies_access(self):
+        import supply_chain_tenants as tenants
+
+        db = FakeTenantDB([])
+        with self.assertRaises(tenants.MembershipRequired):
+            tenants.TenantStore(db).require_permission(COMPANY_A, 101, "inventory.read")
+
+    def test_warehouse_cannot_write_procurement(self):
+        import supply_chain_tenants as tenants
+
+        db = FakeTenantDB([{
+            "company_id": COMPANY_A,
+            "telegram_user_id": 101,
+            "role": "warehouse",
+            "status": "active",
+        }])
+        with self.assertRaises(tenants.PermissionDenied):
+            tenants.TenantStore(db).require_permission(COMPANY_A, 101, "procurement.write")
+
+    def test_snapshot_compare_and_swap_requires_next_version(self):
+        import supply_chain_tenants as tenants
+
+        db = FakeTenantDB(2)
+        store = tenants.TenantStore(db)
+        next_version = store.commit_snapshot(
+            COMPANY_A,
+            1,
+            {"version": 2, "products": {"SKU-1": {"quantity": 10}}},
+        )
+        self.assertEqual(next_version, 2)
+        self.assertEqual(db.calls[0][1], "rpc/sc_commit_company_snapshot")
+        self.assertEqual(db.calls[0][2]["p_expected_version"], 1)
+
+        with self.assertRaises(ValueError):
+            store.commit_snapshot(COMPANY_A, 1, {"version": 3})
