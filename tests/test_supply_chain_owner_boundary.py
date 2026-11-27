@@ -1,0 +1,44 @@
+import unittest
+from types import SimpleNamespace
+
+import supply_chain
+from telegram.constants import ChatType
+
+
+class SupplyChainOwnerBoundaryTests(unittest.TestCase):
+    def setUp(self):
+        self.previous_owner = supply_chain._OWNER_ID
+        supply_chain._OWNER_ID = 100
+
+    def tearDown(self):
+        supply_chain._OWNER_ID = self.previous_owner
+
+    @staticmethod
+    def update(chat_id, user_id, chat_type=ChatType.PRIVATE, user_data=None):
+        return SimpleNamespace(
+            effective_chat=SimpleNamespace(id=chat_id, type=chat_type),
+            effective_user=SimpleNamespace(id=user_id),
+            user_data=user_data or {},
+        )
+
+    def test_non_owner_cannot_enter_legacy_supply_chain_even_with_company_selector(self):
+        update = self.update(
+            200, 200, user_data={"active_company_id": "company-a", "role": "owner"}
+        )
+        self.assertFalse(supply_chain._allowed(update))
+
+    def test_owner_must_use_matching_private_chat_and_user_identity(self):
+        self.assertTrue(supply_chain._allowed(self.update(100, 100)))
+        self.assertFalse(supply_chain._allowed(self.update(100, 101)))
+        self.assertFalse(supply_chain._allowed(self.update(200, 100)))
+        self.assertFalse(supply_chain._allowed(
+            self.update(100, 100, chat_type=ChatType.GROUP)
+        ))
+
+    def test_missing_owner_configuration_denies_everyone(self):
+        supply_chain._OWNER_ID = None
+        self.assertFalse(supply_chain._allowed(self.update(100, 100)))
+
+
+if __name__ == "__main__":
+    unittest.main()
