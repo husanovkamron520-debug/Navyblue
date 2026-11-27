@@ -1466,6 +1466,11 @@ def run_health_server():
                         self._sc_error("invalid_request", "SKU mos kelmadi.", 400)
                         return
                     store = sc_tenants.TenantStore(_db_request)
+                    archive_hash = hashlib.sha256(json.dumps(
+                        {"action": "archive_inventory_product", "sku": payload.get("sku"),
+                         "expected_version": payload.get("expected_version")},
+                        sort_keys=True, separators=(",", ":"), ensure_ascii=False
+                    ).encode("utf-8")).hexdigest()
                     mutation = store.mutate_snapshot(
                         tenant_context["company_id"],
                         tenant_context["user_id"],
@@ -1473,11 +1478,16 @@ def run_health_server():
                         lambda snapshot: _sc_archive_inventory_product_in_snapshot(
                             snapshot, payload, tenant_context["user_id"]),
                         expected_version=payload.get("expected_version"),
+                        operation_id=payload.get("operation_id"),
+                        request_hash=archive_hash,
                     )
-                    result = {"data": mutation["result"], "data_version": mutation["version"]}
+                    result = {"data": mutation["result"], "data_version": mutation["version"],
+                              "replayed": mutation.get("replayed", False)}
                 else:
                     result = _sc_delete_inventory_product(payload)
                 self._sc_json({"data": result, "meta": {"request_id": uuid.uuid4().hex}, "error": None})
+            except sc_tenants.TenantOperationConflict as exc:
+                self._sc_error("idempotency_conflict", str(exc), 409)
             except sc_tenants.SnapshotVersionConflict:
                 self._sc_error("version_conflict", "Ma'lumotlar o'zgargan. Sahifani yangilab qayta urinib ko'ring.", 409)
             except sc_persistence.VersionConflict:
