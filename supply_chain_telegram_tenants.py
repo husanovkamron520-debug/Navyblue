@@ -512,12 +512,12 @@ async def telegram_supplier_add(update: Any, context: Any, tenant_store_factory:
     _command, separator, raw = raw_text.partition(" ")
     if not separator:
         await message.reply_text(
-            "Format: /sc_yetkazuvchi ID | Nomi | Yetkazish muddati (kun)\\n"
+            "Format: /sc_yetkazuvchi ID | Nomi | Yetkazish muddati (kun)\n"
             "Misol: /sc_yetkazuvchi SUP-01 | Atlas Textile | 7"
         )
         return
     parts = [part.strip() for part in raw.split("|")]
-    if len(parts) != 3 or not parts[0] or not parts[1] or any("\\n" in p or "\\r" in p for p in parts):
+    if len(parts) != 3 or not parts[0] or not parts[1] or any("\n" in p or "\r" in p for p in parts):
         await message.reply_text("Uchta maydon kerak: ID | Nomi | Yetkazish muddati (kun)")
         return
     supplier_id, name, lead_raw = parts
