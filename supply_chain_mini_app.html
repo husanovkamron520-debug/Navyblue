@@ -304,8 +304,8 @@
     $("excel-file").disabled=!canWriteInventory;$("excel-import-confirm").disabled=true;
     $("connection").textContent="Korxona ulandi";
     $("tenant-status").textContent=canWriteInventory
-      ?"Korxona ulandi. Ombor va Excel import amallari faqat shu korxona ma’lumotlariga yoziladi."
-      :"Korxona ulandi. Bu rol omborni faqat o‘qiy oladi; yozish uchun ombor ruxsati kerak.";
+      ?"Korxona ulandi. Excel import: .xlsx yoki CSV, faqat shu korxona omboriga yoziladi."
+      :"Korxona ulandi. Excel import bloklangan: hozirgi rol ("+tenantRole+") ombor yozish huquqiga ega emas. Egadan 'Ombor xodimi' yoki 'Administrator' rolini so‘rang.";
     renderTenantCompanies();$("tenant-company").value=tenantCompanyId;
     setAppVisible(true);return true;
   }
@@ -706,13 +706,17 @@
     }catch(err){$("report-status").textContent="Eksport bajarilmadi: "+err.message;}
   }
   const csvState={headers:[],rows:[],fileName:"",workbook:null};
+  function normalizeExcelHeader(value){
+    return String(value??"").replace(/^\uFEFF/,"").normalize("NFKC").toLocaleLowerCase("uz")
+      .replace(/[’‘\x60]/g,"'").replace(/[_-]+/g," ").replace(/\s+/g," ").trim();
+  }
   const mapAliases={
-    sku:["sku","product sku","item code","код","артикул"],
-    name:["name","product","product name","item name","mahsulot","nomi"],
-    quantity:["quantity","qty","stock","on hand","miqdor","остаток"],
-    unit:["unit","uom","unit of measure","measure","birlik","единица"],
-    cost:["unit cost","unit_cost","cost","price","narx","birlik narxi"],
-    reorder:["reorder point","reorder_point","rop","min stock","qayta buyurtma"]
+    sku:["sku","product sku","item code","code","kod","mahsulot kodi","mahsulot kod","товарный код","код товара","код","артикул"],
+    name:["name","product","product name","item name","mahsulot","mahsulot nomi","nomi","tovar nomi","наименование","название"],
+    quantity:["quantity","qty","stock","on hand","miqdor","soni","qoldiq","ombordagi qoldiq","остаток","количество","кол-во"],
+    unit:["unit","uom","unit of measure","measure","birlik","o'lchov birligi","olchov birligi","единица","ед. изм."],
+    cost:["unit cost","unit_cost","cost","price","narx","birlik narxi","tannarx","цена","себестоимость"],
+    reorder:["reorder point","reorder_point","rop","min stock","qayta buyurtma","qayta buyurtma nuqtasi","minimal qoldiq","минимальный остаток"]
   };
   function parseCSV(text){
     const rows=[];let row=[],cell="",quoted=false;
@@ -959,8 +963,8 @@
       const select=$("map-"+key);select.replaceChildren();select.disabled=false;
       select.append(new Option("— Ustun tanlanmagan —",""));
       headers.forEach(h=>select.append(new Option(h,h)));
-      const normalized=headers.map(h=>h.toLowerCase().replace(/[_-]/g," ").trim());
-      const aliases=mapAliases[key].map(a=>a.toLowerCase().replace(/[_-]/g," ").trim());
+      const normalized=headers.map(normalizeExcelHeader);
+      const aliases=mapAliases[key].map(normalizeExcelHeader);
       const match=headers.find((h,i)=>aliases.includes(normalized[i]));
       select.value=match||"";
       select.onchange=renderExcelPreview;

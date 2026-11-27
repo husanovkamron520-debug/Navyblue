@@ -63,6 +63,15 @@ class SupplyChainMiniAppShellTests(unittest.TestCase):
         self.assertIn('accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"', self.html)
         self.assertNotIn('/sc-api/v1/imports', self.html)
 
+    def test_excel_header_mapping_supports_uzbek_russian_and_normalized_headers(self):
+        self.assertIn("function normalizeExcelHeader", self.html)
+        self.assertIn('"mahsulot kodi"', self.html)
+        self.assertIn('"mahsulot nomi"', self.html)
+        self.assertIn('"qoldiq"', self.html)
+        self.assertIn('"количество"', self.html)
+        self.assertIn('aliases=mapAliases[key].map(normalizeExcelHeader)', self.html)
+        self.assertIn('Excel import bloklangan', self.html)
+
     def test_excel_preview_does_not_mutate_inventory(self):
         self.assertIn('CSV UTF-8 va Excel .xlsx fayllar brauzerda tekshiriladi', self.html)
         self.assertIn('id="excel-import-confirm"', self.html)
