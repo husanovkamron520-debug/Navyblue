@@ -1,10 +1,43 @@
 import unittest
+import hashlib
+import hmac
+import json
+from urllib.parse import quote
 
 import supply_chain_api as api
 
 
 COMPANY_A = "11111111-1111-4111-8111-111111111111"
 COMPANY_B = "22222222-2222-4222-8222-222222222222"
+
+
+class TelegramInitDataTenantAuthTests(unittest.TestCase):
+    def _signed_init_data(self, user_id, auth_date=1000):
+        bot_token = "test-bot-token"
+        values = {
+            "auth_date": str(auth_date),
+            "user": json.dumps({"id": user_id, "first_name": "Test"}, separators=(",", ":")),
+        }
+        check = "\\n".join(f"{key}={values[key]}" for key in sorted(values))
+        secret = hmac.new(b"WebAppData", bot_token.encode(), hashlib.sha256).digest()
+        signature = hmac.new(secret, check.encode(), hashlib.sha256).hexdigest()
+        return "&".join(f"{key}={quote(value)}" for key, value in values.items()) + "&hash=" + signature, bot_token
+
+    def test_valid_telegram_user_can_authenticate_for_tenant_onboarding(self):
+        init_data, token = self._signed_init_data(987654321)
+        user = api.validate_init_data(init_data, token, now=1000)
+        self.assertEqual(user["id"], 987654321)
+
+    def test_legacy_owner_validation_still_restricts_owner(self):
+        init_data, token = self._signed_init_data(987654321)
+        with self.assertRaises(api.AuthError):
+            api.validate_init_data(init_data, token, owner_id=123456789, now=1000)
+
+    def test_invalid_signature_is_rejected_for_tenant_onboarding(self):
+        init_data, token = self._signed_init_data(987654321)
+        init_data = init_data.replace("hash=", "hash=0", 1)
+        with self.assertRaises(api.AuthError):
+            api.validate_init_data(init_data, token, now=1000)
 
 
 class TenantSessionStoreTests(unittest.TestCase):
