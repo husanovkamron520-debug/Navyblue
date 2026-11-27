@@ -9,6 +9,7 @@ on:
       - "supply_chain_api.py"
       - "supply_chain_tenants.py"
       - "tests/test_tenant_sessions.py"
+      - "tests/test_supply_chain_owner_boundary.py"
       - ".github/workflows/tenant-tests.yml"
   pull_request:
     paths:
@@ -29,6 +30,8 @@ jobs:
           python-version: "3.11"
       - name: Run tenant session tests
         run: python -m unittest discover -s tests -p "test_tenant_sessions.py" -v
+      - name: Run legacy Supply Chain owner-boundary tests
+        run: python -m unittest discover -s tests -p "test_supply_chain_owner_boundary.py" -v
       - name: Check Mini App JavaScript syntax
         run: |
           python - <<'PY'
