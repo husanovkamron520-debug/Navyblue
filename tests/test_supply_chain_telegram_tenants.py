@@ -13,6 +13,7 @@ from supply_chain_telegram_tenants import (
     telegram_company_select,
     telegram_inventory_overview,
     telegram_inventory_add,
+    telegram_inventory_movement,
 )
 
 
@@ -385,6 +386,67 @@ class TelegramInventoryAddTests(unittest.IsolatedAsyncioTestCase):
         await telegram_inventory_add(update_obj2, context, lambda: store)
         self.assertEqual(store.data["products"]["SKU-06"]["name"], "Existing")
         self.assertIn("allaqachon mavjud", message2.text.lower())
+
+
+class TelegramInventoryMovementTests(unittest.IsolatedAsyncioTestCase):
+    def make_update(self, text, update_id=901):
+        message = FakeMessage()
+        message.text = text
+        return SimpleNamespace(
+            update_id=update_id,
+            effective_chat=SimpleNamespace(type="private"),
+            effective_user=SimpleNamespace(id=42),
+            effective_message=message,
+        ), message
+
+    async def test_stock_in_and_out_are_company_scoped_and_replay_safe(self):
+        store = InventoryWriteStore()
+        store.data["products"]["SKU-1"] = {
+            "sku": "SKU-1", "name": "Shakar", "quantity": 10, "unit": "kg"
+        }
+        context = SimpleNamespace(user_data={"sc_active_company_id": COMPANY_A})
+
+        incoming, in_message = self.make_update("/sc_kirim SKU-1 | 5 | Yetkazib beruvchi")
+        await telegram_inventory_movement(incoming, context, lambda: store, "in")
+        self.assertEqual(store.data["products"]["SKU-1"]["quantity"], 15)
+        self.assertEqual(store.data["movements"][-1]["type"], "in")
+        self.assertIn("Kirim", in_message.text)
+
+        # Re-delivery of the same Telegram update cannot add stock twice.
+        replay, replay_message = self.make_update("/sc_kirim SKU-1 | 5 | Yetkazib beruvchi")
+        replay.update_id = incoming.update_id
+        await telegram_inventory_movement(replay, context, lambda: store, "in")
+        self.assertEqual(store.data["products"]["SKU-1"]["quantity"], 15)
+        self.assertIn("qayta qo'shilmadi", replay_message.text)
+
+        outgoing, out_message = self.make_update("/sc_chiqim SKU-1 | 4 | Ishlab chiqarish")
+        await telegram_inventory_movement(outgoing, context, lambda: store, "out")
+        self.assertEqual(store.data["products"]["SKU-1"]["quantity"], 11)
+        self.assertEqual(store.data["movements"][-1]["type"], "out")
+        self.assertIn("Chiqim", out_message.text)
+
+    async def test_stock_out_cannot_make_inventory_negative(self):
+        store = InventoryWriteStore()
+        store.data["products"]["SKU-1"] = {
+            "sku": "SKU-1", "name": "Un", "quantity": 2, "unit": "qop"
+        }
+        update_obj, message = self.make_update("/sc_chiqim SKU-1 | 3 | Sarf")
+        context = SimpleNamespace(user_data={"sc_active_company_id": COMPANY_A})
+        await telegram_inventory_movement(update_obj, context, lambda: store, "out")
+        self.assertEqual(store.data["products"]["SKU-1"]["quantity"], 2)
+        self.assertEqual(store.data.get("movements", []), [])
+        self.assertIn("yetarli qoldiq yo'q", message.text)
+
+    async def test_movement_rejects_foreign_company_before_snapshot_change(self):
+        store = InventoryWriteStore(allowed_company=COMPANY_A)
+        store.data["products"]["SKU-1"] = {
+            "sku": "SKU-1", "name": "Un", "quantity": 10, "unit": "qop"
+        }
+        update_obj, message = self.make_update("/sc_kirim SKU-1 | 5 | Qabul")
+        context = SimpleNamespace(user_data={"sc_active_company_id": COMPANY_B})
+        await telegram_inventory_movement(update_obj, context, lambda: store, "in")
+        self.assertEqual(store.data["products"]["SKU-1"]["quantity"], 10)
+        self.assertIn("saqlanmadi", message.text.lower())
 
 
 if __name__ == "__main__":
