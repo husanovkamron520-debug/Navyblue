@@ -300,7 +300,11 @@
     $("tenant-owner-tools").hidden=!(tenantRole==="owner"||tenantRole==="admin");
     $("tenant-migrate").hidden=tenantRole!=="owner";
     $("detail-delete").hidden=!["owner","admin","warehouse"].includes(tenantRole);
-    $("excel-file").disabled=true;$("excel-import-confirm").disabled=true;
+    const canWriteInventory=["owner","admin","warehouse"].includes(tenantRole);
+    $("excel-file").disabled=!canWriteInventory;$("excel-import-confirm").disabled=true;
+    $("tenant-status").textContent=canWriteInventory
+      ?"Korxona ulandi. Ombor va Excel import amallari korxona ma’lumotlariga ajratilgan."
+      :"Korxona ulandi. Bu rol omborni faqat o‘qiy oladi; Excel import uchun ombor ruxsati kerak.";
     $("connection").textContent="Korxona ulandi";
     $("tenant-status").textContent="Faol korxona tanlandi. Ma’lumotlar faqat shu korxona snapshot’idan o‘qiladi.";
     renderTenantCompanies();$("tenant-company").value=tenantCompanyId;
