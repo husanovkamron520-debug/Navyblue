@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
     paths:
+      - "bot.py"
       - "supply_chain_api.py"
       - "supply_chain_tenants.py"
       - "tests/test_tenant_sessions.py"
