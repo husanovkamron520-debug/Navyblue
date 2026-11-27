@@ -261,7 +261,7 @@ class TelegramCompanySelectorTests(unittest.IsolatedAsyncioTestCase):
         await telegram_inventory_overview(
             update_obj, SimpleNamespace(user_data=user_data), lambda: store
         )
-        self.assertIn("a'zoligingiz", message.text.lower())
+        self.assertIn("tekshirib bo'lmadi", message.text.lower())
         self.assertEqual(store.snapshot_calls, [])
 
 
