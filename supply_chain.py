@@ -1267,7 +1267,7 @@ def _ai_snapshot(data: dict[str, Any]) -> dict[str, Any]:
         "kpi_availability": {
             "inventory_turnover": {"status": "not_calculable", "missing": ["davr uchun COGS/sotilgan mahsulot tannarxi", "davr boshidagi va oxiridagi o‘rtacha zaxira"]},
             "days_of_inventory": {"status": "not_calculable", "missing": ["mos davr COGS yoki kunlik iste'mol tannarxi", "o‘rtacha zaxira qiymati"]},
-            "overstock_value": {"status": "not_calculable", "missing": ["har bir SKU uchun maqsad yoki maksimal zaxira darajasi"]},
+            "overstock_value": {"status": "estimated_with_assumptions", "see": "overstock_estimate"},
             "forecast_accuracy": {"status": "not_calculable", "missing": ["oldingi prognozlar va shu davrdagi real talab"]},
         },
         "data_counts": {
@@ -1280,6 +1280,7 @@ def _ai_snapshot(data: dict[str, Any]) -> dict[str, Any]:
         "vehicles": vehicles, "shipments": shipments,
         "computed_reports": {"abc": _abc_text(data), "eoq": _eoq_text(data), "forecast": _forecast_text(data), "risk": _risk_text(data)},
         "computed_metrics": _computed_metrics(data),
+        "overstock_estimate": _overstock_estimate(data),
         "production_scenarios": scenario_results,
         "risk_assessment": _risk_assessment(data),
         "context_note": "Ro‘yxatlar sun’iy ravishda kesilmagan. Bo‘sh ro‘yxat tegishli yozuvlar kiritilmaganini anglatadi.",
@@ -1371,6 +1372,7 @@ def _ask_gemini_sync(client: Any, model: str, question: str, snapshot: dict[str,
         "Texnik atamalar, JSON, ichki maydon nomlari va koddagi o‘zgaruvchilarni hech qachon tilga olma; oddiy biznes tilida gapir. "
         "Xulosa, dalillar va keyingi qadam orasida bitta bo‘sh qator qoldir; ro‘yxatlarni • bilan yoz. "
         "Javobni keraksiz sarlavha va uzun kirish bilan cho‘zma.\n\n"
+        + _AI_FORMAT_RULES
         + _ai_history_prompt_part(history_text)
         + f"EGANING SAVOLI:\n{question[:2000]}\n\n"
         f"SUPPLY CHAIN MA’LUMOTLARI (to‘liq JSON):\n{payload}"
@@ -1379,7 +1381,7 @@ def _ask_gemini_sync(client: Any, model: str, question: str, snapshot: dict[str,
     answer = getattr(response, "text", None)
     if not answer or not str(answer).strip():
         raise RuntimeError("Gemini bo‘sh javob qaytardi. Birozdan keyin qayta urinib ko‘ring.")
-    return str(answer).strip()
+    return _format_ai_customer_answer(str(answer))
 
 def _ask_gemini_quick_sync(client: Any, model: str, question: str, snapshot: dict[str, Any], history_text: str = "") -> str:
     """Short, evidence-grounded answers for one-tap owner questions."""
@@ -1403,6 +1405,7 @@ def _ask_gemini_quick_sync(client: Any, model: str, question: str, snapshot: dic
         "Yetkazib beruvchi xavfini faqat mavjud reyting, yetkazish muddati va kechikkan buyurtmalar dalili bilan bahola. "
         "Hech qanday amal bajarma, ombor yoki buyurtmalarni o‘zgartirma. Buyurtma kerak bo‘lsa, faqat qoralama taklif qil; "
         "foydalanuvchi tasdiqlamaguncha hech narsa yuborilmaydi.\n\n"
+        + _AI_FORMAT_RULES
         + _ai_history_prompt_part(history_text)
         + f"SAVOL: {question[:1000]}\n\n"
         f"JORIY SUPPLY CHAIN MA’LUMOTLARI (JSON):\n{payload}"
@@ -1463,13 +1466,90 @@ def _ai_keep_mode(context: Any) -> None:
     context.user_data["_sc_wait"] = {"action": "ai_ask", "started": datetime.now().timestamp(), "parent": "home"}
 
 
+_OVERSTOCK_TARGET_DAYS = 60
+_OVERSTOCK_HOLDING_RATE = 0.20
+
+
+def _overstock_estimate(data: dict[str, Any]) -> dict[str, Any]:
+    """Deterministic overstock estimate: stock above N days of demand, with stated assumptions."""
+    history = data.get("demand_history", [])
+    rows: list[dict[str, Any]] = []
+    skipped = 0
+    for sku, product in data.get("products", {}).items():
+        if not isinstance(product, dict) or product.get("quantity") is None:
+            continue
+        stock = _safe_num(product.get("quantity"))
+        if stock <= 0:
+            continue
+        annual = _safe_num(product.get("annual_demand"))
+        source = "yillik talab"
+        if annual > 0:
+            daily = annual / 365.0
+        else:
+            records = sorted((r for r in history if r.get("sku") == sku), key=lambda r: str(r.get("month", "")))[-6:]
+            if len(records) < 3:
+                skipped += 1
+                continue
+            values = [_safe_num(r.get("quantity")) for r in records]
+            weights = list(range(1, len(values) + 1))
+            daily = (sum(v * w for v, w in zip(values, weights)) / sum(weights)) / 30.0
+            source = "oylik talab tarixi"
+        if daily <= 0:
+            skipped += 1
+            continue
+        target = daily * _OVERSTOCK_TARGET_DAYS
+        excess = stock - target
+        if excess <= 0:
+            continue
+        row: dict[str, Any] = {
+            "product": str(product.get("name", sku)), "unit": str(product.get("unit", "dona")),
+            "stock": round(stock, 2), "days_of_cover": round(stock / daily),
+            "normal_stock": round(target, 1), "excess_quantity": round(excess, 1), "demand_source": source,
+        }
+        cost = product.get("unit_cost")
+        if cost is not None and _safe_num(cost) >= 0:
+            unit_cost = _safe_num(cost)
+            holding = product.get("holding_cost")
+            per_unit_year = _safe_num(holding) if holding is not None else unit_cost * _OVERSTOCK_HOLDING_RATE
+            row["excess_value_uzs"] = round(excess * unit_cost)
+            row["yearly_holding_cost_uzs"] = round(excess * per_unit_year)
+        rows.append(row)
+    rows.sort(key=lambda r: r.get("excess_value_uzs", 0), reverse=True)
+    priced = [r for r in rows if "excess_value_uzs" in r]
+    return {
+        "assumptions": {
+            "normal_stock_rule": f"normal zaxira = {_OVERSTOCK_TARGET_DAYS} kunlik talab",
+            "holding_cost_rule": "saqlash xarajati: mahsulotda kiritilgan bo‘lsa shu, aks holda narxning 20% / yil",
+        },
+        "overstock_products": len(rows),
+        "products_skipped_no_demand": skipped,
+        "total_excess_value_uzs": sum(r["excess_value_uzs"] for r in priced),
+        "total_yearly_holding_cost_uzs": sum(r["yearly_holding_cost_uzs"] for r in priced),
+        "top_items": rows[:8],
+    }
+
+
+_AI_FORMAT_RULES = (
+    "JAVOB SHAKLI (majburiy; oldingi shakl ko‘rsatmalaridan ustun):\n"
+    "1) Birinchi qator: 💡 va savolga to‘g‘ridan-to‘g‘ri javob, bitta qisqa gap, raqam bilan.\n"
+    "2) Bo‘sh qator, keyin ko‘pi bilan 4 ta band; har biri bitta qatorda: • Nomi — raqam — nima qilish kerak.\n"
+    "3) Bo‘sh qator, oxirida bitta qator: ➡️ Keyingi qadam: ... (bitta amaliy tavsiya).\n"
+    "4) Jami 700 belgidan oshmasin. Uzun paragraf, takror, umumiy ogohlantirish va dars berish yo‘q.\n"
+    "5) Pulni million so‘mda yoz (masalan 831 mln so‘m), miqdorni 100 701 kg ko‘rinishida yoz; uzun sonlarni to‘liq yozma.\n"
+    "6) Aniq qiymat uchun ma’lumot yetmasa, «hisoblab bo‘lmaydi» deb to‘xtama: berilgan tayyor taxminiy hisobdan foydalan, "
+    "bitta qisqa gapda qaysi faraz ishlatilganini ayt (masalan, normal zaxira = 60 kunlik talab) va qaysi ma’lumot kiritilsa aniqroq bo‘lishini yoz. "
+    "Berilgan hisobda bo‘lmagan raqamni to‘qima.\n"
+    "7) Mahsulotlarni qiymati yoki muhimligi bo‘yicha tartiblab, eng muhim 3–4 tasini ko‘rsat; qolganini «yana N ta» deb yoz.\n\n"
+)
+
+
 def _format_ai_customer_answer(answer: str) -> str:
     """Keep AI output readable and hide internal implementation vocabulary."""
     import re
     text = str(answer or "").replace("\r\n", "\n").replace("\r", "\n").strip()
     technical = re.compile(
-        r"(?i)(json|computed_reports|computed_metrics|inventory_summary|kpi_availability|"
-        r"risk_assessment|callback|api|database|deploy|backend|field|schema|sku\s*[:=])"
+        r"(?i)(\b(?:json|computed_reports|computed_metrics|overstock_estimate|inventory_summary|kpi_availability|"
+        r"risk_assessment|callback|api|database|deploy|backend|field|schema)\b|sku\s*[:=])"
     )
     cleaned = []
     for raw in text.split("\n"):
@@ -1492,7 +1572,7 @@ def _format_ai_customer_answer(answer: str) -> str:
             if out and out[-1] != "":
                 out.append("")
             continue
-        if out and out[-1] != "" and re.match(r"^(💡|Dalillar:|Keyingi qadam:|Xulosa:)", line, re.I):
+        if out and out[-1] != "" and re.match(r"^(💡|➡️|Dalillar:|Keyingi qadam:|Xulosa:)", line, re.I):
             out.append("")
         out.append(line)
     return "\n".join(out).strip()
@@ -3321,7 +3401,7 @@ async def _text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
             answer = await asyncio.wait_for(asyncio.to_thread(_ask_gemini_sync, _AI_CLIENT, _AI_MODEL, raw, snapshot, history_text), timeout=42)
             _ai_history_add(context, raw, answer)
             full_answer = ("🤖 SUPPLY CHAIN AI\n\n" + answer +
-                           "\n\nEslatma: tavsiyalar avtomatik bajarilmaydi.\nSavolni davom ettirishingiz mumkin: shunchaki yozing.")
+                           "\n\nℹ️ Tavsiya, avtomatik bajarilmaydi. Davom ettirish uchun yozing.")
             answer_parts = _split_telegram_text(full_answer)
             await status.edit_text(answer_parts[0], reply_markup=_home_keyboard())
             for part in answer_parts[1:]:
