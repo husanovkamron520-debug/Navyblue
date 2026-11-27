@@ -43,7 +43,7 @@ class SupplyChainOwnerBoundaryTests(unittest.TestCase):
     def test_tenant_action_permission_map_is_fail_closed(self):
         self.assertIsNone(supply_chain.tenant_permissions_for_action("unknown_action", "callback"))
         self.assertIsNone(supply_chain.tenant_permissions_for_action("in", "unknown_source"))
-        self.assertEqual(supply_chain.tenant_permissions_for_action("home", "callback"), ())
+        self.assertEqual(supply_chain.tenant_permissions_for_action("home", "callback"), ("reports.read",))
 
     def test_data_reading_callbacks_never_have_an_empty_permission_set(self):
         for action in ("home", "reports", "buy", "transport", "sim", "ai",
