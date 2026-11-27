@@ -27,13 +27,15 @@ class AuthError(ValueError):
     """Invalid or unauthorized Telegram Web App authentication."""
 
 
-def validate_init_data(init_data: str, bot_token: str, owner_id: int,
+def validate_init_data(init_data: str, bot_token: str, owner_id: int | None = None,
                        now: float | None = None) -> dict:
     """Validate Telegram Web App initData and return its authenticated user."""
     if not isinstance(init_data, str) or not init_data or len(init_data.encode("utf-8")) > MAX_INIT_DATA_BYTES:
         raise AuthError("initData missing or too large")
-    if not isinstance(bot_token, str) or not bot_token or not owner_id:
+    if not isinstance(bot_token, str) or not bot_token:
         raise AuthError("server authentication is not configured")
+    if owner_id is not None and (isinstance(owner_id, bool) or int(owner_id) <= 0):
+        raise AuthError("server owner authentication is not configured")
     try:
         pairs = parse_qsl(init_data, keep_blank_values=True, strict_parsing=True, max_num_fields=32)
         values = {}
@@ -59,7 +61,13 @@ def validate_init_data(init_data: str, bot_token: str, owner_id: int,
     age = current - auth_date
     if age < -INIT_DATA_FUTURE_SKEW_SECONDS or age > INIT_DATA_MAX_AGE_SECONDS:
         raise AuthError("initData expired")
-    if not isinstance(user, dict) or str(user.get("id", "")) != str(owner_id):
+    if not isinstance(user, dict) or isinstance(user.get("id"), bool):
+        raise AuthError("invalid Telegram user")
+    try:
+        telegram_user_id = int(user.get("id"))
+    except (TypeError, ValueError) as exc:
+        raise AuthError("invalid Telegram user") from exc
+    if telegram_user_id <= 0 or (owner_id is not None and telegram_user_id != int(owner_id)):
         raise AuthError("not authorized")
     return user
 
