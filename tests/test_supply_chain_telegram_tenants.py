@@ -17,6 +17,9 @@ from supply_chain_telegram_tenants import (
     telegram_supplier_add,
     telegram_purchase_order_add,
     telegram_purchase_order_transition,
+    telegram_vehicle_add,
+    telegram_shipment_plan,
+    telegram_shipment_list,
 )
 
 
@@ -604,3 +607,82 @@ class TelegramPurchaseOrderTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TelegramTenantTransportTests(unittest.IsolatedAsyncioTestCase):
+    def make_update(self, text, update_id=3301):
+        message = FakeMessage()
+        message.text = text
+        return SimpleNamespace(
+            update_id=update_id,
+            effective_chat=SimpleNamespace(type="private"),
+            effective_user=SimpleNamespace(id=42),
+            effective_message=message,
+        ), message
+
+    async def test_vehicle_add_is_tenant_scoped_and_replay_safe(self):
+        store = InventoryWriteStore(role="owner")
+        context = SimpleNamespace(user_data={"sc_active_company_id": COMPANY_A})
+        update_obj, message = self.make_update("/sc_transport_qosh TR-01 | Isuzu | 5000 | 2500 | 60")
+        await telegram_vehicle_add(update_obj, context, lambda: store)
+        self.assertEqual(len(store.data["vehicles"]), 1)
+        self.assertEqual(store.data["vehicles"][0]["capacity"], 5000)
+        replay, replay_message = self.make_update("/sc_transport_qosh TR-01 | Isuzu | 5000 | 2500 | 60", update_obj.update_id)
+        await telegram_vehicle_add(replay, context, lambda: store)
+        self.assertEqual(len(store.data["vehicles"]), 1)
+        self.assertIn("qayta yaratilmadi", replay_message.text)
+
+    async def test_vehicle_add_rejects_foreign_company_and_bad_capacity(self):
+        store = InventoryWriteStore(role="owner")
+        context = SimpleNamespace(user_data={"sc_active_company_id": COMPANY_B})
+        update_obj, message = self.make_update("/sc_transport_qosh TR-02 | Isuzu | 5000 | 2500 | 60")
+        await telegram_vehicle_add(update_obj, context, lambda: store)
+        self.assertEqual(store.data.get("vehicles", []), [])
+        self.assertIn("tekshirib bo'lmadi", message.text.lower())
+        context.user_data["sc_active_company_id"] = COMPANY_A
+        bad, bad_message = self.make_update("/sc_transport_qosh TR-03 | Isuzu | 0 | 2500 | 60", 3302)
+        await telegram_vehicle_add(bad, context, lambda: store)
+        self.assertEqual(store.data.get("vehicles", []), [])
+        self.assertIn("Sig'im", bad_message.text)
+
+    async def test_shipment_plan_selects_cheapest_eligible_vehicle_without_stock_decrement(self):
+        store = InventoryWriteStore(role="owner")
+        store.data["products"]["SKU-1"] = {"sku": "SKU-1", "name": "Un", "quantity": 200, "unit": "qop"}
+        store.data["vehicles"] = [
+            {"id": "TR-1", "name": "Katta", "capacity": 500, "cost_per_km": 3000, "speed_kmh": 50},
+            {"id": "TR-2", "name": "Tejamkor", "capacity": 250, "cost_per_km": 2000, "speed_kmh": 60},
+        ]
+        context = SimpleNamespace(user_data={"sc_active_company_id": COMPANY_A})
+        update_obj, message = self.make_update("/sc_yuk_reja SKU-1 | 100 | Toshkent | 300")
+        await telegram_shipment_plan(update_obj, context, lambda: store)
+        self.assertEqual(len(store.data["shipments"]), 1)
+        self.assertEqual(store.data["shipments"][0]["vehicle_id"], "TR-2")
+        self.assertEqual(store.data["shipments"][0]["status"], "planned")
+        self.assertEqual(store.data["products"]["SKU-1"]["quantity"], 200)
+        self.assertIn("qaytirmaydi", message.text.lower())
+
+    async def test_shipment_plan_denies_foreign_company_and_insufficient_stock(self):
+        store = InventoryWriteStore(role="owner")
+        store.data["products"]["SKU-1"] = {"sku": "SKU-1", "name": "Un", "quantity": 2, "unit": "qop"}
+        store.data["vehicles"] = [{"id": "TR-1", "name": "Truck", "capacity": 50, "cost_per_km": 2, "speed_kmh": 50}]
+        context = SimpleNamespace(user_data={"sc_active_company_id": COMPANY_B})
+        foreign, foreign_message = self.make_update("/sc_yuk_reja SKU-1 | 1 | Toshkent | 300", 3303)
+        await telegram_shipment_plan(foreign, context, lambda: store)
+        self.assertEqual(store.data.get("shipments", []), [])
+        self.assertIn("tekshirib bo'lmadi", foreign_message.text.lower())
+        context.user_data["sc_active_company_id"] = COMPANY_A
+        short, short_message = self.make_update("/sc_yuk_reja SKU-1 | 3 | Toshkent | 300", 3304)
+        await telegram_shipment_plan(short, context, lambda: store)
+        self.assertEqual(store.data.get("shipments", []), [])
+        self.assertIn("yetarli qoldiq yo'q", short_message.text.lower())
+
+    async def test_shipment_list_is_read_only_and_tenant_scoped(self):
+        store = InventoryWriteStore(role="owner")
+        store.data["shipments"] = [{"id": "SH-1", "sku": "SKU-1", "quantity": 1,
+                                    "destination": "Toshkent", "status": "planned"}]
+        context = SimpleNamespace(user_data={"sc_active_company_id": COMPANY_A})
+        update_obj, message = self.make_update("/sc_yuklar", 3305)
+        await telegram_shipment_list(update_obj, context, lambda: store)
+        self.assertIn("SH-1", message.text)
+        self.assertEqual(store.data["version"], 1)
+        self.assertEqual(store.permission_calls[-1][2], "logistics.read")
