@@ -1508,8 +1508,16 @@ def run_health_server():
                     "tenant-session" if is_tenant_session else "session"):
                 self._sc_error("rate_limited", "Juda ko'p urinish. Birozdan keyin qayta urinib ko'ring.", 429)
                 return
+            tenant_import_context = None
+            is_tenant_import = False
             if is_import:
-                if not OWNER_CHAT_ID or not _SC_SESSIONS.authenticate(self._sc_bearer(), OWNER_CHAT_ID):
+                tenant_import_context = self._sc_tenant_context("inventory.write")
+                if tenant_import_context is False:
+                    return
+                is_tenant_import = tenant_import_context is not None
+                if not is_tenant_import and (
+                        not OWNER_CHAT_ID
+                        or not _SC_SESSIONS.authenticate(self._sc_bearer(), OWNER_CHAT_ID)):
                     self._sc_error("unauthorized", "Sessiya yaroqsiz yoki muddati tugagan.", 401)
                     return
                 if not _SC_IMPORT_LIMITER.allow("inventory-import"):
@@ -1611,13 +1619,31 @@ def run_health_server():
                                    "meta": {"request_id": uuid.uuid4().hex}, "error": None})
                     return
 
-                result = _sc_commit_inventory_import(payload)
+                if is_tenant_import:
+                    operation_id, expected, rows, request_hash, source_name, source_sheet = (
+                        sc_import.normalize_payload(payload))
+                    mutation = sc_tenants.TenantStore(_db_request).mutate_snapshot(
+                        tenant_import_context["company_id"],
+                        tenant_import_context["user_id"],
+                        "inventory.write",
+                        lambda snapshot: sc_import.mutate_inventory(
+                            snapshot, rows, source_name, source_sheet),
+                        expected_version=expected,
+                        operation_id=operation_id,
+                        request_hash=request_hash,
+                    )
+                    result = {"result": mutation["result"], "version": mutation["version"],
+                              "replayed": mutation.get("replayed", False)}
+                else:
+                    result = _sc_commit_inventory_import(payload)
                 self._sc_json({"data": result, "meta": {"request_id": uuid.uuid4().hex},
                                "error": None})
             except sc_api.AuthError as exc:
                 self._sc_error("unauthorized", str(exc), 401)
             except sc_tenants.MembershipRequired as exc:
                 self._sc_error("forbidden", str(exc), 403)
+            except sc_tenants.TenantOperationConflict as exc:
+                self._sc_error("idempotency_conflict", str(exc), 409)
             except sc_tenants.PermissionDenied as exc:
                 self._sc_error("forbidden", str(exc), 403)
             except sc_tenants.TenantError as exc:
