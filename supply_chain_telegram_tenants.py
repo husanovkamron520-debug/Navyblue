@@ -954,6 +954,7 @@ async def telegram_shipment_transition(update: Any, context: Any, tenant_store_f
 def register_telegram_company_selector(app: Any, tenant_store_factory: Any) -> None:
     """Register the company selector and the isolated read-only inventory command."""
     from telegram.ext import CallbackQueryHandler, CommandHandler
+    from telegram.ext import MessageHandler, filters
 
     app.add_handler(CommandHandler("sc", lambda update, context: telegram_company_list(
         update, context, tenant_store_factory
@@ -1000,12 +1001,129 @@ def register_telegram_company_selector(app: Any, tenant_store_factory: Any) -> N
     app.add_handler(CommandHandler("sc_buyurtma_qabul", lambda update, context: telegram_purchase_order_transition(
         update, context, tenant_store_factory, "received"
     )))
+    app.add_handler(MessageHandler(
+        filters.ChatType.PRIVATE & filters.Document.FileExtension("xlsx"),
+        lambda update, context: telegram_excel_import(update, context, tenant_store_factory),
+    ))
     app.add_handler(CallbackQueryHandler(
         lambda update, context: telegram_company_select(update, context, tenant_store_factory),
         pattern=r"^sctenant:",
     ))
 
 
+async def telegram_excel_import(update: Any, context: Any, tenant_store_factory: Any) -> None:
+    """Import an XLSX inventory sheet into the selected tenant only."""
+    import hashlib
+    import json
+    import uuid
+    import io
+    from openpyxl import load_workbook
+    from supply_chain_tenants import SnapshotVersionConflict, PermissionDenied, MembershipRequired
+    from supply_chain_mini_app_import import normalize_payload, mutate_inventory, ImportValidationError
+
+    message = getattr(update, "effective_message", None)
+    chat = getattr(update, "effective_chat", None)
+    user = getattr(update, "effective_user", None)
+    document = getattr(message, "document", None) if message else None
+    if (message is None or document is None or not chat or not user
+            or str(getattr(chat, "type", "")) != "private"):
+        return
+    filename = str(getattr(document, "file_name", "") or "inventory.xlsx")
+    if not filename.lower().endswith(".xlsx"):
+        await message.reply_text("Excel import uchun .xlsx fayl yuboring.")
+        return
+    size = getattr(document, "file_size", None)
+    if size and (size > 8 * 1024 * 1024):
+        await message.reply_text("Excel fayl 8 MB dan kichik bo'lishi kerak.")
+        return
+    try:
+        tenant_context = resolve_telegram_tenant_context(
+            update, getattr(context, "user_data", {}),
+            tenant_store_factory(), ("inventory.write",),
+        )
+        telegram_file = await document.get_file()
+        raw = bytes(await telegram_file.download_as_bytearray())
+        if not raw or len(raw) > 8 * 1024 * 1024:
+            await message.reply_text("Excel fayl bo'sh yoki 8 MB limitdan katta.")
+            return
+        workbook = load_workbook(io.BytesIO(raw), read_only=True, data_only=True)
+        sheet = workbook.active
+        iterator = sheet.iter_rows(values_only=True)
+        headers = next(iterator, None)
+        if not headers:
+            await message.reply_text("Excel varag'ida sarlavha qatori topilmadi.")
+            return
+        aliases = {
+            "sku": {"sku", "код", "артикул", "mahsulot kodi", "kod"},
+            "name": {"name", "product", "product name", "nomi", "mahsulot", "mahsulot nomi", "наименование"},
+            "quantity": {"quantity", "qty", "stock", "qoldiq", "miqdor", "soni", "остаток"},
+            "unit": {"unit", "birlik", "o'lchov birligi", "единица"},
+            "unit_cost": {"unit_cost", "cost", "narx", "tannarx", "birlik narxi"},
+            "reorder_point": {"reorder_point", "rop", "min stock", "minimal qoldiq", "qayta buyurtma nuqtasi"},
+        }
+        columns = {}
+        for index, value in enumerate(headers):
+            key = str(value or "").strip().casefold()
+            for field, names in aliases.items():
+                if key in names and field not in columns:
+                    columns[field] = index
+        if not {"sku", "name", "quantity"}.issubset(columns):
+            await message.reply_text(
+                "Excel sarlavhalari mos emas. Majburiy ustunlar: SKU, Nomi, Miqdor. "
+                "Ixtiyoriy: Birlik, Narx, ROP."
+            )
+            return
+        rows = []
+        for row_number, values in enumerate(iterator, 2):
+            if not values or not any(value is not None and str(value).strip() for value in values):
+                continue
+            def cell(field):
+                idx = columns.get(field)
+                return values[idx] if idx is not None and idx < len(values) else None
+            rows.append({
+                "sku": str(cell("sku") or "").strip(),
+                "name": str(cell("name") or "").strip(),
+                "quantity": cell("quantity"),
+                "unit": str(cell("unit")).strip() if cell("unit") is not None else None,
+                "unit_cost": cell("unit_cost"),
+                "reorder_point": cell("reorder_point"),
+            })
+            if len(rows) > 10000:
+                await message.reply_text("Excel faylda 10 000 qatordan ortiq mahsulot bor.")
+                return
+        if not rows:
+            await message.reply_text("Excel faylda import qilinadigan mahsulot qatorlari topilmadi.")
+            return
+        operation_id = f"tg-xlsx-{int(getattr(update, 'update_id', 0))}-{tenant_context.company_id[:8]}"
+        payload = {
+            "operation_id": operation_id,
+            "expected_version": tenant_context.version,
+            "source_name": filename,
+            "source_sheet": str(sheet.title or "")[:120],
+            "rows": rows,
+        }
+        _, expected, clean_rows, request_hash, source_name, source_sheet = normalize_payload(payload)
+        result = tenant_store_factory().mutate_snapshot(
+            tenant_context.company_id, tenant_context.telegram_user_id, "inventory.write",
+            lambda snapshot: mutate_inventory(snapshot, clean_rows, source_name, source_sheet),
+            expected_version=expected, operation_id=operation_id, request_hash=request_hash,
+        )
+        item = result.get("result") or {}
+        await message.reply_text(
+            f"✅ Excel import yakunlandi — {filename}\n"
+            f"Korxona: {tenant_context.company_id[:8]}\n"
+            f"Qatorlar: {item.get('processed', 0)} · Yangi: {item.get('created', 0)} · "
+            f"Yangilandi: {item.get('updated', 0)} · O'zgarmadi: {item.get('unchanged', 0)}"
+        )
+    except TelegramTenantContextError as exc:
+        await message.reply_text(str(exc))
+    except ImportValidationError as exc:
+        await message.reply_text(f"Excel ma'lumotlari tekshiruvdan o'tmadi: {exc}")
+    except (SnapshotVersionConflict, PermissionDenied, MembershipRequired):
+        await message.reply_text("Excel import uchun ombor yozish huquqi kerak. /sc orqali korxonani tanlang.")
+    except Exception:
+        await message.reply_text("Excel import bajarilmadi. Fayl ustunlari, korxona ruxsati va baza holatini tekshiring.")
+    
 async def telegram_inventory_movement(update: Any, context: Any, tenant_store_factory: Any,
                                       action: str) -> None:
     """Apply a tenant-scoped stock-in/out mutation with CAS and replay safety."""
