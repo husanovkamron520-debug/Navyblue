@@ -368,7 +368,7 @@ class TelegramInventoryAddTests(unittest.IsolatedAsyncioTestCase):
         store.data["products"]["SKU-06"] = {"sku": "SKU-06", "name": "Existing"}
         await telegram_inventory_add(update_obj2, context, lambda: store)
         self.assertEqual(store.data["products"]["SKU-06"]["name"], "Existing")
-        self.assertIn("saqlanmadi", message2.text.lower())
+        self.assertIn("allaqachon mavjud", message2.text.lower())
 
 
 if __name__ == "__main__":
