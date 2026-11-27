@@ -275,6 +275,51 @@ class TenantStoreTests(unittest.TestCase):
             )
         self.assertEqual(len(db.calls), 2)
 
+    def test_tenant_excel_import_is_company_scoped_and_replay_safe(self):
+        import supply_chain_tenants as tenants
+        import supply_chain_mini_app_import as importer
+
+        member = {"company_id": COMPANY_A, "telegram_user_id": 101,
+                  "role": "warehouse", "status": "active"}
+        payload = {
+            "operation_id": "import-2026-01",
+            "expected_version": 4,
+            "source_name": "stock.csv",
+            "rows": [{"sku": "SKU-A", "name": "Test item", "quantity": 12,
+                      "unit": "pcs", "unit_cost": 5, "reorder_point": 3}],
+        }
+        op_id, expected, rows, digest, source_name, source_sheet = importer.normalize_payload(payload)
+        original = {"version": 4, "products": {}, "movements": [], "import_history": []}
+        db = SequencedTenantDB([[member], [{
+            "company_id": COMPANY_A, "data": original, "version": 4,
+        }], 5])
+        store = tenants.TenantStore(db)
+
+        result = store.mutate_snapshot(
+            COMPANY_A, 101, "inventory.write",
+            lambda snapshot: importer.mutate_inventory(
+                snapshot, rows, source_name, source_sheet),
+            expected_version=expected, operation_id=op_id, request_hash=digest,
+        )
+        self.assertEqual(result["result"]["created"], 1)
+        self.assertEqual(result["snapshot"]["products"]["SKU-A"]["quantity"], 12)
+        self.assertEqual(result["version"], 5)
+
+        committed = db.calls[2][2]["p_data"]
+        retry_db = SequencedTenantDB([[member], [{
+            "company_id": COMPANY_A, "data": committed, "version": 5,
+        }]])
+        retry = tenants.TenantStore(retry_db).mutate_snapshot(
+            COMPANY_A, 101, "inventory.write",
+            lambda snapshot: importer.mutate_inventory(
+                snapshot, rows, source_name, source_sheet),
+            expected_version=expected, operation_id=op_id, request_hash=digest,
+        )
+        self.assertTrue(retry["replayed"])
+        self.assertEqual(retry["result"]["created"], 1)
+        self.assertEqual(retry["snapshot"]["products"]["SKU-A"]["quantity"], 12)
+        self.assertEqual(len(retry_db.calls), 2)
+
     def test_mutate_snapshot_denies_wrong_role_before_loading_or_writing(self):
         import supply_chain_tenants as tenants
 
