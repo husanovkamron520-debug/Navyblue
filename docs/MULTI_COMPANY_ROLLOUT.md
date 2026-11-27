@@ -7,6 +7,8 @@
 - Tenant registry, membership, invitation, and per-company snapshot tables are in place.
 - Telegram Web App `initData` can authenticate any Telegram user for onboarding; the legacy session route remains owner-only.
 - Company creation, membership listing, invite redemption, invite creation, and company-bound bearer sessions are available through `POST /sc-api/v1/tenant/session`.
+- Mini App company selection, create/join, invite generation, and explicit migration controls are implemented. Tenant-mode import and archive actions are disabled until company-scoped writes are ready.
+- Public self-registration is disabled by default (`SC_PUBLIC_SIGNUP_ENABLED=false`); the configured system owner can create the initial company, and other users join by invitation.
 - Tenant-bound GET API requests re-check active membership and role against Supabase, then load only that company's `sc_company_snapshots.data`.
 - A one-time legacy migration action is implemented for the configured system owner. It only writes into a pristine version-1 company snapshot and leaves the legacy `bot_storage` row untouched. This action must be explicitly invoked; it does not run automatically.
 - Existing classroom tables remain separate and are not reused for production company tenancy.
@@ -26,7 +28,7 @@ Roles: `owner`, `admin`, `warehouse`, `purchasing`, `transport`, `viewer`.
 
 The current work is a staged migration, not a finished SaaS release:
 
-- Mini App frontend still opens the legacy owner session; company selection/create/join UI is not integrated yet.
+- The company onboarding UI is implemented; its latest frontend changes are awaiting deployment verification.
 - Inventory import and delete/write operations still use the legacy owner snapshot and owner-only session.
 - Telegram bot handlers, exports, AI context, scheduled jobs, and background workflows have not all been threaded through verified tenant context.
 - Cross-company read isolation is being wired, but full read/write/export/import isolation tests are not complete.
