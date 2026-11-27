@@ -1,9 +1,8 @@
-"""Fail-closed Telegram tenant context resolution.
+"""Fail-closed Telegram tenant context and scoped command handlers.
 
-This module is deliberately not wired into Supply Chain handlers yet. It provides
-one tested boundary for the later handler adapter: company selection is only a
-hint, and active membership plus every required permission are revalidated
-server-side for each update before a company snapshot is loaded.
+Tenant-specific commands in this module use live membership/permission checks
+and company snapshot CAS writes. Legacy Supply Chain handlers remain owner-only.
+Company selection is only a hint; it never grants authority.
 """
 from __future__ import annotations
 
@@ -199,7 +198,7 @@ async def telegram_company_select(update: Any, context: Any, tenant_store_factor
         await query.answer("Korxona tanlandi.")
         await query.edit_message_text(
             "Tanlangan korxona: " + company_id[:8] +
-            "\nBu faqat tanlov. Omborni /sc_ombor orqali ko'rishingiz mumkin; o'zgartirishlar hali ulanmagan."
+            "\nBu faqat tanlov. Ombor uchun /sc_ombor, mahsulot uchun /sc_qosh, xarid va transport buyruqlaridan foydalaning."
         )
     except Exception:
         await query.answer("A'zolikni tekshirib bo'lmadi. Keyinroq urinib ko'ring.", show_alert=True)
