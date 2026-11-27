@@ -92,7 +92,7 @@
     <button data-view="excel">Excel Workspace</button>
     <button data-view="reports">Hisobotlar</button>
   </nav>
-  <main>
+  <main id="app-main">
     <section id="dashboard-view">
       <div class="section-head"><div><h2>Umumiy ko‘rsatkichlar</h2><p>Joriy saqlangan ma’lumotlar asosida</p></div><button class="retry" id="refresh">Yangilash</button></div>
       <div class="grid" id="kpis">
@@ -385,7 +385,7 @@
     left.append(el("div","name",p.name||p.sku),el("div","muted",p.sku));
     const level=p.stock_level||"unknown";const qty=el("div","stock "+(level==="low"?"low":level==="high"?"high":"ok"),fmt(p.quantity,1)+" "+(p.unit||""));
     row.append(left,qty);c.append(row);
-    const meta=el("div","product-meta");meta.append(el("span","","Reorder: "+fmt(p.reorder_point,1)),el("span","","Birlik: "+money(p.unit_cost)));if(level==="high")meta.append(el("strong","stock high","Reorder chegarasidan "+fmt(p.reorder_multiple,1)+" baravar yuqori · tekshirish kerak"));c.append(meta);c.setAttribute("role","button");c.tabIndex=0;c.setAttribute("aria-label",(p.name||p.sku)+" tafsilotlarini ochish");c.addEventListener("click",()=>openInventoryDetail(p.sku));c.addEventListener("keydown",event=>{if(event.key==="Enter"||event.key===" "){event.preventDefault();openInventoryDetail(p.sku);}});const actions=el("div","row-actions");const del=el("button","danger","Arxivlash");del.type="button";del.addEventListener("click",event=>{event.stopPropagation();archiveInventoryProduct(p.sku,p.name||p.sku);});actions.append(del);c.append(actions);return c;
+    const meta=el("div","product-meta");meta.append(el("span","","Reorder: "+fmt(p.reorder_point,1)),el("span","","Birlik: "+money(p.unit_cost)));if(level==="high")meta.append(el("strong","stock high","Reorder chegarasidan "+fmt(p.reorder_multiple,1)+" baravar yuqori · tekshirish kerak"));c.append(meta);c.setAttribute("role","button");c.tabIndex=0;c.setAttribute("aria-label",(p.name||p.sku)+" tafsilotlarini ochish");c.addEventListener("click",()=>openInventoryDetail(p.sku));c.addEventListener("keydown",event=>{if(event.key==="Enter"||event.key===" "){event.preventDefault();openInventoryDetail(p.sku);}});const actions=el("div","row-actions");const del=el("button","danger","Arxivlash");del.type="button";del.disabled=tenantMode;del.addEventListener("click",event=>{event.stopPropagation();archiveInventoryProduct(p.sku,p.name||p.sku);});actions.append(del);c.append(actions);return c;
   }
   async function openInventoryDetail(sku){
     const panel=$("inventory-detail");panel.hidden=false;
