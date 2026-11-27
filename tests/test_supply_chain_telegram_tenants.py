@@ -6,6 +6,8 @@ from supply_chain_telegram_tenants import (
     clear_active_company,
     resolve_telegram_tenant_context,
     select_active_company,
+    telegram_company_list,
+    telegram_company_select,
 )
 
 
@@ -111,6 +113,103 @@ class TelegramTenantContextTests(unittest.TestCase):
         select_active_company(user_data, COMPANY_A)
         clear_active_company(user_data)
         self.assertNotIn("sc_active_company_id", user_data)
+
+
+class FakeQuery:
+    def __init__(self, data):
+        self.data = data
+        self.answers = []
+        self.edited = None
+
+    async def answer(self, *args, **kwargs):
+        self.answers.append((args, kwargs))
+
+    async def edit_message_text(self, text):
+        self.edited = text
+
+
+class FakeMessage:
+    def __init__(self):
+        self.text = None
+        self.reply_markup = None
+
+    async def reply_text(self, text, reply_markup=None):
+        self.text = text
+        self.reply_markup = reply_markup
+
+
+class SelectorStore(FakeTenantStore):
+    def list_companies(self, user_id):
+        if user_id != 42:
+            raise PermissionError("wrong user")
+        return [{"company_id": COMPANY_A, "role": "warehouse",
+                 "sc_companies": {"id": COMPANY_A, "name": "Alpha"}}]
+
+    def membership(self, company_id, user_id):
+        if company_id != self.allowed_company or user_id != 42:
+            return None
+        return {"company_id": company_id, "role": self.role, "status": "active"}
+
+
+class TelegramCompanySelectorTests(unittest.IsolatedAsyncioTestCase):
+    async def test_company_list_only_shows_callers_memberships(self):
+        message = FakeMessage()
+        update_obj = SimpleNamespace(
+            effective_chat=SimpleNamespace(type="private"),
+            effective_user=SimpleNamespace(id=42),
+            effective_message=message,
+        )
+        await telegram_company_list(update_obj, SimpleNamespace(), SelectorStore)
+        self.assertIn("tanlang", message.text.lower())
+        self.assertEqual(len(message.reply_markup.inline_keyboard), 1)
+        self.assertEqual(
+            message.reply_markup.inline_keyboard[0][0].callback_data,
+            "sctenant:" + COMPANY_A,
+        )
+
+    async def test_selection_rechecks_membership_and_stores_only_selector(self):
+        query = FakeQuery("sctenant:" + COMPANY_A)
+        update_obj = SimpleNamespace(
+            effective_chat=SimpleNamespace(type="private"),
+            effective_user=SimpleNamespace(id=42),
+            callback_query=query,
+        )
+        user_data = {}
+        await telegram_company_select(
+            update_obj, SimpleNamespace(user_data=user_data), SelectorStore
+        )
+        self.assertEqual(user_data["sc_active_company_id"], COMPANY_A)
+        self.assertIn("faqat tanlov", query.edited.lower())
+
+    async def test_revoked_or_foreign_membership_cannot_select_company(self):
+        query = FakeQuery("sctenant:" + COMPANY_B)
+        update_obj = SimpleNamespace(
+            effective_chat=SimpleNamespace(type="private"),
+            effective_user=SimpleNamespace(id=42),
+            callback_query=query,
+        )
+        user_data = {"sc_active_company_id": COMPANY_A}
+        await telegram_company_select(
+            update_obj, SimpleNamespace(user_data=user_data),
+            lambda: SelectorStore(allowed_company=COMPANY_A),
+        )
+        self.assertEqual(user_data["sc_active_company_id"], COMPANY_A)
+        self.assertTrue(query.answers)
+        self.assertIsNone(query.edited)
+
+    async def test_group_chat_cannot_select(self):
+        query = FakeQuery("sctenant:" + COMPANY_A)
+        update_obj = SimpleNamespace(
+            effective_chat=SimpleNamespace(type="group"),
+            effective_user=SimpleNamespace(id=42),
+            callback_query=query,
+        )
+        user_data = {}
+        await telegram_company_select(
+            update_obj, SimpleNamespace(user_data=user_data), SelectorStore
+        )
+        self.assertEqual(user_data, {})
+        self.assertEqual(query.answers, [])
 
 
 if __name__ == "__main__":
