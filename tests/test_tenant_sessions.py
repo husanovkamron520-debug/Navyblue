@@ -200,6 +200,69 @@ class TenantStoreTests(unittest.TestCase):
             store.commit_snapshot(COMPANY_A, 1, {"version": 3})
 
 
+class SequencedTenantDB:
+    def __init__(self, responses):
+        self.responses = list(responses)
+        self.calls = []
+
+    def __call__(self, method, path, payload=None):
+        self.calls.append((method, path, payload))
+        if not self.responses:
+            raise AssertionError("Unexpected database request")
+        return self.responses.pop(0)
+
+
+class TenantLegacyMigrationTests(unittest.TestCase):
+    def test_owner_can_copy_legacy_data_once_without_mutating_source(self):
+        import copy
+        import supply_chain_tenants as tenants
+
+        company_id = "33333333-3333-4333-8333-333333333333"
+        member = {"company_id": company_id, "telegram_user_id": 101,
+                  "role": "owner", "status": "active"}
+        empty_snapshot = {"version": 1, "products": {}, "orders": [],
+                          "shipments": [], "suppliers": {}, "vehicles": [],
+                          "movements": [], "scenarios": [], "demand_history": [],
+                          "alert_state": {}}
+        db = SequencedTenantDB([[member], [{"data": empty_snapshot}], 2])
+        store = tenants.TenantStore(db)
+        legacy = {"version": 20, "products": {"SKU-1": {"quantity": 12}},
+                  "orders": [], "custom_config": {"currency": "UZS"}}
+        original = copy.deepcopy(legacy)
+
+        result = store.migrate_legacy_snapshot(company_id, 101, 101, legacy)
+
+        self.assertTrue(result["legacy_preserved"])
+        self.assertEqual(result["product_count"], 1)
+        self.assertEqual(legacy, original)
+        self.assertEqual(db.calls[-1][1], "rpc/sc_commit_company_snapshot")
+        self.assertEqual(db.calls[-1][2]["p_expected_version"], 1)
+        self.assertEqual(db.calls[-1][2]["p_data"]["version"], 2)
+        self.assertEqual(db.calls[-1][2]["p_data"]["products"], legacy["products"])
+
+    def test_non_owner_cannot_migrate_legacy_data(self):
+        import supply_chain_tenants as tenants
+
+        db = SequencedTenantDB([])
+        store = tenants.TenantStore(db)
+        with self.assertRaises(tenants.PermissionDenied):
+            store.migrate_legacy_snapshot(COMPANY_A, 101, 999, {"version": 20})
+        self.assertEqual(db.calls, [])
+
+    def test_migration_refuses_to_overwrite_nonempty_company_snapshot(self):
+        import supply_chain_tenants as tenants
+
+        company_id = "33333333-3333-4333-8333-333333333333"
+        member = {"company_id": company_id, "telegram_user_id": 101,
+                  "role": "owner", "status": "active"}
+        occupied = {"version": 1, "products": {"EXISTING": {"quantity": 1}}}
+        db = SequencedTenantDB([[member], [{"data": occupied}]])
+        store = tenants.TenantStore(db)
+        with self.assertRaises(tenants.TenantError):
+            store.migrate_legacy_snapshot(company_id, 101, 101, {"version": 20})
+        self.assertEqual(len(db.calls), 2)
+
+
 class TenantReadRouteWiringTests(unittest.TestCase):
     def test_get_routes_load_snapshot_from_verified_tenant_company(self):
         from pathlib import Path
