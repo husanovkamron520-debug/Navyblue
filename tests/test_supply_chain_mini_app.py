@@ -156,5 +156,21 @@ class SupplyChainMiniAppShellTests(unittest.TestCase):
         self.assertIn("textContent", self.html)
 
 
+    def test_tenant_ai_actions_are_scoped_and_read_only(self):
+        self.assertIn('data-view="ai"', self.html)
+        self.assertIn('id="ai-advice"', self.html)
+        self.assertIn('id="ai-analysis"', self.html)
+        self.assertIn('id="ai-question-submit"', self.html)
+        self.assertIn('api("/sc-api/v1/tenant/ai"', self.html)
+        self.assertIn('is_tenant_ai = parsed.path == "/sc-api/v1/tenant/ai"', self.bot)
+        self.assertIn('self._sc_tenant_context("reports.read")', self.bot)
+        self.assertIn('load_snapshot_record(tenant_ai_context["company_id"])', self.bot)
+        self.assertIn('supply_chain._ai_snapshot(company_data)', self.bot)
+        self.assertIn('_SC_AI_LIMITER = sc_api.RateLimiter(max_requests=8, window_seconds=60)', self.bot)
+        self.assertIn('supply_chain._ask_gemini_sync', self.bot)
+        route = self.bot[self.bot.find('if is_tenant_ai:', self.bot.find('def _sc_api_post')):self.bot.find('if is_session:', self.bot.find('def _sc_api_post'))]
+        self.assertNotIn('_data()', route)
+
+
 if __name__ == "__main__":
     unittest.main()
