@@ -1285,7 +1285,7 @@ def run_health_server():
             except sc_tenants.PermissionDenied as exc:
                 self._sc_error("forbidden", str(exc), 403)
                 return False
-            except (sc_tenants.TenantError, ValueError):
+            except Exception:
                 logger.exception("Tenant authorization lookup failed")
                 self._sc_error("tenant_auth_error", "Korxona ruxsatini tekshirib bo‘lmadi.", 503)
                 return False
@@ -1345,7 +1345,7 @@ def run_health_server():
                 try:
                     snapshot = sc_tenants.TenantStore(_db_request).load_snapshot(
                         tenant_context["company_id"])
-                except sc_tenants.TenantError:
+                except Exception:
                     logger.exception("Tenant snapshot load failed")
                     self._sc_error("tenant_storage_error", "Korxona ma'lumotlarini yuklab bo‘lmadi.", 503)
                     return
