@@ -446,7 +446,7 @@ class TelegramInventoryMovementTests(unittest.IsolatedAsyncioTestCase):
         context = SimpleNamespace(user_data={"sc_active_company_id": COMPANY_B})
         await telegram_inventory_movement(update_obj, context, lambda: store, "in")
         self.assertEqual(store.data["products"]["SKU-1"]["quantity"], 10)
-        self.assertIn("saqlanmadi", message.text.lower())
+        self.assertIn("tekshirib bo'lmadi", message.text.lower())
 
 
 if __name__ == "__main__":
