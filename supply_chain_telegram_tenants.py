@@ -585,6 +585,239 @@ async def telegram_purchase_order_transition(update: Any, context: Any, tenant_s
         await message.reply_text("Buyurtma holati saqlanmadi. Baza va ruxsatlarni tekshiring.")
 
 
+
+
+async def telegram_vehicle_add(update: Any, context: Any, tenant_store_factory: Any) -> None:
+    """Add a transport vehicle only to the selected company, with CAS/replay safety."""
+    import hashlib
+    import json
+    import math
+    from datetime import datetime, timezone
+    from supply_chain_tenants import SnapshotVersionConflict, PermissionDenied, MembershipRequired
+
+    message = getattr(update, "effective_message", None)
+    chat = getattr(update, "effective_chat", None)
+    user = getattr(update, "effective_user", None)
+    if message is None or not chat or not user or str(getattr(chat, "type", "")) != "private":
+        return
+    _command, separator, raw = str(getattr(message, "text", "") or "").partition(" ")
+    if not separator:
+        await message.reply_text(
+            "Format: /sc_transport_qosh ID | Nomi | Sig'im | 1 km xarajati | Tezlik km/soat\n"
+            "Misol: /sc_transport_qosh TR-01 | Isuzu | 5000 | 2500 | 60"
+        )
+        return
+    parts = [p.strip() for p in raw.split("|")]
+    if len(parts) != 5 or any(not p for p in parts) or any("\n" in p or "\r" in p for p in parts):
+        await message.reply_text("5 ta maydon kerak: ID | Nomi | Sig'im | 1 km xarajati | Tezlik")
+        return
+    vehicle_id, name, cap_raw, cost_raw, speed_raw = parts
+    if len(vehicle_id) > 40 or len(name) > 120:
+        await message.reply_text("Transport ID yoki nomi juda uzun.")
+        return
+    try:
+        capacity, cost, speed = (float(x.replace(",", ".")) for x in (cap_raw, cost_raw, speed_raw))
+        if (not all(math.isfinite(x) for x in (capacity, cost, speed))
+                or capacity <= 0 or cost < 0 or speed <= 0 or capacity > 1e12 or cost > 1e12 or speed > 10000):
+            raise ValueError
+    except (TypeError, ValueError, OverflowError):
+        await message.reply_text("Sig'im va tezlik musbat, 1 km xarajati esa manfiy bo'lmagan chekli son bo'lishi kerak.")
+        return
+    update_id = getattr(update, "update_id", None)
+    if isinstance(update_id, bool) or not isinstance(update_id, int) or update_id < 0:
+        await message.reply_text("Telegram amal identifikatori aniqlanmadi. Qayta yuboring.")
+        return
+    try:
+        store = tenant_store_factory()
+        tenant_context = resolve_telegram_tenant_context(
+            update, getattr(context, "user_data", {}), store, ("logistics.write",)
+        )
+        payload = {"id": vehicle_id, "name": name, "capacity": capacity,
+                   "cost_per_km": cost, "speed_kmh": speed}
+        request_hash = hashlib.sha256(json.dumps(
+            {"company_id": tenant_context.company_id, "request": payload},
+            sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        ).encode()).hexdigest()
+        operation_id = f"tg-{update_id}-{tenant_context.company_id[:8]}-vehicle-add"
+
+        def mutate(snapshot: dict[str, Any]) -> dict[str, Any]:
+            vehicles = snapshot.setdefault("vehicles", [])
+            if not isinstance(vehicles, list):
+                raise TelegramTenantContextError("Transportlar ro'yxati noto'g'ri.")
+            if len(vehicles) >= 5000:
+                raise TelegramTenantContextError("Transportlar limiti to'lgan.")
+            if any(isinstance(v, dict) and str(v.get("id", "")).casefold() == vehicle_id.casefold()
+                   for v in vehicles):
+                raise TelegramTenantContextError("Bu transport ID korxonada allaqachon mavjud.")
+            row = {**payload, "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds")}
+            vehicles.append(row)
+            return {"id": vehicle_id, "name": name}
+
+        result = store.mutate_snapshot(
+            tenant_context.company_id, tenant_context.telegram_user_id, "logistics.write",
+            mutate, expected_version=tenant_context.version, operation_id=operation_id,
+            request_hash=request_hash,
+        )
+        item = result.get("result") or {}
+        replay = " (takroriy so'rov — qayta yaratilmadi)" if result.get("replayed") else ""
+        await message.reply_text(f"✅ Transport qo'shildi: {item.get('name', name)} · ID: {item.get('id', vehicle_id)}{replay}")
+    except TelegramTenantContextError as exc:
+        await message.reply_text(str(exc))
+    except (SnapshotVersionConflict, PermissionDenied, MembershipRequired):
+        await message.reply_text("Transport qo'shish huquqi yoki korxona versiyasi mos kelmadi.")
+    except Exception:
+        await message.reply_text("Transport saqlanmadi. Ruxsat va baza holatini tekshiring.")
+
+
+async def telegram_shipment_plan(update: Any, context: Any, tenant_store_factory: Any) -> None:
+    """Plan a shipment using only this tenant's stock and eligible vehicles."""
+    import hashlib
+    import json
+    import math
+    import uuid
+    from datetime import datetime, timezone
+    from supply_chain_tenants import SnapshotVersionConflict, PermissionDenied, MembershipRequired
+
+    message = getattr(update, "effective_message", None)
+    chat = getattr(update, "effective_chat", None)
+    user = getattr(update, "effective_user", None)
+    if message is None or not chat or not user or str(getattr(chat, "type", "")) != "private":
+        return
+    _command, separator, raw = str(getattr(message, "text", "") or "").partition(" ")
+    if not separator:
+        await message.reply_text(
+            "Format: /sc_yuk_reja SKU | Miqdor | Manzil | Masofa km\n"
+            "Misol: /sc_yuk_reja SKU-01 | 100 | Toshkent ombori | 300"
+        )
+        return
+    parts = [p.strip() for p in raw.split("|", 3)]
+    if len(parts) != 4 or any(not p for p in parts):
+        await message.reply_text("4 ta maydon kerak: SKU | Miqdor | Manzil | Masofa km")
+        return
+    sku, qty_raw, destination, distance_raw = parts
+    if len(sku) > 64 or len(destination) > 160 or any("\n" in p or "\r" in p for p in parts):
+        await message.reply_text("SKU yoki manzil uzunligi noto'g'ri.")
+        return
+    try:
+        quantity, distance = float(qty_raw.replace(",", ".")), float(distance_raw.replace(",", "."))
+        if (not math.isfinite(quantity) or not math.isfinite(distance)
+                or quantity <= 0 or distance <= 0 or quantity > 1e12 or distance > 1e7):
+            raise ValueError
+    except (TypeError, ValueError, OverflowError):
+        await message.reply_text("Miqdor va masofa musbat, chekli son bo'lishi kerak.")
+        return
+    update_id = getattr(update, "update_id", None)
+    if isinstance(update_id, bool) or not isinstance(update_id, int) or update_id < 0:
+        await message.reply_text("Telegram amal identifikatori aniqlanmadi. Qayta yuboring.")
+        return
+    try:
+        store = tenant_store_factory()
+        tenant_context = resolve_telegram_tenant_context(
+            update, getattr(context, "user_data", {}), store, ("logistics.write",)
+        )
+        payload = {"sku": sku, "quantity": quantity, "destination": destination, "distance_km": distance}
+        request_hash = hashlib.sha256(json.dumps(
+            {"company_id": tenant_context.company_id, "request": payload},
+            sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        ).encode()).hexdigest()
+        operation_id = f"tg-{update_id}-{tenant_context.company_id[:8]}-shipment-plan"
+
+        def mutate(snapshot: dict[str, Any]) -> dict[str, Any]:
+            products = snapshot.get("products")
+            vehicles = snapshot.get("vehicles")
+            shipments = snapshot.setdefault("shipments", [])
+            if not isinstance(products, dict) or not isinstance(vehicles, list) or not isinstance(shipments, list):
+                raise TelegramTenantContextError("Mahsulot, transport yoki yuk ma'lumotlari noto'g'ri.")
+            product = next((v for k, v in products.items() if str(k).casefold() == sku.casefold()), None)
+            if not isinstance(product, dict):
+                raise TelegramTenantContextError("Mahsulot bu korxona omborida topilmadi.")
+            try:
+                stock = float(product.get("quantity", 0))
+            except (TypeError, ValueError, OverflowError):
+                raise TelegramTenantContextError("Ombor qoldig'i noto'g'ri.")
+            if not math.isfinite(stock) or stock < quantity:
+                raise TelegramTenantContextError(f"Omborda yetarli qoldiq yo'q. Mavjud: {stock:g}.")
+            eligible = []
+            for vehicle in vehicles:
+                if not isinstance(vehicle, dict):
+                    continue
+                try:
+                    cap, cost, speed = (float(vehicle.get(k, 0)) for k in ("capacity", "cost_per_km", "speed_kmh"))
+                except (TypeError, ValueError, OverflowError):
+                    continue
+                if (all(math.isfinite(x) for x in (cap, cost, speed))
+                        and cap >= quantity and cost >= 0 and speed > 0
+                        and isinstance(vehicle.get("id"), str)):
+                    eligible.append((distance * cost, vehicle.get("id"), vehicle, speed))
+            if not eligible:
+                raise TelegramTenantContextError("Bu yuk uchun sig'imi yetadigan transport yo'q.")
+            eligible.sort(key=lambda row: (row[0], row[1]))
+            total_cost, _vid, vehicle, speed = eligible[0]
+            shipment_id = "SH-" + uuid.uuid4().hex[:8].upper()
+            hours = distance / speed
+            row = {
+                "id": shipment_id, "sku": product.get("sku") or sku, "quantity": quantity,
+                "destination": destination, "distance_km": distance, "vehicle_id": vehicle["id"],
+                "estimated_hours": hours, "estimated_cost": total_cost, "status": "planned",
+                "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            }
+            shipments.append(row)
+            return {"id": shipment_id, "product": str(product.get("name") or sku),
+                    "vehicle": str(vehicle.get("name") or vehicle["id"]),
+                    "hours": hours, "cost": total_cost, "quantity": quantity,
+                    "unit": str(product.get("unit") or "dona"), "destination": destination}
+
+        result = store.mutate_snapshot(
+            tenant_context.company_id, tenant_context.telegram_user_id, "logistics.write",
+            mutate, expected_version=tenant_context.version, operation_id=operation_id,
+            request_hash=request_hash,
+        )
+        item = result.get("result") or {}
+        replay = " (takroriy so'rov — qayta rejalashtirilmadi)" if result.get("replayed") else ""
+        await message.reply_text(
+            f"✅ Yuk rejalandi: {item.get('product')} · {item.get('quantity'):g} {item.get('unit')}\n"
+            f"Manzil: {item.get('destination')}\nTransport: {item.get('vehicle')}\n"
+            f"Taxminiy vaqt: {item.get('hours'):.1f} soat · xarajat: {item.get('cost'):g}{replay}\n"
+            "Eslatma: rejalash ombor qoldig'ini kamaytirmaydi."
+        )
+    except TelegramTenantContextError as exc:
+        await message.reply_text(str(exc))
+    except (SnapshotVersionConflict, PermissionDenied, MembershipRequired):
+        await message.reply_text("Yuk rejalash huquqi yoki korxona versiyasi mos kelmadi.")
+    except Exception:
+        await message.reply_text("Yuk rejasi saqlanmadi. Ruxsat va baza holatini tekshiring.")
+
+
+async def telegram_shipment_list(update: Any, context: Any, tenant_store_factory: Any) -> None:
+    """Show only the selected tenant's shipment plan/status rows."""
+    message = getattr(update, "effective_message", None)
+    chat = getattr(update, "effective_chat", None)
+    user = getattr(update, "effective_user", None)
+    if message is None or not chat or not user or str(getattr(chat, "type", "")) != "private":
+        return
+    try:
+        tenant_context = resolve_telegram_tenant_context(
+            update, getattr(context, "user_data", {}), tenant_store_factory(), ("logistics.read",)
+        )
+        shipments = tenant_context.snapshot.get("shipments", [])
+        if not isinstance(shipments, list):
+            raise TelegramTenantContextError("Yuklar ro'yxati noto'g'ri.")
+        rows = []
+        for row in shipments[-20:]:
+            if isinstance(row, dict):
+                rows.append(
+                    f"• {str(row.get('id', '—'))[:32]} · {str(row.get('sku', '—'))[:32]} · "
+                    f"{str(row.get('quantity', 0))} · {str(row.get('destination', '—'))[:70]} · "
+                    f"{str(row.get('status', 'unknown'))[:20]}"
+                )
+        await message.reply_text("🚚 Kompaniya yuklari:\n" + ("\n".join(rows) if rows else "Hozircha yuk rejalari yo'q."))
+    except TelegramTenantContextError as exc:
+        await message.reply_text(str(exc))
+    except Exception:
+        await message.reply_text("Yuklar ro'yxatini yuklab bo'lmadi.")
+
+
+
 def register_telegram_company_selector(app: Any, tenant_store_factory: Any) -> None:
     """Register the company selector and the isolated read-only inventory command."""
     from telegram.ext import CallbackQueryHandler, CommandHandler
@@ -605,6 +838,15 @@ def register_telegram_company_selector(app: Any, tenant_store_factory: Any) -> N
         update, context, tenant_store_factory, "out"
     )))
     app.add_handler(CommandHandler("sc_yetkazuvchi", lambda update, context: telegram_supplier_add(
+        update, context, tenant_store_factory
+    )))
+    app.add_handler(CommandHandler("sc_transport_qosh", lambda update, context: telegram_vehicle_add(
+        update, context, tenant_store_factory
+    )))
+    app.add_handler(CommandHandler("sc_yuk_reja", lambda update, context: telegram_shipment_plan(
+        update, context, tenant_store_factory
+    )))
+    app.add_handler(CommandHandler("sc_yuklar", lambda update, context: telegram_shipment_list(
         update, context, tenant_store_factory
     )))
     app.add_handler(CommandHandler("sc_buyurtma", lambda update, context: telegram_purchase_order_add(
