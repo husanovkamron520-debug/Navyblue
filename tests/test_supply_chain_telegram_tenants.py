@@ -659,7 +659,7 @@ class TelegramTenantTransportTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(store.data["shipments"][0]["vehicle_id"], "TR-2")
         self.assertEqual(store.data["shipments"][0]["status"], "planned")
         self.assertEqual(store.data["products"]["SKU-1"]["quantity"], 200)
-        self.assertIn("qaytirmaydi", message.text.lower())
+        self.assertIn("kamaytirmaydi", message.text.lower())
 
     async def test_shipment_plan_denies_foreign_company_and_insufficient_stock(self):
         store = InventoryWriteStore(role="owner")
