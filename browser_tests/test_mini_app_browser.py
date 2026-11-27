@@ -70,6 +70,10 @@ class MiniAppBrowserTests(unittest.TestCase):
         if path == "/sc-api/v1/session":
             route.fulfill(status=200, json={"data": {"token": "browser-test-token"}})
             return
+        if path == "/sc-api/v1/tenant/session":
+            route.fulfill(status=200, json={"data": {
+                "companies": [], "selected": None, "session": None}})
+            return
         if request.headers.get("authorization") != "Bearer browser-test-token":
             route.fulfill(status=401, json={"error": {"message": "Unauthorized"}})
             return
@@ -158,7 +162,7 @@ class MiniAppBrowserTests(unittest.TestCase):
         self.page.set_viewport_size({"width": 1280, "height": 900})
         self.assertEqual(self.page.locator("#inventory-view .table-wrap").first.evaluate("(e)=>getComputedStyle(e).display"), "block")
         self.assertEqual(self.page.locator("#inventory-mobile").evaluate("(e)=>getComputedStyle(e).display"), "none")
-        self.assertTrue(all(method == "GET" or path == "/sc-api/v1/session"
+        self.assertTrue(all(method == "GET" or path in ("/sc-api/v1/session", "/sc-api/v1/tenant/session")
                             for method, path, _query, _auth in self.api_calls))
 
     def test_navigation_analytics_procurement_and_logistics_render(self):
@@ -190,7 +194,8 @@ class MiniAppBrowserTests(unittest.TestCase):
         self.page.locator("#excel-rows").filter(has_text="2").wait_for(timeout=10000)
         self.assertEqual(self.page.locator("#excel-valid").inner_text(), "2")
         self.assertIn("Local Item", self.page.locator("#excel-preview").inner_text())
-        self.assertFalse(any(method != "GET" and path != "/sc-api/v1/session" for method, path, _query, _auth in self.api_calls))
+        self.assertFalse(any(method != "GET" and path not in ("/sc-api/v1/session", "/sc-api/v1/tenant/session")
+                            for method, path, _query, _auth in self.api_calls))
 
         self.page.locator("#excel-file").set_input_files({
             "name": "broken.xlsx",
@@ -262,7 +267,7 @@ class MiniAppBrowserTests(unittest.TestCase):
         self.assertTrue(self.page.evaluate("window.__printCalled === true"))
         self.assertIn("Ombor hisoboti", self.page.locator("#print-title").inner_text())
         self.assertIn("SKU-001", self.page.locator("#print-body").inner_text())
-        self.assertTrue(all(method == "GET" or path == "/sc-api/v1/session"
+        self.assertTrue(all(method == "GET" or path in ("/sc-api/v1/session", "/sc-api/v1/tenant/session")
                             for method, path, _query, _auth in self.api_calls))
 
 
