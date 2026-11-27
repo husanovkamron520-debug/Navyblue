@@ -153,7 +153,14 @@ class SelectorStore(FakeTenantStore):
         self.permission_calls.append((company_id, telegram_user_id, permission))
         if company_id != self.allowed_company or telegram_user_id != 42:
             raise PermissionError("membership denied")
-        if permission != "inventory.read" or self.role not in {"owner", "admin", "warehouse", "purchasing", "transport", "viewer"}:
+        allowed = {
+            "owner": {"*"}, "admin": {"*"},
+            "warehouse": {"inventory.read", "inventory.write", "movement.write", "reports.read"},
+            "purchasing": {"inventory.read", "procurement.read", "procurement.write", "reports.read"},
+            "transport": {"inventory.read", "logistics.read", "logistics.write", "reports.read"},
+            "viewer": {"inventory.read", "procurement.read", "logistics.read", "reports.read"},
+        }.get(self.role, set())
+        if "*" not in allowed and permission not in allowed:
             raise PermissionError("permission denied")
         return {"company_id": company_id, "telegram_user_id": telegram_user_id,
                 "role": self.role, "status": "active"}
