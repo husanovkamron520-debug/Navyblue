@@ -1,0 +1,27 @@
+name: Tenant isolation primitives
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "supply_chain_api.py"
+      - "supply_chain_tenants.py"
+      - "tests/test_tenant_sessions.py"
+      - ".github/workflows/tenant-tests.yml"
+  pull_request:
+    paths:
+      - "supply_chain_api.py"
+      - "supply_chain_tenants.py"
+      - "tests/test_tenant_sessions.py"
+      - ".github/workflows/tenant-tests.yml"
+
+jobs:
+  tenant-session-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Run tenant session tests
+        run: python -m unittest discover -s tests -p "test_tenant_sessions.py" -v
