@@ -302,11 +302,10 @@
     $("detail-delete").hidden=!["owner","admin","warehouse"].includes(tenantRole);
     const canWriteInventory=["owner","admin","warehouse"].includes(tenantRole);
     $("excel-file").disabled=!canWriteInventory;$("excel-import-confirm").disabled=true;
-    $("tenant-status").textContent=canWriteInventory
-      ?"Korxona ulandi. Ombor va Excel import amallari korxona ma’lumotlariga ajratilgan."
-      :"Korxona ulandi. Bu rol omborni faqat o‘qiy oladi; Excel import uchun ombor ruxsati kerak.";
     $("connection").textContent="Korxona ulandi";
-    $("tenant-status").textContent="Faol korxona tanlandi. Ma’lumotlar faqat shu korxona snapshot’idan o‘qiladi.";
+    $("tenant-status").textContent=canWriteInventory
+      ?"Korxona ulandi. Ombor va Excel import amallari faqat shu korxona ma’lumotlariga yoziladi."
+      :"Korxona ulandi. Bu rol omborni faqat o‘qiy oladi; yozish uchun ombor ruxsati kerak.";
     renderTenantCompanies();$("tenant-company").value=tenantCompanyId;
     setAppVisible(true);return true;
   }
