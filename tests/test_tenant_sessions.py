@@ -279,7 +279,7 @@ class TenantLegacyMigrationTests(unittest.TestCase):
                           "shipments": [], "suppliers": {}, "vehicles": [],
                           "movements": [], "scenarios": [], "demand_history": [],
                           "alert_state": {}}
-        db = SequencedTenantDB([[member], [{"data": empty_snapshot}], 2])
+        db = SequencedTenantDB([[member], [{"company_id": company_id, "data": empty_snapshot, "version": 1}], 2])
         store = tenants.TenantStore(db)
         legacy = {"version": 20, "products": {"SKU-1": {"quantity": 12}},
                   "orders": [], "custom_config": {"currency": "UZS"}}
@@ -311,7 +311,7 @@ class TenantLegacyMigrationTests(unittest.TestCase):
         member = {"company_id": company_id, "telegram_user_id": 101,
                   "role": "owner", "status": "active"}
         occupied = {"version": 1, "products": {"EXISTING": {"quantity": 1}}}
-        db = SequencedTenantDB([[member], [{"data": occupied}]])
+        db = SequencedTenantDB([[member], [{"company_id": company_id, "data": occupied, "version": 1}]])
         store = tenants.TenantStore(db)
         with self.assertRaises(tenants.TenantError):
             store.migrate_legacy_snapshot(company_id, 101, 101, {"version": 20})
