@@ -55,6 +55,16 @@ class SupplyChainOwnerBoundaryTests(unittest.TestCase):
             {"procurement.write", "inventory.write"},
         )
 
+    def test_every_free_text_mutator_has_an_explicit_write_permission(self):
+        for action in supply_chain._APPLY:
+            permissions = supply_chain.tenant_permissions_for_action(action, "text")
+            self.assertIsNotNone(permissions, f"Missing permission mapping for {action}")
+            self.assertTrue(permissions, f"Mutating action {action} cannot have empty permissions")
+            self.assertTrue(
+                any(permission.endswith(".write") for permission in permissions),
+                f"Mutating action {action} must require a write permission",
+            )
+
     def test_text_actions_are_scoped_to_their_business_domain(self):
         self.assertEqual(
             supply_chain.tenant_permissions_for_action("in", "text"),
