@@ -232,6 +232,7 @@
   const tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
   const $ = id => document.getElementById(id);
   let token = "", page = 1, totalPages = 1, searchTimer = null, currentView = "dashboard";
+  let tenantCompanies = [], tenantCompanyId = "", tenantRole = "", tenantMode = false;
   let inventoryBaseline = null, importVersion = null, importRows = [], importPreviewSeq = 0;
   let inventoryVersion = null, pendingImportOperationId = null, pendingImportFingerprint = null;
   const pendingArchiveOperations = new Map();
@@ -260,29 +261,97 @@
     }
     return data;
   }
+  async function tenantAction(action, extra={}) {
+    const response = await fetch("/sc-api/v1/tenant/session",{
+      method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({initData:tg.initData,action,...extra}),cache:"no-store"
+    });
+    let body={};try{body=await response.json();}catch(_){}
+    if(!response.ok)throw new Error(body.error?.message||("HTTP "+response.status));
+    return body.data||{};
+  }
+  function showTenantPanel(message="") {
+    $("tenant-panel").hidden=false;
+    if(message)$("tenant-status").textContent=message;
+  }
+  function setAppVisible(visible) {
+    $("app-nav").hidden=!visible;
+    $("app-main").hidden=!visible;
+  }
+  function renderTenantCompanies() {
+    const picker=$("tenant-company");
+    const previous=picker.value;
+    picker.replaceChildren(new Option("Korxonani tanlang",""));
+    tenantCompanies.forEach(row=>{
+      const company=row.sc_companies||{};
+      if(!row.company_id)return;
+      picker.append(new Option((company.name||"Korxona")+" · "+(row.role||"member"),row.company_id));
+    });
+    if(previous&&tenantCompanies.some(row=>row.company_id===previous))picker.value=previous;
+    else if(tenantCompanyId)picker.value=tenantCompanyId;
+  }
+  async function activateTenantCompany(companyId) {
+    if(!companyId)throw new Error("Avval korxonani tanlang.");
+    const data=await tenantAction("list",{company_id:companyId});
+    if(!data.session?.token||!data.selected)throw new Error("Korxona sessiyasi yaratilmadi.");
+    token=data.session.token;tenantCompanyId=data.selected.company_id;
+    tenantRole=data.selected.role||"";tenantMode=true;
+    $("tenant-role").textContent=tenantRole;
+    $("tenant-owner-tools").hidden=!(tenantRole==="owner"||tenantRole==="admin");
+    $("tenant-migrate").hidden=tenantRole!=="owner";
+    $("detail-delete").hidden=true;
+    $("excel-file").disabled=true;$("excel-import-confirm").disabled=true;
+    $("connection").textContent="Korxona ulandi";
+    $("tenant-status").textContent="Faol korxona tanlandi. Ma’lumotlar faqat shu korxona snapshot’idan o‘qiladi.";
+    renderTenantCompanies();$("tenant-company").value=tenantCompanyId;
+    setAppVisible(true);return true;
+  }
   async function authenticate() {
-    if(!tg || !tg.initData){ 
+    if(!tg || !tg.initData){
       const message="Ma'lumotlarni ko'rish uchun Mini Appni Telegram bot ichidagi tugma orqali oching.";
-      showNotice("Telegram orqali oching",message); $("connection").textContent="Kirish talab qilinadi";
-      $("alerts").replaceChildren(el("div","alert error",message));
+      showNotice("Telegram orqali oching",message);$("connection").textContent="Kirish talab qilinadi";
+      $("alerts").replaceChildren(el("div","alert error",message));showTenantPanel(message);setAppVisible(false);
       return false;
     }
-    tg.ready(); tg.expand();
-    if(tg.initDataUnsafe?.user?.first_name) $("welcome").textContent="Xush kelibsiz, "+tg.initDataUnsafe.user.first_name;
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15000);
-    let session;
-    try {
-      session=await fetch("/sc-api/v1/session",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({initData:tg.initData}),cache:"no-store",signal:controller.signal});
-    } catch(error) {
-      if(error.name === "AbortError") throw new Error("Telegram sessiyasi 15 soniyada ochilmadi. Mini Appni yopib, botdan qayta oching.");
-      throw error;
-    } finally {
-      clearTimeout(timeout);
+    tg.ready();tg.expand();
+    if(tg.initDataUnsafe?.user?.first_name)$("welcome").textContent="Xush kelibsiz, "+tg.initDataUnsafe.user.first_name;
+    try{
+      const data=await tenantAction("list");
+      tenantCompanies=Array.isArray(data.companies)?data.companies:[];
+      renderTenantCompanies();showTenantPanel();
+      if(tenantCompanies.length===1)return await activateTenantCompany(tenantCompanies[0].company_id);
+      if(tenantCompanies.length>1){
+        $("tenant-role").textContent="Tanlash kerak";$("tenant-status").textContent="Sizda bir nechta korxona bor. Ishlash uchun bittasini tanlang.";
+        setAppVisible(false);$("connection").textContent="Korxona tanlanmagan";return false;
+      }
+    }catch(error){
+      // Keep the existing owner workflow available if tenant onboarding is temporarily unavailable.
+      $("tenant-status").textContent="Korxonalar ro‘yxati hozircha olinmadi: "+error.message;
     }
-    const payload=await session.json();
-    if(!session.ok) throw new Error(payload.error?.message || "Kirish amalga oshmadi");
-    token=payload.data.token; $("connection").textContent="Ulangan"; return true;
+    try{
+      const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),15000);
+      let session;
+      try{
+        session=await fetch("/sc-api/v1/session",{method:"POST",headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({initData:tg.initData}),cache:"no-store",signal:controller.signal});
+      }catch(error){
+        if(error.name==="AbortError")throw new Error("Telegram sessiyasi 15 soniyada ochilmadi.");
+        throw error;
+      }finally{clearTimeout(timeout);}
+      const payload=await session.json();
+      if(!session.ok)throw new Error(payload.error?.message||"Kirish amalga oshmadi");
+      token=payload.data.token;tenantMode=false;tenantCompanyId="";tenantRole="";
+      $("tenant-role").textContent="Legacy owner";$("tenant-owner-tools").hidden=true;
+      $("tenant-migrate").hidden=true;$("detail-delete").hidden=false;
+      $("excel-file").disabled=false;
+      $("tenant-status").textContent="Hozir eski ombor ma’lumotlari ochiq. Yangi korxona yaratib, ma’lumotlarni alohida snapshot’ga ko‘chirishingiz mumkin.";
+      $("connection").textContent="Ulangan";setAppVisible(true);return true;
+    }catch(error){
+      token="";tenantMode=false;
+      $("tenant-role").textContent="Taklif kerak";
+      $("tenant-status").textContent="Kirish uchun korxona egasidan taklif kodi oling yoki tizim egasi bilan bog‘laning.";
+      $("connection").textContent="Korxonaga qo‘shiling";setAppVisible(false);return false;
+    }
   }
   function setKpis(k) {
     const cards=[
