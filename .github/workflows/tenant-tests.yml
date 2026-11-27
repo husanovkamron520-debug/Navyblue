@@ -8,6 +8,8 @@ on:
       - "supply_chain_mini_app.html"
       - "supply_chain_api.py"
       - "supply_chain_tenants.py"
+      - "supply_chain.py"
+      - "docs/TENANT_BOT_HANDLER_AUDIT.md"
       - "tests/test_tenant_sessions.py"
       - "tests/test_supply_chain_owner_boundary.py"
       - ".github/workflows/tenant-tests.yml"
@@ -28,6 +30,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+      - name: Install Telegram handler test dependency
+        run: python -m pip install "python-telegram-bot[job-queue,webhooks]==21.4"
       - name: Run tenant session tests
         run: python -m unittest discover -s tests -p "test_tenant_sessions.py" -v
       - name: Run legacy Supply Chain owner-boundary tests
