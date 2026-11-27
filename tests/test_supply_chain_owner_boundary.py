@@ -40,5 +40,39 @@ class SupplyChainOwnerBoundaryTests(unittest.TestCase):
         self.assertFalse(supply_chain._allowed(self.update(100, 100)))
 
 
+    def test_tenant_action_permission_map_is_fail_closed(self):
+        self.assertIsNone(supply_chain.tenant_permissions_for_action("unknown_action", "callback"))
+        self.assertIsNone(supply_chain.tenant_permissions_for_action("in", "unknown_source"))
+        self.assertEqual(supply_chain.tenant_permissions_for_action("home", "callback"), ())
+
+    def test_cross_domain_actions_require_both_permissions(self):
+        self.assertEqual(
+            set(supply_chain.tenant_permissions_for_action("ship_dispatch", "callback")),
+            {"logistics.write", "inventory.write"},
+        )
+        self.assertEqual(
+            set(supply_chain.tenant_permissions_for_action("ord_received", "callback")),
+            {"procurement.write", "inventory.write"},
+        )
+
+    def test_text_actions_are_scoped_to_their_business_domain(self):
+        self.assertEqual(
+            supply_chain.tenant_permissions_for_action("in", "text"),
+            ("inventory.write",),
+        )
+        self.assertEqual(
+            supply_chain.tenant_permissions_for_action("supplier_add", "text"),
+            ("procurement.write",),
+        )
+        self.assertEqual(
+            supply_chain.tenant_permissions_for_action("shipment_add", "text"),
+            ("logistics.write",),
+        )
+        self.assertEqual(
+            supply_chain.tenant_permissions_for_action("demand_add", "text"),
+            ("planning.write",),
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
