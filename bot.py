@@ -1654,6 +1654,8 @@ def run_health_server():
                 self._sc_error("forbidden", str(exc), 403)
             except sc_tenants.TenantOperationConflict as exc:
                 self._sc_error("idempotency_conflict", str(exc), 409)
+            except sc_tenants.SnapshotVersionConflict as exc:
+                self._sc_error("version_conflict", str(exc), 409)
             except sc_tenants.PermissionDenied as exc:
                 self._sc_error("forbidden", str(exc), 403)
             except sc_tenants.TenantError as exc:
