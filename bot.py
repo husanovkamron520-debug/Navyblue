@@ -2497,10 +2497,31 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     if is_bot_owner(chat_id):
         await supply_chain.open_supply(update, context)
-    else:
+        return
+
+    # Non-owner users enter only through the tenant Mini App. The app requires
+    # a valid Telegram initData signature and an active company membership.
+    # Public company creation remains disabled; an owner must invite the user.
+    base_url = (os.environ.get("RENDER_EXTERNAL_URL") or
+                "https://navyblue-zwil.onrender.com").strip().rstrip("/")
+    if not base_url.startswith("https://"):
         await update.message.reply_text(
-            "⛔ Logistika boshqaruv paneli bot egasining shaxsiy chatida mavjud."
+            "Korxona tizimiga xavfsiz ulanish uchun HTTPS manzili sozlanmagan. "
+            "Iltimos, tizim administratoriga xabar bering."
         )
+        return
+    await update.message.reply_text(
+        "🚚 Supply Chain tizimiga xush kelibsiz!\n\n"
+        "Korxona ma'lumotlariga kirish uchun egasidan taklif kodini oling. "
+        "Kirish huquqingizga qarab ombor, xarid, transport va Excel hisobotlari bilan ishlashingiz mumkin.\n\n"
+        "Taklif kodini keyingi oynada kiriting.",
+        reply_markup=InlineKeyboardMarkup([[
+            InlineKeyboardButton(
+                "📱 Supply Chain tizimini ochish",
+                web_app=WebAppInfo(url=base_url + "/supply-chain"),
+            )
+        ]]),
+    )
 
 
 async def myid_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
