@@ -209,6 +209,24 @@ class TenantStoreTests(unittest.TestCase):
         self.assertEqual(db.calls[2][2]["p_company_id"], COMPANY_A)
         self.assertEqual(db.calls[2][2]["p_expected_version"], 4)
 
+    def test_member_of_company_a_cannot_write_company_b_snapshot(self):
+        import supply_chain_tenants as tenants
+
+        member_a = {"company_id": COMPANY_A, "telegram_user_id": 101,
+                    "role": "owner", "status": "active"}
+        db = SequencedTenantDB([[]])
+        store = tenants.TenantStore(db)
+
+        with self.assertRaises(tenants.MembershipRequired):
+            store.mutate_snapshot(
+                COMPANY_B, 101, "inventory.write",
+                lambda data: data.update({"products": {"B-LEAK": {"quantity": 1}}}),
+            )
+
+        self.assertEqual(len(db.calls), 1)
+        self.assertIn("company_id=eq." + COMPANY_B, db.calls[0][1])
+        self.assertNotEqual(member_a["company_id"], COMPANY_B)
+
     def test_mutate_snapshot_denies_wrong_role_before_loading_or_writing(self):
         import supply_chain_tenants as tenants
 
