@@ -93,6 +93,7 @@ logger = logging.getLogger(__name__)
 # Supply Chain Mini App: process-local owner sessions and startup readiness gate.
 _SC_STORAGE_READY = threading.Event()
 _SC_SESSIONS = sc_api.SessionStore()
+_SC_TENANT_SESSIONS = sc_api.TenantSessionStore()
 _SC_SESSION_LIMITER = sc_api.RateLimiter(max_requests=8, window_seconds=60)
 _SC_API_LIMITER = sc_api.RateLimiter(max_requests=120, window_seconds=60)
 _SC_IMPORT_LIMITER = sc_api.RateLimiter(max_requests=3, window_seconds=60)
