@@ -282,7 +282,7 @@ async def telegram_inventory_add(update: Any, context: Any, tenant_store_factory
         return
     sku, name, quantity_raw, unit, reorder_raw = parts
     if (not 1 <= len(sku) <= 64 or not 2 <= len(name) <= 120
-            or not 1 <= len(unit) <= 12 or any("\\n" in p or "\\r" in p for p in parts)):
+            or not 1 <= len(unit) <= 12 or any("\n" in p or "\r" in p for p in parts)):
         await message.reply_text("SKU, nom yoki birlik uzunligi noto'g'ri.")
         return
     try:
