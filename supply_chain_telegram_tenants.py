@@ -919,6 +919,13 @@ async def telegram_shipment_transition(update: Any, context: Any, tenant_store_f
             shipment["cancelled_at"] = now
             return {"id": shipment_id, "status": "cancelled"}
 
+        if action == "dispatch":
+            # Recheck both domains immediately before the CAS commit as well as
+            # during context resolution; dispatch changes logistics and stock.
+            for permission in permissions[action]:
+                store.require_permission(
+                    tenant_context.company_id, tenant_context.telegram_user_id, permission
+                )
         result = store.mutate_snapshot(
             tenant_context.company_id, tenant_context.telegram_user_id,
             "inventory.write" if action == "dispatch" else "logistics.write",
