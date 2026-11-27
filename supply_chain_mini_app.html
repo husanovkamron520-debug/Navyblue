@@ -253,7 +253,7 @@
   const hideNotice = () => { $("notice").hidden=true; };
   async function api(path, options={}) {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15000);
+    const timeout = setTimeout(() => controller.abort(), path==="/sc-api/v1/tenant/ai" ? 50000 : 15000);
     let response;
     try {
       response = await fetch(path,{...options,signal:controller.signal,headers:{...(options.headers||{}),...(token?{Authorization:"Bearer "+token}:{})},cache:"no-store"});
