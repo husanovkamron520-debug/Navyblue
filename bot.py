@@ -56,6 +56,7 @@ from ppt_visual_qa import (visual_integrity_issues, package_qa_blockers, VisualI
 from telegram import (
     Update,
     ReplyKeyboardMarkup,
+    ReplyKeyboardRemove,
     KeyboardButton,
     WebAppInfo,
     InlineKeyboardMarkup,
@@ -2239,8 +2240,8 @@ async def ai_grade(case, answer):
 # START / ROLE HANDLERS
 # ============================================================
 def collapsed_menu(chat_id=None):
-    # Asosiy menyuda faqat logistika bo'limi ko'rsatiladi.
-    return ReplyKeyboardMarkup([[BTN_SUPPLY]], resize_keyboard=True)
+    # Reply keyboard butunlay olib tashlandi; logistika /start orqali ochiladi.
+    return ReplyKeyboardRemove()
 
 
 def teacher_menu(chat_id=None):
@@ -2266,11 +2267,17 @@ async def show_role_picker(message):
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
-    greeting = "👑 NAVYBLUE — logistika bosh menyusi." if is_bot_owner(chat_id) else "NAVYBLUE — asosiy menyu."
+    # Eski reply keyboardni olib tashlaymiz va logistika bosh sahifasini bevosita ochamiz.
     await update.message.reply_text(
-        greeting + "\n\nLogistika bo'limini tanlang.",
-        reply_markup=collapsed_menu(chat_id),
+        "👑 NAVYBLUE — logistika tizimi.",
+        reply_markup=ReplyKeyboardRemove(),
     )
+    if is_bot_owner(chat_id):
+        await supply_chain.open_supply(update, context)
+    else:
+        await update.message.reply_text(
+            "⛔ Logistika boshqaruv paneli bot egasining shaxsiy chatida mavjud."
+        )
 
 
 async def myid_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
