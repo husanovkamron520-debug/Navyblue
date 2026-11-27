@@ -14,6 +14,7 @@ from supply_chain_telegram_tenants import (
     telegram_inventory_overview,
     telegram_inventory_add,
     telegram_inventory_movement,
+    telegram_supplier_add,
 )
 
 
@@ -447,6 +448,62 @@ class TelegramInventoryMovementTests(unittest.IsolatedAsyncioTestCase):
         await telegram_inventory_movement(update_obj, context, lambda: store, "in")
         self.assertEqual(store.data["products"]["SKU-1"]["quantity"], 10)
         self.assertIn("tekshirib bo'lmadi", message.text.lower())
+
+
+class SupplierWriteStore(InventoryWriteStore):
+    def __init__(self, allowed_company=COMPANY_A):
+        super().__init__(allowed_company=allowed_company)
+        self.data["suppliers"] = {}
+
+class TelegramSupplierAddTests(unittest.IsolatedAsyncioTestCase):
+    def make_update(self, text, update_id=1101):
+        message = FakeMessage()
+        message.text = text
+        return SimpleNamespace(
+            update_id=update_id,
+            effective_chat=SimpleNamespace(type="private"),
+            effective_user=SimpleNamespace(id=42),
+            effective_message=message,
+        ), message
+
+    async def test_supplier_creation_is_tenant_scoped_and_replay_safe(self):
+        store = SupplierWriteStore()
+        context = SimpleNamespace(user_data={"sc_active_company_id": COMPANY_A})
+        update_obj, message = self.make_update(
+            "/sc_yetkazuvchi SUP-01 | Atlas Textile | 7"
+        )
+        await telegram_supplier_add(update_obj, context, lambda: store)
+        self.assertEqual(store.data["suppliers"]["SUP-01"]["name"], "Atlas Textile")
+        self.assertEqual(store.data["suppliers"]["SUP-01"]["lead_time_days"], 7)
+        self.assertIn("qo'shildi", message.text)
+
+        replay, replay_message = self.make_update(
+            "/sc_yetkazuvchi SUP-01 | Atlas Textile | 7",
+            update_id=update_obj.update_id,
+        )
+        await telegram_supplier_add(replay, context, lambda: store)
+        self.assertEqual(len(store.data["suppliers"]), 1)
+        self.assertIn("qayta yaratilmadi", replay_message.text)
+
+    async def test_supplier_creation_denies_foreign_company(self):
+        store = SupplierWriteStore(allowed_company=COMPANY_A)
+        context = SimpleNamespace(user_data={"sc_active_company_id": COMPANY_B})
+        update_obj, message = self.make_update(
+            "/sc_yetkazuvchi SUP-02 | Atlas | 4"
+        )
+        await telegram_supplier_add(update_obj, context, lambda: store)
+        self.assertEqual(store.data["suppliers"], {})
+        self.assertIn("tekshirib bo'lmadi", message.text.lower())
+
+    async def test_supplier_creation_validates_lead_time(self):
+        store = SupplierWriteStore()
+        context = SimpleNamespace(user_data={"sc_active_company_id": COMPANY_A})
+        update_obj, message = self.make_update(
+            "/sc_yetkazuvchi SUP-03 | Atlas | -2"
+        )
+        await telegram_supplier_add(update_obj, context, lambda: store)
+        self.assertEqual(store.data["suppliers"], {})
+        self.assertIn("0–3650", message.text)
 
 
 if __name__ == "__main__":
