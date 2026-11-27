@@ -606,10 +606,6 @@ class TelegramPurchaseOrderTests(unittest.IsolatedAsyncioTestCase):
 
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class TelegramTenantTransportTests(unittest.IsolatedAsyncioTestCase):
     def make_update(self, text, update_id=3301):
         message = FakeMessage()
@@ -742,3 +738,6 @@ class TelegramShipmentTransitionTests(unittest.IsolatedAsyncioTestCase):
         cancelled, cancelled_message = self.make_update("/sc_yuk_bekor SH-2", 4404)
         await telegram_shipment_transition(cancelled, context, lambda: store, "cancel")
         self.assertEqual(store.data["shipments"][1]["status"], "cancelled")
+
+if __name__ == "__main__":
+    unittest.main()
