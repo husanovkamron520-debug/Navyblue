@@ -376,6 +376,9 @@ def register_telegram_company_selector(app: Any, tenant_store_factory: Any) -> N
     app.add_handler(CommandHandler("sc_chiqim", lambda update, context: telegram_inventory_movement(
         update, context, tenant_store_factory, "out"
     )))
+    app.add_handler(CommandHandler("sc_yetkazuvchi", lambda update, context: telegram_supplier_add(
+        update, context, tenant_store_factory
+    )))
     app.add_handler(CallbackQueryHandler(
         lambda update, context: telegram_company_select(update, context, tenant_store_factory),
         pattern=r"^sctenant:",
@@ -490,3 +493,88 @@ async def telegram_inventory_movement(update: Any, context: Any, tenant_store_fa
         await message.reply_text("Ruxsat yoki ombor versiyasi mos kelmadi. /sc_ombor bilan tekshirib qayta urinib ko'ring.")
     except Exception:
         await message.reply_text("Ombor harakati saqlanmadi. Baza holatini tekshirib, keyin qayta urinib ko'ring.")
+
+
+async def telegram_supplier_add(update: Any, context: Any, tenant_store_factory: Any) -> None:
+    """Create a supplier in the selected company; never touches legacy owner storage."""
+    import hashlib
+    import json
+    import math
+    from datetime import datetime, timezone
+    from supply_chain_tenants import SnapshotVersionConflict, PermissionDenied, MembershipRequired
+
+    message = getattr(update, "effective_message", None)
+    chat = getattr(update, "effective_chat", None)
+    user = getattr(update, "effective_user", None)
+    if message is None or not chat or not user or str(getattr(chat, "type", "")) != "private":
+        return
+    raw_text = str(getattr(message, "text", "") or "")
+    _command, separator, raw = raw_text.partition(" ")
+    if not separator:
+        await message.reply_text(
+            "Format: /sc_yetkazuvchi ID | Nomi | Yetkazish muddati (kun)\\n"
+            "Misol: /sc_yetkazuvchi SUP-01 | Atlas Textile | 7"
+        )
+        return
+    parts = [part.strip() for part in raw.split("|")]
+    if len(parts) != 3 or not parts[0] or not parts[1] or any("\\n" in p or "\\r" in p for p in parts):
+        await message.reply_text("Uchta maydon kerak: ID | Nomi | Yetkazish muddati (kun)")
+        return
+    supplier_id, name, lead_raw = parts
+    if len(supplier_id) > 40 or len(name) > 120:
+        await message.reply_text("ID yoki yetkazib beruvchi nomi juda uzun.")
+        return
+    try:
+        lead_days = float(lead_raw.replace(",", "."))
+        if not math.isfinite(lead_days) or lead_days < 0 or lead_days > 3650:
+            raise ValueError
+    except ValueError:
+        await message.reply_text("Yetkazish muddati 0–3650 kun oralig'idagi son bo'lishi kerak.")
+        return
+    update_id = getattr(update, "update_id", None)
+    if isinstance(update_id, bool) or not isinstance(update_id, int) or update_id < 0:
+        await message.reply_text("Telegram amal identifikatori aniqlanmadi. Qayta yuboring.")
+        return
+    try:
+        user_data = getattr(context, "user_data", None)
+        store = tenant_store_factory()
+        tenant_context = resolve_telegram_tenant_context(
+            update, user_data if isinstance(user_data, dict) else {},
+            store, ("procurement.write",),
+        )
+        payload = {"supplier_id": supplier_id, "name": name, "lead_time_days": lead_days}
+        request_hash = hashlib.sha256(json.dumps(
+            {"company_id": tenant_context.company_id, "request": payload},
+            sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        ).encode("utf-8")).hexdigest()
+        operation_id = f"tg-{update_id}-{tenant_context.company_id[:8]}-supplier-add"
+
+        def mutate(snapshot: dict[str, Any]) -> dict[str, Any]:
+            suppliers = snapshot.setdefault("suppliers", {})
+            if not isinstance(suppliers, dict):
+                raise TelegramTenantContextError("Yetkazib beruvchi ma'lumotlari noto'g'ri.")
+            if any(str(key).casefold() == supplier_id.casefold() for key in suppliers):
+                raise TelegramTenantContextError("Bu yetkazib beruvchi ID avval ishlatilgan.")
+            suppliers[supplier_id] = {
+                "id": supplier_id, "name": name, "lead_time_days": lead_days,
+                "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            }
+            return {"id": supplier_id, "name": name, "lead_time_days": lead_days}
+
+        result = store.mutate_snapshot(
+            tenant_context.company_id, tenant_context.telegram_user_id,
+            "procurement.write", mutate, expected_version=tenant_context.version,
+            operation_id=operation_id, request_hash=request_hash,
+        )
+        item = result.get("result") or {}
+        replay = " (takroriy so'rov — qayta yaratilmadi)" if result.get("replayed") else ""
+        await message.reply_text(
+            f"✅ Yetkazib beruvchi qo'shildi: {item.get('name', name)} · "
+            f"ID: {item.get('id', supplier_id)} · Yetkazish: {item.get('lead_time_days', lead_days):g} kun{replay}"
+        )
+    except TelegramTenantContextError as exc:
+        await message.reply_text(str(exc))
+    except (SnapshotVersionConflict, PermissionDenied, MembershipRequired):
+        await message.reply_text("Ruxsat yoki korxona ma'lumotlari versiyasi mos kelmadi. /sc orqali qayta tekshiring.")
+    except Exception:
+        await message.reply_text("Yetkazib beruvchi saqlanmadi. Ruxsat va baza holatini tekshiring.")
