@@ -20,6 +20,7 @@ from supply_chain_telegram_tenants import (
     telegram_vehicle_add,
     telegram_shipment_plan,
     telegram_shipment_list,
+    telegram_shipment_transition,
 )
 
 
@@ -686,3 +687,58 @@ class TelegramTenantTransportTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("SH-1", message.text)
         self.assertEqual(store.data["version"], 1)
         self.assertEqual(store.permission_calls[-1][2], "logistics.read")
+
+
+class TelegramShipmentTransitionTests(unittest.IsolatedAsyncioTestCase):
+    def make_update(self, text, update_id=4401):
+        message = FakeMessage()
+        message.text = text
+        return SimpleNamespace(
+            update_id=update_id,
+            effective_chat=SimpleNamespace(type="private"),
+            effective_user=SimpleNamespace(id=42),
+            effective_message=message,
+        ), message
+
+    async def test_dispatch_decrements_stock_and_appends_movement_once(self):
+        store = InventoryWriteStore(role="owner")
+        store.data["products"]["SKU-1"] = {"sku": "SKU-1", "name": "Un", "quantity": 100, "unit": "qop"}
+        store.data["shipments"] = [{"id": "SH-1", "sku": "SKU-1", "quantity": 30, "status": "planned"}]
+        context = SimpleNamespace(user_data={"sc_active_company_id": COMPANY_A})
+        update_obj, message = self.make_update("/sc_yuk_junat SH-1")
+        await telegram_shipment_transition(update_obj, context, lambda: store, "dispatch")
+        self.assertEqual(store.data["products"]["SKU-1"]["quantity"], 70)
+        self.assertEqual(store.data["shipments"][0]["status"], "dispatched")
+        self.assertEqual(len(store.data["movements"]), 1)
+        replay, replay_message = self.make_update("/sc_yuk_junat SH-1", update_obj.update_id)
+        await telegram_shipment_transition(replay, context, lambda: store, "dispatch")
+        self.assertEqual(store.data["products"]["SKU-1"]["quantity"], 70)
+        self.assertEqual(len(store.data["movements"]), 1)
+        self.assertIn("qayta qo'llanmadi", replay_message.text)
+
+    async def test_dispatch_requires_both_permissions_and_available_stock(self):
+        store = InventoryWriteStore(role="transport")
+        store.data["products"]["SKU-1"] = {"sku": "SKU-1", "name": "Un", "quantity": 10, "unit": "qop"}
+        store.data["shipments"] = [{"id": "SH-1", "sku": "SKU-1", "quantity": 30, "status": "planned"}]
+        context = SimpleNamespace(user_data={"sc_active_company_id": COMPANY_A})
+        update_obj, message = self.make_update("/sc_yuk_junat SH-1", 4402)
+        await telegram_shipment_transition(update_obj, context, lambda: store, "dispatch")
+        self.assertEqual(store.data["products"]["SKU-1"]["quantity"], 10)
+        self.assertEqual(store.data["shipments"][0]["status"], "planned")
+        self.assertIn("tekshirib bo'lmadi", message.text.lower())
+        self.assertEqual([x[2] for x in store.permission_calls[-2:]],
+                         ["logistics.write", "inventory.write"])
+
+    async def test_deliver_requires_dispatched_and_cancel_only_planned(self):
+        store = InventoryWriteStore(role="owner")
+        store.data["shipments"] = [
+            {"id": "SH-1", "status": "dispatched"},
+            {"id": "SH-2", "status": "planned"},
+        ]
+        context = SimpleNamespace(user_data={"sc_active_company_id": COMPANY_A})
+        delivered, delivered_message = self.make_update("/sc_yuk_yetkazildi SH-1", 4403)
+        await telegram_shipment_transition(delivered, context, lambda: store, "deliver")
+        self.assertEqual(store.data["shipments"][0]["status"], "delivered")
+        cancelled, cancelled_message = self.make_update("/sc_yuk_bekor SH-2", 4404)
+        await telegram_shipment_transition(cancelled, context, lambda: store, "cancel")
+        self.assertEqual(store.data["shipments"][1]["status"], "cancelled")
