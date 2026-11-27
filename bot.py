@@ -1259,6 +1259,37 @@ def run_health_server():
                 return ""
             return header[7:].strip()
 
+        def _sc_tenant_context(self, permission):
+            """Authenticate a company-bound bearer and re-check live membership."""
+            tenant_context = _SC_TENANT_SESSIONS.authenticate(self._sc_bearer())
+            if not tenant_context:
+                return None
+            if not USE_DB:
+                self._sc_error("storage_unavailable", "Korxonalar uchun Supabase talab qilinadi.", 503)
+                return False
+            try:
+                tenant_store = sc_tenants.TenantStore(_db_request)
+                member = tenant_store.require_permission(
+                    tenant_context.get("company_id"),
+                    tenant_context.get("user_id"),
+                    permission,
+                )
+                # Use the current database role, not the role cached in the bearer.
+                tenant_context["role"] = member.get("role")
+                return tenant_context
+            except sc_tenants.MembershipRequired as exc:
+                _SC_TENANT_SESSIONS.revoke_user(
+                    tenant_context.get("user_id"), tenant_context.get("company_id"))
+                self._sc_error("forbidden", str(exc), 403)
+                return False
+            except sc_tenants.PermissionDenied as exc:
+                self._sc_error("forbidden", str(exc), 403)
+                return False
+            except (sc_tenants.TenantError, ValueError):
+                logger.exception("Tenant authorization lookup failed")
+                self._sc_error("tenant_auth_error", "Korxona ruxsatini tekshirib bo‘lmadi.", 503)
+                return False
+
         def _sc_api_get(self, parsed):
             if len(self.path.encode("utf-8")) > 8192:
                 self._sc_error("request_too_large", "API so‘rov manzili juda uzun.", 414)
@@ -1281,7 +1312,18 @@ def run_health_server():
             if not _SC_STORAGE_READY.is_set():
                 self._sc_error("not_ready", "Ma'lumotlar bazasi hali tayyor emas.", 503)
                 return
-            if not OWNER_CHAT_ID or not _SC_SESSIONS.authenticate(self._sc_bearer(), OWNER_CHAT_ID):
+            tenant_permission = (
+                "procurement.read" if parsed.path.startswith("/sc-api/v1/procurement/")
+                else "logistics.read" if parsed.path.startswith("/sc-api/v1/logistics/")
+                else "inventory.read"
+            )
+            tenant_context = self._sc_tenant_context(tenant_permission)
+            if tenant_context is False:
+                return
+            is_tenant_request = tenant_context is not None
+            if not is_tenant_request and (
+                    not OWNER_CHAT_ID
+                    or not _SC_SESSIONS.authenticate(self._sc_bearer(), OWNER_CHAT_ID)):
                 self._sc_error("unauthorized", "Sessiya yaroqsiz yoki muddati tugagan.", 401)
                 return
             if not _SC_API_LIMITER.allow("read"):
@@ -1299,7 +1341,16 @@ def run_health_server():
             if len((query.get("sku") or [""])[0]) > 128:
                 self._sc_error("invalid_query", "SKU parametri juda uzun.", 400)
                 return
-            snapshot = load_json(supply_chain.DATA_FILE, {})
+            if is_tenant_request:
+                try:
+                    snapshot = sc_tenants.TenantStore(_db_request).load_snapshot(
+                        tenant_context["company_id"])
+                except sc_tenants.TenantError:
+                    logger.exception("Tenant snapshot load failed")
+                    self._sc_error("tenant_storage_error", "Korxona ma'lumotlarini yuklab bo‘lmadi.", 503)
+                    return
+            else:
+                snapshot = load_json(supply_chain.DATA_FILE, {})
             def _int_arg(key, default):
                 try:
                     return int((query.get(key) or [str(default)])[0])
