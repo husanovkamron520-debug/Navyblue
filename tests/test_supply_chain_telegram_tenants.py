@@ -452,7 +452,7 @@ class TelegramInventoryMovementTests(unittest.IsolatedAsyncioTestCase):
 
 class SupplierWriteStore(InventoryWriteStore):
     def __init__(self, allowed_company=COMPANY_A):
-        super().__init__(allowed_company=allowed_company)
+        super().__init__(allowed_company=allowed_company, role="purchasing")
         self.data["suppliers"] = {}
 
 class TelegramSupplierAddTests(unittest.IsolatedAsyncioTestCase):
