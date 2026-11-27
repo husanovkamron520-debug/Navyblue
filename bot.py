@@ -1462,6 +1462,15 @@ def run_health_server():
                                                 "selected": None, "session": None},
                                        "meta": {"request_id": uuid.uuid4().hex}, "error": None})
                         return
+                    if action == "create_invite":
+                        invite = tenant_store.create_invite(
+                            payload.get("company_id"), telegram_user_id,
+                            payload.get("role"),
+                            expires_in_hours=payload.get("expires_in_hours", 72),
+                            max_uses=payload.get("max_uses", 1))
+                        self._sc_json({"data": {"invite": invite},
+                                       "meta": {"request_id": uuid.uuid4().hex}, "error": None}, 201)
+                        return
                     companies = tenant_store.list_companies(telegram_user_id)
                     selected_id = payload.get("company_id") if isinstance(payload, dict) else None
                     selected = None
