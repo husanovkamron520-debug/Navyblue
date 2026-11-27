@@ -18,7 +18,7 @@ class TelegramInitDataTenantAuthTests(unittest.TestCase):
             "auth_date": str(auth_date),
             "user": json.dumps({"id": user_id, "first_name": "Test"}, separators=(",", ":")),
         }
-        check = "\\n".join(f"{key}={values[key]}" for key in sorted(values))
+        check = "\n".join(f"{key}={values[key]}" for key in sorted(values))
         secret = hmac.new(b"WebAppData", bot_token.encode(), hashlib.sha256).digest()
         signature = hmac.new(secret, check.encode(), hashlib.sha256).hexdigest()
         return "&".join(f"{key}={quote(value)}" for key, value in values.items()) + "&hash=" + signature, bot_token
