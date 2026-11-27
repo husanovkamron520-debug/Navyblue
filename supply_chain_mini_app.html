@@ -706,8 +706,10 @@
     }catch(err){$("report-status").textContent="Eksport bajarilmadi: "+err.message;}
   }
   const csvState={headers:[],rows:[],fileName:"",workbook:null};
-  const normalizeExcelHeader=value=>String(value??"").replace(/^\\uFEFF/,"").normalize("NFKC").toLocaleLowerCase("uz")
-    .replace(/[’‘`]/g,"'").replace(/[_-]+/g," ").replace(/\\s+/g," ").trim();
+  function normalizeExcelHeader(value){
+    return String(value??"").replace(/^\uFEFF/,"").normalize("NFKC").toLocaleLowerCase("uz")
+      .replace(/[’‘\x60]/g,"'").replace(/[_-]+/g," ").replace(/\s+/g," ").trim();
+  }
   const mapAliases={
     sku:["sku","product sku","item code","code","kod","mahsulot kodi","mahsulot kod","товарный код","код товара","код","артикул"],
     name:["name","product","product name","item name","mahsulot","mahsulot nomi","nomi","tovar nomi","наименование","название"],
