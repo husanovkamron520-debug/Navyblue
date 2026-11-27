@@ -2239,52 +2239,18 @@ async def ai_grade(case, answer):
 # START / ROLE HANDLERS
 # ============================================================
 def collapsed_menu(chat_id=None):
-    # Asosiy menyu ataylab ixcham: faqat logistika va ta'lim.
-    rows = []
-    if chat_id is not None and is_bot_owner(chat_id):
-        rows.append([BTN_SUPPLY])
-    rows.append([BTN_EDU])
-    return ReplyKeyboardMarkup(rows, resize_keyboard=True)
+    # Asosiy menyuda faqat logistika bo'limi ko'rsatiladi.
+    return ReplyKeyboardMarkup([[BTN_SUPPLY]], resize_keyboard=True)
 
 
 def teacher_menu(chat_id=None):
-    if chat_id is None or int(chat_id) not in MENU_OPEN:
-        return collapsed_menu(chat_id)
-    rows = [
-        [BTN_SC14],
-        [BTN_SLIDE],
-        [BTN_REFERAT, BTN_TESTF],
-        [BTN_MAQOLA, BTN_TEZIS],
-        [BTN_GLOS, BTN_CASEW],
-        [BTN_FROMF, BTN_ZIP],
-        [BTN_NEW_CASE, BTN_GEN_CASE],
-        [BTN_MY_CASES, BTN_STUDENTS],
-        [BTN_FEEDBACK, BTN_ROLE],
-    ]
-    if OWNER_CHAT_ID is not None and chat_id is not None and int(chat_id) == OWNER_CHAT_ID:
-        rows.insert(-1, [BTN_FEEDBACK_INBOX, BTN_STATS])
-    rows.append([BTN_EDU_BACK])
-    return ReplyKeyboardMarkup(rows, resize_keyboard=True)
+    # Ta'lim funksiyalari o'chirilmagan; menyudan yashirilgan.
+    return collapsed_menu(chat_id)
 
 
 def student_menu(chat_id=None):
-    if chat_id is None or int(chat_id) not in MENU_OPEN:
-        return collapsed_menu(chat_id)
-    rows = [
-        [BTN_SC14],
-        [BTN_START_CASE],
-        [BTN_SLIDE],
-        [BTN_REFERAT, BTN_TESTF],
-        [BTN_MAQOLA, BTN_TEZIS],
-        [BTN_GLOS, BTN_CASEW],
-        [BTN_FROMF, BTN_ZIP],
-        [BTN_FEEDBACK],
-        [BTN_ROLE],
-        [BTN_EDU_BACK],
-    ]
-    if OWNER_CHAT_ID is not None and chat_id is not None and int(chat_id) == OWNER_CHAT_ID:
-        rows.insert(-3, [BTN_FEEDBACK_INBOX, BTN_STATS])
-    return ReplyKeyboardMarkup(rows, resize_keyboard=True)
+    # Ta'lim funksiyalari o'chirilmagan; menyudan yashirilgan.
+    return collapsed_menu(chat_id)
 
 
 async def show_role_picker(message):
@@ -2302,7 +2268,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     greeting = "👑 NAVYBLUE — logistika bosh menyusi." if is_bot_owner(chat_id) else "NAVYBLUE — asosiy menyu."
     await update.message.reply_text(
-        greeting + "\n\nLogistika yoki Ta'lim bo'limini tanlang.",
+        greeting + "\n\nLogistika bo'limini tanlang.",
         reply_markup=collapsed_menu(chat_id),
     )
 
@@ -12433,12 +12399,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if text in (BTN_EDU, BTN_EDU_BACK):
         context.user_data["awaiting_feedback"] = False
         cid = int(update.effective_chat.id)
-        if text == BTN_EDU:
-            MENU_OPEN.add(cid)
-            await show_role_picker(update.message)
-        else:
-            MENU_OPEN.discard(cid)
-            await update.message.reply_text("Asosiy menyu:", reply_markup=collapsed_menu(cid))
+        MENU_OPEN.discard(cid)
+        await update.message.reply_text(
+            "Hozircha faqat logistika bo'limi faol.",
+            reply_markup=collapsed_menu(cid),
+        )
         return
 
     # Feedback oqimi avval tekshiriladi, shunda boshqa jarayonlarga aralashmaydi.
