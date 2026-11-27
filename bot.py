@@ -712,6 +712,38 @@ def _sc_commit_inventory_import(payload):
 
 
 
+def _sc_archive_inventory_product_in_snapshot(snapshot, payload, actor_id):
+    """Apply the shared, validated archive operation to one isolated snapshot."""
+    if not isinstance(snapshot, dict) or not isinstance(payload, dict):
+        raise ValueError("JSON object talab qilinadi.")
+    sku = payload.get("sku")
+    expected = payload.get("expected_version")
+    operation_id = payload.get("operation_id")
+    if not isinstance(sku, str) or not sku.strip() or len(sku.strip()) > 128:
+        raise ValueError("SKU noto'g'ri.")
+    if isinstance(expected, bool) or not isinstance(expected, int) or expected < 1:
+        raise ValueError("Ma'lumot versiyasi noto'g'ri.")
+    if not isinstance(operation_id, str) or not re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", operation_id):
+        raise ValueError("Amal identifikatori noto'g'ri.")
+    products = snapshot.get("products")
+    if not isinstance(products, dict):
+        raise ValueError("Mahsulotlar ro'yxati noto'g'ri.")
+    matches = [key for key in products if str(key).casefold() == sku.strip().casefold()]
+    if len(matches) != 1:
+        raise KeyError("Mahsulot topilmadi yoki SKU takrorlangan.")
+    key = matches[0]
+    archived = snapshot.setdefault("deleted_products", [])
+    if not isinstance(archived, list) or len(archived) >= 10000:
+        raise ValueError("Arxiv limiti to'lgan; administrator tekshiruvi kerak.")
+    archived.append({
+        "sku": str(key), "product": copy.deepcopy(products[key]),
+        "archived_at": datetime.now(timezone.utc).isoformat(),
+        "archived_by": str(actor_id),
+    })
+    del products[key]
+    return {"sku": str(key), "archived": True}
+
+
 def _sc_delete_inventory_product(payload):
     """Archive one SKU using the same serialized JSONB-CAS writer as imports."""
     if not USE_DB:
@@ -734,21 +766,9 @@ def _sc_delete_inventory_product(payload):
     ).encode("utf-8")).hexdigest()
 
     def mutate(snapshot):
-        products = snapshot.get("products")
-        if not isinstance(products, dict):
-            raise ValueError("Mahsulotlar ro'yxati noto'g'ri.")
-        matches = [key for key in products if str(key).casefold() == sku.casefold()]
-        if len(matches) != 1:
-            raise KeyError("Mahsulot topilmadi yoki SKU takrorlangan.")
-        key = matches[0]
-        archived = snapshot.setdefault("deleted_products", [])
-        if not isinstance(archived, list) or len(archived) >= 10000:
-            raise ValueError("Arxiv limiti to'lgan; administrator tekshiruvi kerak.")
-        archived.append({"sku": str(key), "product": copy.deepcopy(products[key]),
-                          "archived_at": datetime.now(timezone.utc).isoformat(),
-                          "archived_by": "owner-mini-app"})
-        del products[key]
-        return {"sku": str(key), "archived": True}
+        return _sc_archive_inventory_product_in_snapshot(
+            snapshot, payload, "owner-mini-app")
+
 
     with _storage_save_lock:
         result = _get_sc_commit_adapter().commit(
@@ -1415,7 +1435,13 @@ def run_health_server():
             if not _SC_STORAGE_READY.is_set():
                 self._sc_error("not_ready", "Ma'lumotlar bazasi hali tayyor emas.", 503)
                 return
-            if not OWNER_CHAT_ID or not _SC_SESSIONS.authenticate(self._sc_bearer(), OWNER_CHAT_ID):
+            tenant_context = self._sc_tenant_context("inventory.write")
+            if tenant_context is False:
+                return
+            is_tenant_request = tenant_context is not None
+            if not is_tenant_request and (
+                    not OWNER_CHAT_ID
+                    or not _SC_SESSIONS.authenticate(self._sc_bearer(), OWNER_CHAT_ID)):
                 self._sc_error("unauthorized", "Sessiya yaroqsiz yoki muddati tugagan.", 401)
                 return
             if not _SC_API_LIMITER.allow("write"):
@@ -1435,8 +1461,25 @@ def run_health_server():
                 if not isinstance(payload, dict) or payload.get("sku") != path_sku:
                     self._sc_error("invalid_request", "SKU mos kelmadi.", 400)
                     return
-                result = _sc_delete_inventory_product(payload)
+                if is_tenant_request:
+                    if payload.get("sku") != path_sku:
+                        self._sc_error("invalid_request", "SKU mos kelmadi.", 400)
+                        return
+                    store = sc_tenants.TenantStore(_db_request)
+                    mutation = store.mutate_snapshot(
+                        tenant_context["company_id"],
+                        tenant_context["user_id"],
+                        "inventory.write",
+                        lambda snapshot: _sc_archive_inventory_product_in_snapshot(
+                            snapshot, payload, tenant_context["user_id"]),
+                        expected_version=payload.get("expected_version"),
+                    )
+                    result = {"data": mutation["result"], "data_version": mutation["version"]}
+                else:
+                    result = _sc_delete_inventory_product(payload)
                 self._sc_json({"data": result, "meta": {"request_id": uuid.uuid4().hex}, "error": None})
+            except sc_tenants.SnapshotVersionConflict:
+                self._sc_error("version_conflict", "Ma'lumotlar o'zgargan. Sahifani yangilab qayta urinib ko'ring.", 409)
             except sc_persistence.VersionConflict:
                 self._sc_error("version_conflict", "Ma'lumotlar o'zgargan. Sahifani yangilab qayta urinib ko'ring.", 409)
             except KeyError as exc:
