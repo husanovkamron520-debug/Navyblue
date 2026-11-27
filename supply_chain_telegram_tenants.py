@@ -302,7 +302,6 @@ async def telegram_inventory_add(update: Any, context: Any, tenant_store_factory
     if isinstance(update_id, bool) or not isinstance(update_id, int) or update_id < 0:
         await message.reply_text("Telegram amal identifikatori aniqlanmadi. Qayta yuboring.")
         return
-    operation_id = f"tg-{update_id}-inventory-add"
 
     try:
         user_data = getattr(context, "user_data", None)
@@ -311,6 +310,7 @@ async def telegram_inventory_add(update: Any, context: Any, tenant_store_factory
             update, user_data if isinstance(user_data, dict) else {},
             store, ("inventory.write",),
         )
+        operation_id = f"tg-{update_id}-{tenant_context.company_id[:8]}-inventory-add"
         request_hash = hashlib.sha256(json.dumps(
             {"company_id": tenant_context.company_id, "request": payload},
             sort_keys=True, separators=(",", ":"), ensure_ascii=False
