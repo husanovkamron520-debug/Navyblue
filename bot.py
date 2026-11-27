@@ -30,6 +30,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer, ThreadingHTTPServer
 import museum
 import supply_chain
 import supply_chain_api as sc_api
+import supply_chain_tenants as sc_tenants
 import supply_chain_persistence as sc_persistence
 import supply_chain_mini_app_import as sc_import
 import october_plus
@@ -1390,14 +1391,16 @@ def run_health_server():
 
         def _sc_api_post(self, parsed):
             is_session = parsed.path == "/sc-api/v1/session"
+            is_tenant_session = parsed.path == "/sc-api/v1/tenant/session"
             is_import = parsed.path == "/sc-api/v1/inventory/import"
-            if not is_session and not is_import:
+            if not is_session and not is_tenant_session and not is_import:
                 self._sc_error("not_found", "POST endpoint topilmadi.", 404)
                 return
             if not _SC_STORAGE_READY.is_set():
                 self._sc_error("not_ready", "Ma'lumotlar bazasi hali tayyor emas.", 503)
                 return
-            if is_session and not _SC_SESSION_LIMITER.allow("session"):
+            if (is_session or is_tenant_session) and not _SC_SESSION_LIMITER.allow(
+                    "tenant-session" if is_tenant_session else "session"):
                 self._sc_error("rate_limited", "Juda ko'p urinish. Birozdan keyin qayta urinib ko'ring.", 429)
                 return
             if is_import:
@@ -1412,7 +1415,7 @@ def run_health_server():
                     return
             try:
                 length = int(self.headers.get("Content-Length", "0"))
-                max_length = sc_api.MAX_INIT_DATA_BYTES if is_session else 8_000_000
+                max_length = sc_api.MAX_INIT_DATA_BYTES if (is_session or is_tenant_session) else 8_000_000
                 if length <= 0 or length > max_length:
                     self._sc_error("invalid_request", "So'rov hajmi noto'g'ri yoki limitdan katta.", 413)
                     return
@@ -1433,11 +1436,60 @@ def run_health_server():
                                    "meta": {"request_id": uuid.uuid4().hex}, "error": None})
                     return
 
+                if is_tenant_session:
+                    if not USE_DB:
+                        self._sc_error("storage_unavailable", "Korxonalar uchun Supabase talab qilinadi.", 503)
+                        return
+                    init_data = payload.get("initData") if isinstance(payload, dict) else None
+                    user = sc_api.validate_init_data(init_data, TELEGRAM_BOT_TOKEN)
+                    telegram_user_id = int(user["id"])
+                    tenant_store = sc_tenants.TenantStore(_db_request)
+                    action = str(payload.get("action") or "list") if isinstance(payload, dict) else "list"
+                    if action == "create_company":
+                        company = tenant_store.create_company(
+                            payload.get("name"), telegram_user_id)
+                        companies = tenant_store.list_companies(telegram_user_id)
+                        self._sc_json({"data": {"companies": companies, "created": company,
+                                                "selected": None, "session": None},
+                                       "meta": {"request_id": uuid.uuid4().hex}, "error": None}, 201)
+                        return
+                    if action == "redeem_invite":
+                        redeemed = tenant_store.redeem_invite(
+                            payload.get("code"), telegram_user_id)
+                        companies = tenant_store.list_companies(telegram_user_id)
+                        self._sc_json({"data": {"companies": companies, "redeemed": redeemed,
+                                                "selected": None, "session": None},
+                                       "meta": {"request_id": uuid.uuid4().hex}, "error": None})
+                        return
+                    companies = tenant_store.list_companies(telegram_user_id)
+                    selected_id = payload.get("company_id") if isinstance(payload, dict) else None
+                    selected = None
+                    session_data = None
+                    if selected_id:
+                        member = tenant_store.membership(selected_id, telegram_user_id)
+                        if not member:
+                            raise sc_tenants.MembershipRequired("Bu korxonaga kirish huquqi yo'q.")
+                        tenant_token, tenant_ttl = _SC_TENANT_SESSIONS.issue(
+                            telegram_user_id, selected_id, member.get("role"))
+                        selected = {"company_id": selected_id, "role": member.get("role")}
+                        session_data = {"token": tenant_token, "token_type": "Bearer",
+                                        "expires_in": tenant_ttl}
+                    self._sc_json({"data": {"companies": companies, "selected": selected,
+                                            "session": session_data},
+                                   "meta": {"request_id": uuid.uuid4().hex}, "error": None})
+                    return
+
                 result = _sc_commit_inventory_import(payload)
                 self._sc_json({"data": result, "meta": {"request_id": uuid.uuid4().hex},
                                "error": None})
             except sc_api.AuthError as exc:
                 self._sc_error("unauthorized", str(exc), 401)
+            except sc_tenants.MembershipRequired as exc:
+                self._sc_error("forbidden", str(exc), 403)
+            except sc_tenants.PermissionDenied as exc:
+                self._sc_error("forbidden", str(exc), 403)
+            except sc_tenants.TenantError as exc:
+                self._sc_error("tenant_error", str(exc), 400)
             except sc_import.ImportValidationError as exc:
                 self._sc_error("invalid_import", str(exc), 400)
             except sc_persistence.VersionConflict:
