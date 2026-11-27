@@ -199,10 +199,59 @@ async def telegram_company_select(update: Any, context: Any, tenant_store_factor
         await query.answer("Korxona tanlandi.")
         await query.edit_message_text(
             "Tanlangan korxona: " + company_id[:8] +
-            "\nBu faqat tanlov. Ombor amallari hali tenant rejimiga ulanmagan."
+            "\nBu faqat tanlov. Omborni /sc_ombor orqali ko'rishingiz mumkin; o'zgartirishlar hali ulanmagan."
         )
     except Exception:
         await query.answer("A'zolikni tekshirib bo'lmadi. Keyinroq urinib ko'ring.", show_alert=True)
+
+
+async def telegram_inventory_overview(update: Any, context: Any, tenant_store_factory: Any) -> None:
+    """Read-only company inventory overview with live membership validation."""
+    chat = getattr(update, "effective_chat", None)
+    user = getattr(update, "effective_user", None)
+    message = getattr(update, "effective_message", None)
+    if (not chat or not user or str(getattr(chat, "type", "")) != "private"
+            or message is None):
+        return
+    try:
+        user_data = getattr(context, "user_data", None)
+        tenant_context = resolve_telegram_tenant_context(
+            update, user_data if isinstance(user_data, dict) else {},
+            tenant_store_factory(), ("inventory.read",),
+        )
+        products = tenant_context.snapshot.get("products")
+        if not isinstance(products, dict):
+            raise TelegramTenantContextError("Korxona omboridagi mahsulotlar ro'yxati noto'g'ri.")
+        rows = []
+        for sku, raw in products.items():
+            if not isinstance(raw, dict):
+                continue
+            name = str(raw.get("name") or sku).replace("\\n", " ").strip()[:70]
+            unit = str(raw.get("unit") or "dona").replace("\\n", " ").strip()[:12]
+            quantity = raw.get("quantity", 0)
+            reorder = raw.get("reorder_point", 0)
+            rows.append((name.casefold(), str(sku)[:40], name, quantity, unit, reorder))
+        rows.sort(key=lambda item: (item[0], item[1]))
+        if not rows:
+            await message.reply_text("Tanlangan korxona omborida hozircha mahsulot yo'q.")
+            return
+        lines = [
+            f"📦 {tenant_context.company_id[:8]} — Ombor",
+            f"Mahsulotlar soni: {len(rows)}",
+            "",
+        ]
+        for _sort, sku, name, quantity, unit, reorder in rows[:15]:
+            lines.append(f"• {name} ({sku})")
+            lines.append(f"  Qoldiq: {quantity} {unit} · ROP: {reorder} {unit}")
+        if len(rows) > 15:
+            lines.append(f"\nYana {len(rows) - 15} ta mahsulot bor. Dastlabki 15 tasi ko'rsatildi.")
+        lines.append("\nBu faqat ko'rish rejimi. Ma'lumot o'zgartirilmaydi.")
+        await message.reply_text("\\n".join(lines))
+    except TelegramTenantContextError as exc:
+        await message.reply_text(str(exc))
+    except Exception:
+        await message.reply_text("Korxona omborini yuklab bo'lmadi. Ruxsat yoki baza holatini tekshiring.")
+
 
 
 def register_telegram_company_selector(app: Any, tenant_store_factory: Any) -> None:
@@ -210,6 +259,9 @@ def register_telegram_company_selector(app: Any, tenant_store_factory: Any) -> N
     from telegram.ext import CallbackQueryHandler, CommandHandler
 
     app.add_handler(CommandHandler("sc", lambda update, context: telegram_company_list(
+        update, context, tenant_store_factory
+    )))
+    app.add_handler(CommandHandler("sc_ombor", lambda update, context: telegram_inventory_overview(
         update, context, tenant_store_factory
     )))
     app.add_handler(CallbackQueryHandler(
