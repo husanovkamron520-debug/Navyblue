@@ -273,6 +273,16 @@ class TenantReadRouteWiringTests(unittest.TestCase):
         self.assertIn('snapshot = sc_tenants.TenantStore(_db_request).load_snapshot(', source)
         self.assertIn("if not is_tenant_request and (", source)
 
+    def test_mini_app_exposes_company_selection_and_disables_legacy_writes_in_tenant_mode(self):
+        from pathlib import Path
+
+        source = (Path(__file__).resolve().parents[1] / "supply_chain_mini_app.html").read_text(encoding="utf-8")
+        self.assertIn('id="tenant-panel"', source)
+        self.assertIn('id="app-main"', source)
+        self.assertIn('async function activateTenantCompany(companyId)', source)
+        self.assertIn('del.disabled=tenantMode', source)
+        self.assertIn('$("excel-file").disabled=true', source)
+
     def test_public_signup_is_disabled_by_default_and_legacy_migration_is_owner_gated(self):
         from pathlib import Path
 
