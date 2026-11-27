@@ -9,9 +9,11 @@ on:
       - "supply_chain_api.py"
       - "supply_chain_tenants.py"
       - "supply_chain.py"
+      - "supply_chain_telegram_tenants.py"
       - "docs/TENANT_BOT_HANDLER_AUDIT.md"
       - "tests/test_tenant_sessions.py"
       - "tests/test_supply_chain_owner_boundary.py"
+      - "tests/test_supply_chain_telegram_tenants.py"
       - ".github/workflows/tenant-tests.yml"
   pull_request:
     paths:
@@ -19,7 +21,12 @@ on:
       - "supply_chain_mini_app.html"
       - "supply_chain_api.py"
       - "supply_chain_tenants.py"
+      - "supply_chain.py"
+      - "supply_chain_telegram_tenants.py"
+      - "docs/TENANT_BOT_HANDLER_AUDIT.md"
       - "tests/test_tenant_sessions.py"
+      - "tests/test_supply_chain_owner_boundary.py"
+      - "tests/test_supply_chain_telegram_tenants.py"
       - ".github/workflows/tenant-tests.yml"
 
 jobs:
@@ -36,6 +43,8 @@ jobs:
         run: python -m unittest discover -s tests -p "test_tenant_sessions.py" -v
       - name: Run legacy Supply Chain owner-boundary tests
         run: python -m unittest discover -s tests -p "test_supply_chain_owner_boundary.py" -v
+      - name: Run Telegram tenant context boundary tests
+        run: python -m unittest discover -s tests -p "test_supply_chain_telegram_tenants.py" -v
       - name: Check Mini App JavaScript syntax
         run: |
           python - <<'PY'
