@@ -32,7 +32,7 @@ The current work is a staged migration, not a finished SaaS release:
 
 - The company onboarding UI is implemented; its latest frontend changes are awaiting deployment verification.
 - Inventory archive and Excel import are tenant-aware. Telegram has a narrow tenant inventory path: `/sc` company selection, `/sc_ombor` read-only overview, `/sc_qosh` product creation, and `/sc_kirim` / `/sc_chiqim` stock movements, and `/sc_yetkazuvchi` supplier creation; `/sc_buyurtma`, `/sc_buyurtma_ber` and `/sc_buyurtma_qabul` create, order and receive tenant purchase orders. These writes use live role checks, company-scoped CAS and replay receipts; receiving requires both procurement and inventory write permissions and applies AVCO costing. The legacy bot menu and all other domain workflows remain owner-only.
-- Tenant Telegram transport groundwork now includes `/sc_transport_qosh`, `/sc_yuk_reja`, and `/sc_yuklar`: company-scoped vehicle creation, shipment planning using only that company's stock/vehicle list, and read-only shipment listing. Planning selects the lowest-cost eligible vehicle and does not decrement stock. Dispatch/delivery/cancel transitions are not yet tenant-enabled.
+- Tenant Telegram transport groundwork now includes `/sc_transport_qosh`, `/sc_yuk_reja`, and `/sc_yuklar`: company-scoped vehicle creation, shipment planning using only that company's stock/vehicle list, and read-only shipment listing. Planning selects the lowest-cost eligible vehicle and does not decrement stock. Dispatch now uses both `logistics.write` and `inventory.write`, decrements stock and appends a movement once under CAS/replay protection; delivery and cancellation are limited to valid shipment states.
 - Cross-company read isolation is wired for the tenant GET path; full end-to-end read/write/export/import isolation tests are not complete.
 - Public signup and public company access must remain disabled until all paths are tenant-aware.
 
@@ -40,7 +40,7 @@ The current work is a staged migration, not a finished SaaS release:
 
 1. Add Mini App company selection, company creation, invite joining, and selected-company session handling.
 2. Add a clear owner-only migration confirmation flow. The migration helper checks that the target company's snapshot is still pristine; it copies the legacy data into the company snapshot at the next version and preserves the source row.
-3. Complete tenant logistics lifecycle: dispatch with atomic logistics + inventory permissions and one-time stock decrement, then delivery/cancel transitions and replay tests.
+3. Finish tenant logistics hardening: replay, role-revocation, stale-version and cross-company tests for dispatch/delivery/cancel; verify the dual permission checks at the mutation boundary.
 4. Extend company-scoped CAS and role permissions to planning, demand history, scenarios, exports, AI context, inline search, scheduled reports, and background jobs; retain the owner-only legacy boundary until each path is tested.
 5. Add end-to-end tests using at least three companies and several users. Verify cross-company reads, writes, exports, imports, invitations, role changes, revoked memberships, and CAS conflicts.
 6. Perform a full legacy-handler audit and production migration rehearsal without changing the source owner row.
