@@ -605,3 +605,88 @@ def list_inventory(snapshot: dict, search: str = "", status: str = "all",
         "pagination": {"page": page, "page_size": page_size, "total": total,
                        "pages": (total + page_size - 1) // page_size},
     }, _safe_version(data))
+
+class TenantSessionStore:
+    """Short-lived bearer sessions bound to one verified company membership.
+
+    The caller must verify membership against Supabase before issue(). A session
+    never accepts a company or role supplied by a later API request.
+    """
+    TTL_SECONDS = 600
+    ROLE_PERMISSIONS = {
+        "owner": {"*"},
+        "admin": {"*"},
+        "warehouse": {"inventory.read", "inventory.write", "movement.write", "reports.read"},
+        "purchasing": {"inventory.read", "procurement.read", "procurement.write", "reports.read"},
+        "transport": {"inventory.read", "logistics.read", "logistics.write", "reports.read"},
+        "viewer": {"inventory.read", "procurement.read", "logistics.read", "reports.read"},
+    }
+
+    def __init__(self, ttl_seconds: int = TTL_SECONDS, max_sessions: int = 10000):
+        self.ttl_seconds = max(60, min(int(ttl_seconds), 3600))
+        self.max_sessions = max(100, int(max_sessions))
+        self._sessions: dict[str, tuple[dict, float]] = {}
+        self._lock = threading.Lock()
+
+    @staticmethod
+    def _valid_company_id(company_id: str) -> bool:
+        import re
+        return isinstance(company_id, str) and bool(re.fullmatch(
+            r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}",
+            company_id,
+        ))
+
+    def issue(self, user_id: int, company_id: str, role: str,
+              now: float | None = None) -> tuple[str, int]:
+        if isinstance(user_id, bool) or int(user_id) <= 0:
+            raise AuthError("invalid user")
+        if not self._valid_company_id(company_id):
+            raise AuthError("invalid company")
+        if role not in self.ROLE_PERMISSIONS:
+            raise AuthError("invalid membership role")
+        current = time.time() if now is None else float(now)
+        token = secrets.token_urlsafe(32)
+        context = {"user_id": int(user_id), "company_id": company_id, "role": role}
+        with self._lock:
+            self._purge(current)
+            if len(self._sessions) >= self.max_sessions:
+                raise AuthError("session capacity reached")
+            self._sessions[token] = (context, current + self.ttl_seconds)
+        return token, self.ttl_seconds
+
+    def authenticate(self, token: str, now: float | None = None) -> dict | None:
+        current = time.time() if now is None else float(now)
+        if not isinstance(token, str) or not token:
+            return None
+        with self._lock:
+            session = self._sessions.get(token)
+            if not session:
+                return None
+            context, expires_at = session
+            if expires_at <= current:
+                self._sessions.pop(token, None)
+                return None
+            return dict(context)
+
+    def allows(self, context: dict | None, permission: str) -> bool:
+        if not isinstance(context, dict) or not isinstance(permission, str):
+            return False
+        allowed = self.ROLE_PERMISSIONS.get(context.get("role"), set())
+        return "*" in allowed or permission in allowed
+
+    def revoke_user(self, user_id: int, company_id: str | None = None) -> int:
+        removed = 0
+        with self._lock:
+            for token, (context, _) in list(self._sessions.items()):
+                if context.get("user_id") == int(user_id) and (
+                    company_id is None or context.get("company_id") == company_id
+                ):
+                    self._sessions.pop(token, None)
+                    removed += 1
+        return removed
+
+    def _purge(self, now: float) -> None:
+        for token, (_, expires_at) in list(self._sessions.items()):
+            if expires_at <= now:
+                self._sessions.pop(token, None)
+
