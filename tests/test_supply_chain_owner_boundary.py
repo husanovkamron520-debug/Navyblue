@@ -45,6 +45,13 @@ class SupplyChainOwnerBoundaryTests(unittest.TestCase):
         self.assertIsNone(supply_chain.tenant_permissions_for_action("in", "unknown_source"))
         self.assertEqual(supply_chain.tenant_permissions_for_action("home", "callback"), ())
 
+    def test_data_reading_callbacks_never_have_an_empty_permission_set(self):
+        for action in ("home", "reports", "buy", "transport", "sim", "ai",
+                       "ai_report", "ai_custom", "magic_remove", "magic_map"):
+            permissions = supply_chain.tenant_permissions_for_action(action, "callback")
+            self.assertIsNotNone(permissions, f"Missing permission mapping for {action}")
+            self.assertTrue(permissions, f"Data-reading callback {action} must require a read permission")
+
     def test_cross_domain_actions_require_both_permissions(self):
         self.assertEqual(
             set(supply_chain.tenant_permissions_for_action("ship_dispatch", "callback")),
