@@ -299,10 +299,13 @@
     $("tenant-role").textContent=tenantRole;
     $("tenant-owner-tools").hidden=!(tenantRole==="owner"||tenantRole==="admin");
     $("tenant-migrate").hidden=tenantRole!=="owner";
-    $("detail-delete").hidden=true;
-    $("excel-file").disabled=true;$("excel-import-confirm").disabled=true;
+    $("detail-delete").hidden=!["owner","admin","warehouse"].includes(tenantRole);
+    const canWriteInventory=["owner","admin","warehouse"].includes(tenantRole);
+    $("excel-file").disabled=!canWriteInventory;$("excel-import-confirm").disabled=true;
     $("connection").textContent="Korxona ulandi";
-    $("tenant-status").textContent="Faol korxona tanlandi. Ma’lumotlar faqat shu korxona snapshot’idan o‘qiladi.";
+    $("tenant-status").textContent=canWriteInventory
+      ?"Korxona ulandi. Ombor va Excel import amallari faqat shu korxona ma’lumotlariga yoziladi."
+      :"Korxona ulandi. Bu rol omborni faqat o‘qiy oladi; yozish uchun ombor ruxsati kerak.";
     renderTenantCompanies();$("tenant-company").value=tenantCompanyId;
     setAppVisible(true);return true;
   }
@@ -385,7 +388,7 @@
     left.append(el("div","name",p.name||p.sku),el("div","muted",p.sku));
     const level=p.stock_level||"unknown";const qty=el("div","stock "+(level==="low"?"low":level==="high"?"high":"ok"),fmt(p.quantity,1)+" "+(p.unit||""));
     row.append(left,qty);c.append(row);
-    const meta=el("div","product-meta");meta.append(el("span","","Reorder: "+fmt(p.reorder_point,1)),el("span","","Birlik: "+money(p.unit_cost)));if(level==="high")meta.append(el("strong","stock high","Reorder chegarasidan "+fmt(p.reorder_multiple,1)+" baravar yuqori · tekshirish kerak"));c.append(meta);c.setAttribute("role","button");c.tabIndex=0;c.setAttribute("aria-label",(p.name||p.sku)+" tafsilotlarini ochish");c.addEventListener("click",()=>openInventoryDetail(p.sku));c.addEventListener("keydown",event=>{if(event.key==="Enter"||event.key===" "){event.preventDefault();openInventoryDetail(p.sku);}});const actions=el("div","row-actions");const del=el("button","danger","Arxivlash");del.type="button";del.disabled=tenantMode;del.addEventListener("click",event=>{event.stopPropagation();archiveInventoryProduct(p.sku,p.name||p.sku);});actions.append(del);c.append(actions);return c;
+    const meta=el("div","product-meta");meta.append(el("span","","Reorder: "+fmt(p.reorder_point,1)),el("span","","Birlik: "+money(p.unit_cost)));if(level==="high")meta.append(el("strong","stock high","Reorder chegarasidan "+fmt(p.reorder_multiple,1)+" baravar yuqori · tekshirish kerak"));c.append(meta);c.setAttribute("role","button");c.tabIndex=0;c.setAttribute("aria-label",(p.name||p.sku)+" tafsilotlarini ochish");c.addEventListener("click",()=>openInventoryDetail(p.sku));c.addEventListener("keydown",event=>{if(event.key==="Enter"||event.key===" "){event.preventDefault();openInventoryDetail(p.sku);}});const actions=el("div","row-actions");const del=el("button","danger","Arxivlash");del.type="button";del.disabled=tenantMode&&!["owner","admin","warehouse"].includes(tenantRole);del.addEventListener("click",event=>{event.stopPropagation();archiveInventoryProduct(p.sku,p.name||p.sku);});actions.append(del);c.append(actions);return c;
   }
   async function openInventoryDetail(sku){
     const panel=$("inventory-detail");panel.hidden=false;
@@ -437,7 +440,7 @@
     if(!data.items.length){const tr=el("tr","");tr.append(el("td","muted","Mahsulot topilmadi"));table.append(tr);mobile.append(el("div","notice","Mahsulot topilmadi"));return;}
     data.items.forEach(p=>{
       const tr=el("tr","");const status=p.stock_level==="low"?"Kam":p.stock_level==="high"?"Juda yuqori":p.stock_level==="healthy"?"Me’yorda":"Noma’lum";
-      [p.sku+" · "+p.name,fmt(p.quantity,1)+" "+(p.unit||""),fmt(p.reorder_point,1),money(p.unit_cost),status+(p.reorder_multiple!=null&&p.stock_level==="high"?" · "+fmt(p.reorder_multiple,1)+"x":"")].forEach((v,i)=>{const td=el("td",i===0?"sku":i===4?"stock "+(status==="Kam"?"low":status==="Juda yuqori"?"high":"ok"):"",v);if(i===0){td.tabIndex=0;td.setAttribute("role","button");td.setAttribute("aria-label",p.sku+" tafsilotlarini ochish");td.addEventListener("click",()=>openInventoryDetail(p.sku));td.addEventListener("keydown",event=>{if(event.key==="Enter"||event.key===" "){event.preventDefault();openInventoryDetail(p.sku);}});}tr.append(td);});const actionCell=el("td","");const del=el("button","danger","Arxivlash");del.type="button";del.addEventListener("click",event=>{event.stopPropagation();archiveInventoryProduct(p.sku,p.name||p.sku);});actionCell.append(del);tr.append(actionCell);tr.classList.add("clickable-row");table.append(tr);mobile.append(makeProductCard(p));
+      [p.sku+" · "+p.name,fmt(p.quantity,1)+" "+(p.unit||""),fmt(p.reorder_point,1),money(p.unit_cost),status+(p.reorder_multiple!=null&&p.stock_level==="high"?" · "+fmt(p.reorder_multiple,1)+"x":"")].forEach((v,i)=>{const td=el("td",i===0?"sku":i===4?"stock "+(status==="Kam"?"low":status==="Juda yuqori"?"high":"ok"):"",v);if(i===0){td.tabIndex=0;td.setAttribute("role","button");td.setAttribute("aria-label",p.sku+" tafsilotlarini ochish");td.addEventListener("click",()=>openInventoryDetail(p.sku));td.addEventListener("keydown",event=>{if(event.key==="Enter"||event.key===" "){event.preventDefault();openInventoryDetail(p.sku);}});}tr.append(td);});const actionCell=el("td","");const del=el("button","danger","Arxivlash");del.type="button";del.disabled=tenantMode&&!["owner","admin","warehouse"].includes(tenantRole);del.addEventListener("click",event=>{event.stopPropagation();archiveInventoryProduct(p.sku,p.name||p.sku);});actionCell.append(del);tr.append(actionCell);tr.classList.add("clickable-row");table.append(tr);mobile.append(makeProductCard(p));
     });
   }
   const analyticsState={abc:null,replenishment:null,abcFilter:"all"};

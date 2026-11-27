@@ -7,9 +7,11 @@
 - Tenant registry, membership, invitation, and per-company snapshot tables are in place.
 - Telegram Web App `initData` can authenticate any Telegram user for onboarding; the legacy session route remains owner-only.
 - Company creation, membership listing, invite redemption, invite creation, and company-bound bearer sessions are available through `POST /sc-api/v1/tenant/session`.
-- Mini App company selection, create/join, invite generation, and explicit migration controls are implemented. Tenant-mode import and archive actions are disabled until company-scoped writes are ready.
+- Mini App company selection, create/join, invite generation, and explicit migration controls are implemented.
+- Inventory archive and Excel import now use the authenticated tenant session, live `inventory.write` membership checks, and company-scoped snapshot CAS commits. UI controls are limited to `owner`, `admin`, and `warehouse`.
 - Public self-registration is disabled by default (`SC_PUBLIC_SIGNUP_ENABLED=false`); the configured system owner can create the initial company, and other users join by invitation.
 - Tenant-bound GET API requests re-check active membership and role against Supabase, then load only that company's `sc_company_snapshots.data`.
+- Tenant archive/import writes persist bounded operation receipts in the same CAS-protected snapshot. Repeating one of the most recent 200 operation IDs with the same actor, permission, and request hash returns its original result; reusing an ID for a different payload is rejected.
 - A one-time legacy migration action is implemented for the configured system owner. It only writes into a pristine version-1 company snapshot and leaves the legacy `bot_storage` row untouched. This action must be explicitly invoked; it does not run automatically.
 - Existing classroom tables remain separate and are not reused for production company tenancy.
 
@@ -29,19 +31,20 @@ Roles: `owner`, `admin`, `warehouse`, `purchasing`, `transport`, `viewer`.
 The current work is a staged migration, not a finished SaaS release:
 
 - The company onboarding UI is implemented; its latest frontend changes are awaiting deployment verification.
-- Inventory import and delete/write operations still use the legacy owner snapshot and owner-only session.
-- Telegram bot handlers, exports, AI context, scheduled jobs, and background workflows have not all been threaded through verified tenant context.
-- Cross-company read isolation is being wired, but full read/write/export/import isolation tests are not complete.
+- Inventory archive and Excel import are tenant-aware. Telegram has a narrow tenant inventory path: `/sc` company selection, `/sc_ombor` read-only overview, `/sc_qosh` product creation, and `/sc_kirim` / `/sc_chiqim` stock movements, and `/sc_yetkazuvchi` supplier creation; `/sc_buyurtma`, `/sc_buyurtma_ber` and `/sc_buyurtma_qabul` create, order and receive tenant purchase orders. These writes use live role checks, company-scoped CAS and replay receipts; receiving requires both procurement and inventory write permissions and applies AVCO costing. The legacy bot menu and all other domain workflows remain owner-only.
+- Tenant Telegram transport groundwork now includes `/sc_transport_qosh`, `/sc_yuk_reja`, and `/sc_yuklar`: company-scoped vehicle creation, shipment planning using only that company's stock/vehicle list, and read-only shipment listing. Planning selects the lowest-cost eligible vehicle and does not decrement stock. Dispatch now uses both `logistics.write` and `inventory.write`, decrements stock and appends a movement once under CAS/replay protection; delivery and cancellation are limited to valid shipment states.
+- Cross-company read isolation is wired for the tenant GET path; full end-to-end read/write/export/import isolation tests are not complete.
 - Public signup and public company access must remain disabled until all paths are tenant-aware.
 
 ## Required next implementation stages
 
 1. Add Mini App company selection, company creation, invite joining, and selected-company session handling.
 2. Add a clear owner-only migration confirmation flow. The migration helper checks that the target company's snapshot is still pristine; it copies the legacy data into the company snapshot at the next version and preserves the source row.
-3. Convert inventory writes, imports, deletes, and all other mutations to company-scoped snapshot commits with database-side CAS and role permissions.
-4. Thread verified company context through Telegram handlers, exports, AI snapshot/context, scheduled reports, and background jobs.
+3. Finish tenant logistics hardening: replay, role-revocation, stale-version and cross-company tests for dispatch/delivery/cancel; verify the dual permission checks at the mutation boundary.
+4. Extend company-scoped CAS and role permissions to planning, demand history, scenarios, exports, AI context, inline search, scheduled reports, and background jobs; retain the owner-only legacy boundary until each path is tested.
 5. Add end-to-end tests using at least three companies and several users. Verify cross-company reads, writes, exports, imports, invitations, role changes, revoked memberships, and CAS conflicts.
-6. Only after all tests pass, enable public onboarding.
+6. Perform a full legacy-handler audit and production migration rehearsal without changing the source owner row.
+7. Only after all tests pass, enable public onboarding.
 
 ## Non-regression constraints
 

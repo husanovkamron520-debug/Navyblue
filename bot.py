@@ -31,6 +31,7 @@ import museum
 import supply_chain
 import supply_chain_api as sc_api
 import supply_chain_tenants as sc_tenants
+import supply_chain_telegram_tenants as sc_telegram_tenants
 import supply_chain_persistence as sc_persistence
 import supply_chain_mini_app_import as sc_import
 import october_plus
@@ -712,6 +713,38 @@ def _sc_commit_inventory_import(payload):
 
 
 
+def _sc_archive_inventory_product_in_snapshot(snapshot, payload, actor_id):
+    """Apply the shared, validated archive operation to one isolated snapshot."""
+    if not isinstance(snapshot, dict) or not isinstance(payload, dict):
+        raise ValueError("JSON object talab qilinadi.")
+    sku = payload.get("sku")
+    expected = payload.get("expected_version")
+    operation_id = payload.get("operation_id")
+    if not isinstance(sku, str) or not sku.strip() or len(sku.strip()) > 128:
+        raise ValueError("SKU noto'g'ri.")
+    if isinstance(expected, bool) or not isinstance(expected, int) or expected < 1:
+        raise ValueError("Ma'lumot versiyasi noto'g'ri.")
+    if not isinstance(operation_id, str) or not re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", operation_id):
+        raise ValueError("Amal identifikatori noto'g'ri.")
+    products = snapshot.get("products")
+    if not isinstance(products, dict):
+        raise ValueError("Mahsulotlar ro'yxati noto'g'ri.")
+    matches = [key for key in products if str(key).casefold() == sku.strip().casefold()]
+    if len(matches) != 1:
+        raise KeyError("Mahsulot topilmadi yoki SKU takrorlangan.")
+    key = matches[0]
+    archived = snapshot.setdefault("deleted_products", [])
+    if not isinstance(archived, list) or len(archived) >= 10000:
+        raise ValueError("Arxiv limiti to'lgan; administrator tekshiruvi kerak.")
+    archived.append({
+        "sku": str(key), "product": copy.deepcopy(products[key]),
+        "archived_at": datetime.now(timezone.utc).isoformat(),
+        "archived_by": str(actor_id),
+    })
+    del products[key]
+    return {"sku": str(key), "archived": True}
+
+
 def _sc_delete_inventory_product(payload):
     """Archive one SKU using the same serialized JSONB-CAS writer as imports."""
     if not USE_DB:
@@ -734,21 +767,9 @@ def _sc_delete_inventory_product(payload):
     ).encode("utf-8")).hexdigest()
 
     def mutate(snapshot):
-        products = snapshot.get("products")
-        if not isinstance(products, dict):
-            raise ValueError("Mahsulotlar ro'yxati noto'g'ri.")
-        matches = [key for key in products if str(key).casefold() == sku.casefold()]
-        if len(matches) != 1:
-            raise KeyError("Mahsulot topilmadi yoki SKU takrorlangan.")
-        key = matches[0]
-        archived = snapshot.setdefault("deleted_products", [])
-        if not isinstance(archived, list) or len(archived) >= 10000:
-            raise ValueError("Arxiv limiti to'lgan; administrator tekshiruvi kerak.")
-        archived.append({"sku": str(key), "product": copy.deepcopy(products[key]),
-                          "archived_at": datetime.now(timezone.utc).isoformat(),
-                          "archived_by": "owner-mini-app"})
-        del products[key]
-        return {"sku": str(key), "archived": True}
+        return _sc_archive_inventory_product_in_snapshot(
+            snapshot, payload, "owner-mini-app")
+
 
     with _storage_save_lock:
         result = _get_sc_commit_adapter().commit(
@@ -1415,7 +1436,13 @@ def run_health_server():
             if not _SC_STORAGE_READY.is_set():
                 self._sc_error("not_ready", "Ma'lumotlar bazasi hali tayyor emas.", 503)
                 return
-            if not OWNER_CHAT_ID or not _SC_SESSIONS.authenticate(self._sc_bearer(), OWNER_CHAT_ID):
+            tenant_context = self._sc_tenant_context("inventory.write")
+            if tenant_context is False:
+                return
+            is_tenant_request = tenant_context is not None
+            if not is_tenant_request and (
+                    not OWNER_CHAT_ID
+                    or not _SC_SESSIONS.authenticate(self._sc_bearer(), OWNER_CHAT_ID)):
                 self._sc_error("unauthorized", "Sessiya yaroqsiz yoki muddati tugagan.", 401)
                 return
             if not _SC_API_LIMITER.allow("write"):
@@ -1435,8 +1462,35 @@ def run_health_server():
                 if not isinstance(payload, dict) or payload.get("sku") != path_sku:
                     self._sc_error("invalid_request", "SKU mos kelmadi.", 400)
                     return
-                result = _sc_delete_inventory_product(payload)
+                if is_tenant_request:
+                    if payload.get("sku") != path_sku:
+                        self._sc_error("invalid_request", "SKU mos kelmadi.", 400)
+                        return
+                    store = sc_tenants.TenantStore(_db_request)
+                    archive_hash = hashlib.sha256(json.dumps(
+                        {"action": "archive_inventory_product", "sku": payload.get("sku"),
+                         "expected_version": payload.get("expected_version")},
+                        sort_keys=True, separators=(",", ":"), ensure_ascii=False
+                    ).encode("utf-8")).hexdigest()
+                    mutation = store.mutate_snapshot(
+                        tenant_context["company_id"],
+                        tenant_context["user_id"],
+                        "inventory.write",
+                        lambda snapshot: _sc_archive_inventory_product_in_snapshot(
+                            snapshot, payload, tenant_context["user_id"]),
+                        expected_version=payload.get("expected_version"),
+                        operation_id=payload.get("operation_id"),
+                        request_hash=archive_hash,
+                    )
+                    result = {"data": mutation["result"], "data_version": mutation["version"],
+                              "replayed": mutation.get("replayed", False)}
+                else:
+                    result = _sc_delete_inventory_product(payload)
                 self._sc_json({"data": result, "meta": {"request_id": uuid.uuid4().hex}, "error": None})
+            except sc_tenants.TenantOperationConflict as exc:
+                self._sc_error("idempotency_conflict", str(exc), 409)
+            except sc_tenants.SnapshotVersionConflict:
+                self._sc_error("version_conflict", "Ma'lumotlar o'zgargan. Sahifani yangilab qayta urinib ko'ring.", 409)
             except sc_persistence.VersionConflict:
                 self._sc_error("version_conflict", "Ma'lumotlar o'zgargan. Sahifani yangilab qayta urinib ko'ring.", 409)
             except KeyError as exc:
@@ -1465,8 +1519,16 @@ def run_health_server():
                     "tenant-session" if is_tenant_session else "session"):
                 self._sc_error("rate_limited", "Juda ko'p urinish. Birozdan keyin qayta urinib ko'ring.", 429)
                 return
+            tenant_import_context = None
+            is_tenant_import = False
             if is_import:
-                if not OWNER_CHAT_ID or not _SC_SESSIONS.authenticate(self._sc_bearer(), OWNER_CHAT_ID):
+                tenant_import_context = self._sc_tenant_context("inventory.write")
+                if tenant_import_context is False:
+                    return
+                is_tenant_import = tenant_import_context is not None
+                if not is_tenant_import and (
+                        not OWNER_CHAT_ID
+                        or not _SC_SESSIONS.authenticate(self._sc_bearer(), OWNER_CHAT_ID)):
                     self._sc_error("unauthorized", "Sessiya yaroqsiz yoki muddati tugagan.", 401)
                     return
                 if not _SC_IMPORT_LIMITER.allow("inventory-import"):
@@ -1568,13 +1630,33 @@ def run_health_server():
                                    "meta": {"request_id": uuid.uuid4().hex}, "error": None})
                     return
 
-                result = _sc_commit_inventory_import(payload)
+                if is_tenant_import:
+                    operation_id, expected, rows, request_hash, source_name, source_sheet = (
+                        sc_import.normalize_payload(payload))
+                    mutation = sc_tenants.TenantStore(_db_request).mutate_snapshot(
+                        tenant_import_context["company_id"],
+                        tenant_import_context["user_id"],
+                        "inventory.write",
+                        lambda snapshot: sc_import.mutate_inventory(
+                            snapshot, rows, source_name, source_sheet),
+                        expected_version=expected,
+                        operation_id=operation_id,
+                        request_hash=request_hash,
+                    )
+                    result = {"result": mutation["result"], "version": mutation["version"],
+                              "replayed": mutation.get("replayed", False)}
+                else:
+                    result = _sc_commit_inventory_import(payload)
                 self._sc_json({"data": result, "meta": {"request_id": uuid.uuid4().hex},
                                "error": None})
             except sc_api.AuthError as exc:
                 self._sc_error("unauthorized", str(exc), 401)
             except sc_tenants.MembershipRequired as exc:
                 self._sc_error("forbidden", str(exc), 403)
+            except sc_tenants.TenantOperationConflict as exc:
+                self._sc_error("idempotency_conflict", str(exc), 409)
+            except sc_tenants.SnapshotVersionConflict as exc:
+                self._sc_error("version_conflict", str(exc), 409)
             except sc_tenants.PermissionDenied as exc:
                 self._sc_error("forbidden", str(exc), 403)
             except sc_tenants.TenantError as exc:
@@ -14850,6 +14932,10 @@ def main():
     app.add_handler(TypeHandler(Update, track_usage), group=-1)
     app.add_handler(CommandHandler("start", start_command))
     supply_chain.install(app, load_json, save_json, OWNER_CHAT_ID, ai_client=ai_client, ai_model=AI_MODEL_NAME)
+    if USE_DB:
+        sc_telegram_tenants.register_telegram_company_selector(
+            app, lambda: sc_tenants.TenantStore(_db_request)
+        )
     app.add_error_handler(_on_error)
     app.add_handler(CommandHandler("rol", role_command))
     app.add_handler(CommandHandler("role", role_command))

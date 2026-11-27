@@ -1,9 +1,8 @@
 """Server-side multi-company tenancy helpers for Navyblue Supply Chain.
 
-This module is intentionally not wired into public bot/API routes yet. Callers
-must authenticate Telegram identities first and keep the Supabase service-role
-key exclusively on the server. Never accept a company_id or role as proof of
-authorization from a client.
+Callers must authenticate Telegram identities first and keep the Supabase
+service-role key exclusively on the server. Never accept a company_id or role
+as proof of authorization from a client.
 """
 from __future__ import annotations
 
@@ -25,6 +24,14 @@ class MembershipRequired(TenantError):
 
 
 class PermissionDenied(TenantError):
+    pass
+
+
+class SnapshotVersionConflict(TenantError):
+    pass
+
+
+class TenantOperationConflict(TenantError):
     pass
 
 
@@ -175,9 +182,13 @@ class TenantStore:
             raise TenantError("Taklif kodi yaroqsiz yoki muddati tugagan.")
         return result
 
-    def load_snapshot(self, company_id: str) -> dict:
-        if not isinstance(company_id, str) or not company_id:
-            raise ValueError("company_id talab qilinadi.")
+    def load_snapshot_record(self, company_id: str) -> dict:
+        """Load a company snapshot and its authoritative database version."""
+        if not isinstance(company_id, str) or not re.fullmatch(
+            r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}",
+            company_id,
+        ):
+            raise ValueError("company_id noto'g'ri.")
         query = urlencode({
             "company_id": "eq." + company_id,
             "select": "company_id,data,version,updated_at",
@@ -186,7 +197,88 @@ class TenantStore:
         rows = self._db_request("GET", "sc_company_snapshots?" + query)
         if not isinstance(rows, list) or not rows or not isinstance(rows[0].get("data"), dict):
             raise TenantError("Korxona ombor ma'lumotlari topilmadi.")
-        return rows[0]["data"]
+        row = rows[0]
+        data_version = row["data"].get("version")
+        row_version = row.get("version")
+        if (isinstance(data_version, bool) or not isinstance(data_version, int)
+                or isinstance(row_version, bool) or not isinstance(row_version, int)
+                or data_version != row_version or data_version < 1):
+            raise TenantError("Korxona snapshot versiyasi mos emas.")
+        return {"company_id": row.get("company_id"), "data": copy.deepcopy(row["data"]),
+                "version": row_version, "updated_at": row.get("updated_at")}
+
+    def load_snapshot(self, company_id: str) -> dict:
+        """Compatibility accessor for read-only consumers."""
+        return self.load_snapshot_record(company_id)["data"]
+
+    def mutate_snapshot(self, company_id: str, telegram_user_id: int,
+                        permission: str, mutator: Callable[[dict], Any],
+                        expected_version: int | None = None,
+                        operation_id: str | None = None,
+                        request_hash: str | None = None) -> dict:
+        """Authorize, mutate and CAS-commit exactly one company's snapshot.
+
+        The company and actor are supplied only from a previously authenticated
+        server-side tenant session. Membership is re-read before each mutation.
+        No caller-provided version or role is trusted. Optional operation
+        receipts live in the same CAS-protected snapshot as the mutation, so a
+        retry after a lost response returns the original result without applying
+        the mutation twice.
+        """
+        if not isinstance(permission, str) or not permission.strip() or len(permission) > 80:
+            raise ValueError("permission noto'g'ri.")
+        if not callable(mutator):
+            raise TypeError("mutator callable bo'lishi kerak.")
+        if (expected_version is not None
+                and (isinstance(expected_version, bool)
+                     or not isinstance(expected_version, int)
+                     or expected_version < 1)):
+            raise ValueError("expected_version noto'g'ri.")
+        if operation_id is not None:
+            if (not isinstance(operation_id, str) or not re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", operation_id)
+                    or not isinstance(request_hash, str) or not re.fullmatch(r"[a-f0-9]{64}", request_hash)):
+                raise ValueError("operation_id yoki request_hash noto'g'ri.")
+        elif request_hash is not None:
+            raise ValueError("request_hash uchun operation_id talab qilinadi.")
+        self.require_permission(company_id, telegram_user_id, permission)
+        record = self.load_snapshot_record(company_id)
+        current = record["data"]
+        current_version = record["version"]
+        receipts = current.get("_operation_receipts", [])
+        if not isinstance(receipts, list):
+            raise TenantError("Operation receipt ro'yxati buzilgan.")
+        if operation_id is not None:
+            prior = next((item for item in reversed(receipts)
+                          if isinstance(item, dict) and item.get("operation_id") == operation_id), None)
+            if prior is not None:
+                if (prior.get("request_hash") != request_hash
+                        or str(prior.get("actor_id")) != str(telegram_user_id)
+                        or prior.get("permission") != permission):
+                    raise TenantOperationConflict("Amal identifikatori boshqa so'rov uchun ishlatilgan.")
+                return {"company_id": company_id,
+                        "version": int(prior.get("committed_version", current_version)),
+                        "result": copy.deepcopy(prior.get("result")),
+                        "snapshot": current, "replayed": True}
+        if expected_version is not None and expected_version != current_version:
+            raise SnapshotVersionConflict("Ma'lumotlar o'zgargan. Sahifani yangilang.")
+        expected_version = current_version
+        candidate = copy.deepcopy(current)
+        result = mutator(candidate)
+        candidate["version"] = expected_version + 1
+        if operation_id is not None:
+            candidate_receipts = candidate.setdefault("_operation_receipts", [])
+            if not isinstance(candidate_receipts, list):
+                raise TenantError("Operation receipt ro'yxati buzilgan.")
+            candidate_receipts.append({
+                "operation_id": operation_id, "request_hash": request_hash,
+                "actor_id": str(telegram_user_id), "permission": permission,
+                "committed_version": expected_version + 1,
+                "result": copy.deepcopy(result),
+            })
+            candidate["_operation_receipts"] = candidate_receipts[-200:]
+        committed_version = self.commit_snapshot(company_id, expected_version, candidate)
+        return {"company_id": company_id, "version": committed_version,
+                "result": copy.deepcopy(result), "snapshot": candidate, "replayed": False}
 
     def migrate_legacy_snapshot(self, company_id: str, telegram_user_id: int,
                                 configured_owner_id: int, legacy_snapshot: dict) -> dict:
