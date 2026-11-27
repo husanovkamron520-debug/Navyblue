@@ -1497,6 +1497,19 @@ def run_health_server():
                     telegram_user_id = int(user["id"])
                     tenant_store = sc_tenants.TenantStore(_db_request)
                     action = str(payload.get("action") or "list") if isinstance(payload, dict) else "list"
+                    if action == "migrate_legacy":
+                        if not OWNER_CHAT_ID or telegram_user_id != int(OWNER_CHAT_ID):
+                            raise sc_tenants.PermissionDenied(
+                                "Eski ombor ma'lumotlarini faqat tizim egasi ko'chira oladi.")
+                        migration = tenant_store.migrate_legacy_snapshot(
+                            payload.get("company_id"), telegram_user_id,
+                            OWNER_CHAT_ID, load_json(supply_chain.DATA_FILE, {}))
+                        companies = tenant_store.list_companies(telegram_user_id)
+                        self._sc_json({"data": {"companies": companies,
+                                                "migration": migration,
+                                                "selected": None, "session": None},
+                                       "meta": {"request_id": uuid.uuid4().hex}, "error": None})
+                        return
                     if action == "create_company":
                         company = tenant_store.create_company(
                             payload.get("name"), telegram_user_id)
