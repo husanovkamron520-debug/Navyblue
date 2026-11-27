@@ -27,6 +27,10 @@ class PermissionDenied(TenantError):
     pass
 
 
+class SnapshotVersionConflict(TenantError):
+    pass
+
+
 class TenantStore:
     """Small server-only repository around the existing Supabase REST adapter."""
 
@@ -204,7 +208,8 @@ class TenantStore:
         return self.load_snapshot_record(company_id)["data"]
 
     def mutate_snapshot(self, company_id: str, telegram_user_id: int,
-                        permission: str, mutator: Callable[[dict], Any]) -> dict:
+                        permission: str, mutator: Callable[[dict], Any],
+                        expected_version: int | None = None) -> dict:
         """Authorize, mutate and CAS-commit exactly one company's snapshot.
 
         The company and actor are supplied only from a previously authenticated
@@ -215,10 +220,18 @@ class TenantStore:
             raise ValueError("permission noto'g'ri.")
         if not callable(mutator):
             raise TypeError("mutator callable bo'lishi kerak.")
+        if (expected_version is not None
+                and (isinstance(expected_version, bool)
+                     or not isinstance(expected_version, int)
+                     or expected_version < 1)):
+            raise ValueError("expected_version noto'g'ri.")
         self.require_permission(company_id, telegram_user_id, permission)
         record = self.load_snapshot_record(company_id)
         current = record["data"]
-        expected_version = record["version"]
+        current_version = record["version"]
+        if expected_version is not None and expected_version != current_version:
+            raise SnapshotVersionConflict("Ma'lumotlar o'zgargan. Sahifani yangilang.")
+        expected_version = current_version
         candidate = copy.deepcopy(current)
         result = mutator(candidate)
         candidate["version"] = expected_version + 1
