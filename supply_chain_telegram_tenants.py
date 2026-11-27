@@ -228,8 +228,8 @@ async def telegram_inventory_overview(update: Any, context: Any, tenant_store_fa
                 continue
             name = str(raw.get("name") or sku).replace("\\n", " ").strip()[:70]
             unit = str(raw.get("unit") or "dona").replace("\\n", " ").strip()[:12]
-            quantity = raw.get("quantity", 0)
-            reorder = raw.get("reorder_point", 0)
+            quantity = str(raw.get("quantity", 0)).replace("\\n", " ").replace("\\r", " ")[:24]
+            reorder = str(raw.get("reorder_point", 0)).replace("\\n", " ").replace("\\r", " ")[:24]
             rows.append((name.casefold(), str(sku)[:40], name, quantity, unit, reorder))
         rows.sort(key=lambda item: (item[0], item[1]))
         if not rows:
