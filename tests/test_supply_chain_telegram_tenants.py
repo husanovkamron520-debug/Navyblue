@@ -561,7 +561,7 @@ class TelegramPurchaseOrderTests(unittest.IsolatedAsyncioTestCase):
         )
         await telegram_purchase_order_add(update_obj, context, lambda: store)
         self.assertEqual(store.data["orders"], [])
-        self.assertIn("saqlanmadi", message.text.lower())
+        self.assertIn("tekshirib bo'lmadi", message.text.lower())
 
     async def test_order_transition_and_receipt_update_avco_once(self):
         store = PurchaseOrderWriteStore(role="owner")
@@ -598,7 +598,7 @@ class TelegramPurchaseOrderTests(unittest.IsolatedAsyncioTestCase):
         await telegram_purchase_order_transition(update_obj, context, lambda: store, "received")
         self.assertEqual(store.data["products"]["SKU-01"]["quantity"], 10)
         self.assertEqual(store.data["orders"][0]["status"], "ordered")
-        self.assertIn("huquqi", message.text.lower())
+        self.assertIn("tekshirib bo'lmadi", message.text.lower())
 
 
 
