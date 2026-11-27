@@ -375,7 +375,7 @@ async def telegram_purchase_order_add(update: Any, context: Any, tenant_store_fa
     _command, separator, raw = str(getattr(message, "text", "") or "").partition(" ")
     if not separator:
         await message.reply_text(
-            "Format: /sc_buyurtma SKU | Yetkazib beruvchi ID | Miqdor | Birlik narxi | Sana (YYYY-MM-DD)\\n"
+            "Format: /sc_buyurtma SKU | Yetkazib beruvchi ID | Miqdor | Birlik narxi | Sana (YYYY-MM-DD)\n"
             "Misol: /sc_buyurtma SKU-01 | SUP-01 | 100 | 18000 | 2026-12-05"
         )
         return
@@ -445,10 +445,10 @@ async def telegram_purchase_order_add(update: Any, context: Any, tenant_store_fa
         item = result.get("result") or {}
         replay = " (takroriy so'rov — ikkinchi buyurtma yaratilmadi)" if result.get("replayed") else ""
         await message.reply_text(
-            f"✅ Xarid buyurtmasi qoralamasi: {item.get('id')}\\n"
+            f"✅ Xarid buyurtmasi qoralamasi: {item.get('id')}\n"
             f"{item.get('product_name')} · {item.get('quantity'):g} {item.get('unit')} × "
-            f"{item.get('unit_price'):g} = {item.get('total'):g}\\n"
-            f"Yetkazib beruvchi: {item.get('supplier_name')} · Sana: {item.get('expected_date')}\\n"
+            f"{item.get('unit_price'):g} = {item.get('total'):g}\n"
+            f"Yetkazib beruvchi: {item.get('supplier_name')} · Sana: {item.get('expected_date')}\n"
             f"Holat: qoralama. Berish uchun /sc_buyurtma_ber {item.get('id')}{replay}"
         )
     except TelegramTenantContextError as exc:
@@ -573,7 +573,7 @@ async def telegram_purchase_order_transition(update: Any, context: Any, tenant_s
         if action == "ordered":
             reply = f"✅ {item.get('message', 'Buyurtma berildi')} · {order_id}{replay}"
         else:
-            reply = (f"✅ {order_id} qabul qilindi · Omborga +{item.get('quantity'):g} {item.get('unit')}\\n"
+            reply = (f"✅ {order_id} qabul qilindi · Omborga +{item.get('quantity'):g} {item.get('unit')}\n"
                      f"Qoldiq: {item.get('remaining'):g} {item.get('unit')} · "
                      f"AVCO: {item.get('previous_cost'):g} → {item.get('new_cost'):g}{replay}")
         await message.reply_text(reply)
