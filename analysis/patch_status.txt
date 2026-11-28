@@ -1,0 +1,4 @@
+bot.py: OK
+supply_chain_mini_app.html: OK
+Mini App inline scripts OK (1)
+Committed to main.
