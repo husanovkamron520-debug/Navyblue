@@ -1,0 +1,57 @@
+name: Apply reports-to-chat, session renewal and wide-screen patch
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/apply-reports-patch.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Apply patch
+        shell: bash
+        run: |
+          mkdir -p analysis
+          python scripts/apply_reports_patch.py 2>&1 | tee analysis/patch_status.txt
+      - name: Syntax checks (stop before commit on any error)
+        shell: bash
+        run: |
+          python -m py_compile bot.py supply_chain.py supply_chain_api.py 2>&1 | tee -a analysis/patch_status.txt
+          python scripts/check_mini_app_js.py 2>&1 | tee -a analysis/patch_status.txt
+      - name: Commit to main
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add bot.py supply_chain.py supply_chain_api.py supply_chain_mini_app.html
+          if git diff --cached --quiet; then
+            echo "Nothing to commit." | tee -a analysis/patch_status.txt
+            exit 0
+          fi
+          git commit -m "Send Mini App reports to chat, renew expired sessions, adapt to wide screens"
+          git push origin HEAD:main
+          echo "Committed to main." | tee -a analysis/patch_status.txt
+      - name: Publish status to a separate branch
+        if: always()
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B analysis-excerpt
+          git add -f analysis/patch_status.txt
+          git commit -m "Patch status" || true
+          git push -f origin analysis-excerpt
