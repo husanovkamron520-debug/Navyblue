@@ -1322,6 +1322,88 @@ def _sc_send_document(chat_id, filename, content, caption):
         raise RuntimeError("Telegram faylni yubora olmadi. Botga /start yozganingizni tekshiring.")
 
 
+def _sc_apply_inventory_bulk(snapshot, payload, actor_id):
+    """Archive or permanently delete many SKUs in one validated mutation (selected list or all)."""
+    if not isinstance(snapshot, dict) or not isinstance(payload, dict):
+        raise ValueError("JSON object talab qilinadi.")
+    action = payload.get("action")
+    if action not in ("archive", "delete"):
+        raise ValueError("Amal turi noto'g'ri.")
+    products = snapshot.get("products")
+    if not isinstance(products, dict):
+        raise ValueError("Mahsulotlar ro'yxati noto'g'ri.")
+    select_all = payload.get("all") is True
+    missing = 0
+    if select_all:
+        keys = list(products)
+    else:
+        skus = payload.get("skus")
+        if (not isinstance(skus, list) or not 1 <= len(skus) <= 1000
+                or not all(isinstance(item, str) and item.strip() and len(item.strip()) <= 128 for item in skus)):
+            raise ValueError("SKU ro'yxati noto'g'ri.")
+        lookup = {}
+        for key in products:
+            lookup.setdefault(str(key).casefold(), key)
+        keys = []
+        seen = set()
+        for sku in skus:
+            key = lookup.get(sku.strip().casefold())
+            if key is None:
+                missing += 1
+            elif key not in seen:
+                seen.add(key)
+                keys.append(key)
+    archived = snapshot.setdefault("deleted_products", [])
+    if not isinstance(archived, list):
+        raise ValueError("Arxiv ro'yxati noto'g'ri.")
+    if action == "archive":
+        if len(archived) + len(keys) > 10000:
+            raise ValueError("Arxiv limiti to'lgan; administrator tekshiruvi kerak.")
+        stamp = datetime.now(timezone.utc).isoformat()
+        for key in keys:
+            archived.append({
+                "sku": str(key), "product": copy.deepcopy(products[key]),
+                "archived_at": stamp, "archived_by": str(actor_id),
+            })
+            del products[key]
+        return {"action": "archive", "processed": len(keys), "missing": missing}
+    removed = {str(key).casefold() for key in keys}
+    for key in keys:
+        del products[key]
+    before = len(archived)
+    if select_all:
+        snapshot["deleted_products"] = []
+    else:
+        snapshot["deleted_products"] = [
+            item for item in archived
+            if not (isinstance(item, dict) and str(item.get("sku", "")).casefold() in removed)]
+    return {"action": "delete", "processed": len(keys), "missing": missing,
+            "archive_removed": before - len(snapshot["deleted_products"])}
+
+
+def _sc_bulk_inventory_legacy(payload, request_hash):
+    """Owner (non-company) dataset: same serialized JSONB-CAS writer as single archive."""
+    if not USE_DB:
+        raise sc_persistence.PersistenceError("Ommaviy amal uchun Supabase saqlash xizmati kerak.")
+
+    def mutate(snapshot):
+        return _sc_apply_inventory_bulk(snapshot, payload, "owner-mini-app")
+
+    with _storage_save_lock:
+        result = _get_sc_commit_adapter().commit(
+            expected_version=payload["expected_version"], operation_id=payload["operation_id"],
+            request_hash=request_hash, mutate=mutate)
+        try:
+            latest = _sc_storage_load()
+        except Exception:
+            with _cache_lock:
+                _cache.pop(_SC_STORAGE_KEY, None)
+        else:
+            with _cache_lock:
+                _cache[_SC_STORAGE_KEY] = copy.deepcopy(latest)
+        return result
+
+
 def run_health_server():
     port = int(os.environ.get("PORT", "10000"))
 
@@ -1567,6 +1649,84 @@ def run_health_server():
                 logger.exception("Supply Chain API DELETE endpoint failed")
                 self._sc_error("internal_error", "Ichki server xatosi.", 500)
 
+        def _sc_inventory_bulk(self):
+            if not _SC_STORAGE_READY.is_set():
+                self._sc_error("not_ready", "Ma'lumotlar bazasi hali tayyor emas.", 503)
+                return
+            tenant_context = self._sc_tenant_context("inventory.write")
+            if tenant_context is False:
+                return
+            is_tenant_request = tenant_context is not None
+            if not is_tenant_request and (
+                    not OWNER_CHAT_ID
+                    or not _SC_SESSIONS.authenticate(self._sc_bearer(), OWNER_CHAT_ID)):
+                self._sc_error("unauthorized", "Sessiya yaroqsiz yoki muddati tugagan.", 401)
+                return
+            if not _SC_API_LIMITER.allow("write"):
+                self._sc_error("rate_limited", "So'rovlar limiti tugadi.", 429)
+                return
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                if length <= 0 or length > 65536 or "application/json" not in self.headers.get("Content-Type", "").lower():
+                    self._sc_error("invalid_request", "JSON so'rov hajmi yoki formati noto'g'ri.", 400)
+                    return
+                raw = self.rfile.read(length)
+                if len(raw) != length:
+                    self._sc_error("invalid_request", "So'rov to'liq kelmadi.", 400)
+                    return
+                payload = json.loads(raw.decode("utf-8"))
+                if not isinstance(payload, dict):
+                    raise ValueError("JSON object talab qilinadi.")
+                action = payload.get("action")
+                expected = payload.get("expected_version")
+                operation_id = payload.get("operation_id")
+                select_all = payload.get("all") is True
+                skus = payload.get("skus")
+                if action not in ("archive", "delete"):
+                    raise ValueError("Amal turi noto'g'ri.")
+                if isinstance(expected, bool) or not isinstance(expected, int) or expected < 1:
+                    raise ValueError("Ma'lumot versiyasi noto'g'ri.")
+                if not isinstance(operation_id, str) or not re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", operation_id):
+                    raise ValueError("Amal identifikatori noto'g'ri.")
+                if not select_all and (
+                        not isinstance(skus, list) or not 1 <= len(skus) <= 1000
+                        or not all(isinstance(item, str) and item.strip() for item in skus)):
+                    raise ValueError("SKU ro'yxati noto'g'ri.")
+                request_hash = hashlib.sha256(json.dumps(
+                    {"action": "inventory_bulk_" + action, "all": select_all,
+                     "skus": None if select_all else sorted({item.strip().casefold() for item in skus}),
+                     "expected_version": expected},
+                    sort_keys=True, separators=(",", ":"), ensure_ascii=False
+                ).encode("utf-8")).hexdigest()
+                if is_tenant_request:
+                    permission = "inventory.delete" if action == "delete" else "inventory.write"
+                    mutation = sc_tenants.TenantStore(_db_request).mutate_snapshot(
+                        tenant_context["company_id"], tenant_context["user_id"], permission,
+                        lambda snapshot: _sc_apply_inventory_bulk(snapshot, payload, tenant_context["user_id"]),
+                        expected_version=expected, operation_id=operation_id, request_hash=request_hash)
+                    result = {"data": mutation["result"], "data_version": mutation["version"],
+                              "replayed": mutation.get("replayed", False)}
+                else:
+                    result = {"data": _sc_bulk_inventory_legacy(payload, request_hash)}
+                self._sc_json({"data": result, "meta": {"request_id": uuid.uuid4().hex}, "error": None})
+            except sc_tenants.TenantOperationConflict as exc:
+                self._sc_error("idempotency_conflict", str(exc), 409)
+            except sc_tenants.SnapshotVersionConflict:
+                self._sc_error("version_conflict", "Ma'lumotlar o'zgargan. Sahifani yangilab qayta urinib ko'ring.", 409)
+            except sc_persistence.VersionConflict:
+                self._sc_error("version_conflict", "Ma'lumotlar o'zgargan. Sahifani yangilab qayta urinib ko'ring.", 409)
+            except (sc_tenants.PermissionDenied, sc_tenants.MembershipRequired):
+                self._sc_error("forbidden", "Bu amal uchun ruxsat berilmagan (faqat egasi yoki administrator o'chira oladi).", 403)
+            except (ValueError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+                self._sc_error("invalid_request", str(exc) or "So'rov noto'g'ri.", 400)
+            except sc_persistence.CommitOutcomeUnknown:
+                self._sc_error("outcome_unknown", "Natija tasdiqlanmadi. Qayta urinishdan oldin omborni yangilang.", 503)
+            except sc_persistence.PersistenceError as exc:
+                self._sc_error("storage_error", str(exc), 503)
+            except Exception:
+                logger.exception("Supply Chain inventory bulk endpoint failed")
+                self._sc_error("internal_error", "Ichki server xatosi.", 500)
+
         def _sc_report_send(self):
             if not _SC_STORAGE_READY.is_set():
                 self._sc_error("not_ready", "Ma'lumotlar bazasi hali tayyor emas.", 503)
@@ -1617,6 +1777,9 @@ def run_health_server():
                 self._sc_error("internal_error", "Hisobotni tayyorlab bo'lmadi.", 500)
 
         def _sc_api_post(self, parsed):
+            if parsed.path == "/sc-api/v1/inventory/bulk":
+                self._sc_inventory_bulk()
+                return
             if parsed.path == "/sc-api/v1/reports/send":
                 self._sc_report_send()
                 return

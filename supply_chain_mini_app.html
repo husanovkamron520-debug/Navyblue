@@ -35,6 +35,12 @@
     #fs-toggle{border:1px solid rgba(255,255,255,.35);background:transparent;color:#fff;border-radius:9px;padding:4px 10px;font-size:12px;font-weight:650;margin-left:10px}
     @media(min-width:1100px){.shell{max-width:1440px}}
     @media(min-width:1500px){.shell{max-width:1680px}}
+    .sel{width:20px;height:20px;accent-color:var(--navy);flex:none}
+    .bulkbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:0 0 10px}
+    .bulkbar .muted{flex:1;min-width:150px;font-size:13px}
+    .bulkbar button:disabled{opacity:.45;cursor:not-allowed}
+    .danger.hard{background:#a83232;color:#fff;border-color:#a83232}
+    .select-row{display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:12px;color:var(--muted)}
     #print-area{display:none}
     @media print{body{background:#fff!important;color:#111!important}.shell{display:none!important}#print-area{display:block!important;position:absolute;inset:0;width:100%;padding:20px;font:12px/1.4 Arial,sans-serif;color:#111}#print-area h1{font-size:20px;margin:0 0 4px}#print-area .print-meta{color:#555;margin-bottom:18px}#print-area table{width:100%;border-collapse:collapse}#print-area th,#print-area td{border:1px solid #cbd5e1;padding:7px;text-align:left;overflow-wrap:anywhere}#print-area th{background:#eef2f7!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}#print-area tr{break-inside:avoid}}
   </style>
@@ -114,7 +120,9 @@
     <section id="inventory-view" hidden>
       <div class="section-head"><div><h2>Ombor zaxiralari</h2><p id="inventory-count">Mahsulotlar ro‘yxati</p></div><button class="retry" id="inventory-refresh">Yangilash</button></div>
       <div class="toolbar"><input id="search" type="search" placeholder="SKU yoki mahsulot nomi…" autocomplete="off"><select id="status"><option value="all">Barcha holat</option><option value="low">Kam zaxira</option><option value="healthy">Me’yorda</option><option value="high">Juda yuqori</option></select><select id="sort"><option value="name">Nom bo‘yicha</option><option value="quantity">Miqdor bo‘yicha</option><option value="value">Qiymat bo‘yicha</option></select></div>
-      <div class="table-wrap"><table class="table"><thead><tr><th>SKU / Mahsulot</th><th>Miqdor</th><th>Qayta buyurtma</th><th>Birlik qiymati</th><th>Holat</th><th>Amal</th></tr></thead><tbody id="inventory-table"></tbody></table></div>
+      <div class="bulkbar" id="bulkbar"><span class="muted" id="bulk-count">Hech narsa tanlanmagan</span><button class="retry" id="bulk-all" type="button">Hammasini tanlash</button><button class="retry" id="bulk-clear" type="button" hidden>Bekor qilish</button><button class="danger" id="bulk-archive" type="button" disabled>Arxivlash</button><button class="danger hard" id="bulk-delete" type="button" disabled>O‘chirish</button></div>
+      <div class="muted" id="bulk-status" style="font-size:12px;margin:-4px 0 10px" aria-live="polite"></div>
+      <div class="table-wrap"><table class="table"><thead><tr><th><input type="checkbox" id="select-page" class="sel" aria-label="Sahifadagilarni belgilash"></th><th>SKU / Mahsulot</th><th>Miqdor</th><th>Qayta buyurtma</th><th>Birlik qiymati</th><th>Holat</th><th>Amal</th></tr></thead><tbody id="inventory-table"></tbody></table></div>
       <div class="mobile-list" id="inventory-mobile"></div>
       <div class="pager"><span id="page-info">—</span><div><button id="prev">Oldingi</button> <button id="next">Keyingi</button></div></div>
       <div class="card detail-panel" id="inventory-detail" hidden aria-live="polite"><div class="section-head" style="margin-top:0"><div><h2 id="detail-name">Mahsulot tafsilotlari</h2><p id="detail-sku"></p></div><div class="row-actions"><button class="danger" id="detail-delete" type="button">Arxivlash</button><button class="retry" id="detail-close" type="button">Yopish</button></div></div><div class="detail-grid" id="detail-stats"></div><div class="detail-section"><h3>So‘nggi kirim-chiqimlar</h3><div class="table-wrap" style="display:block"><table class="table" style="min-width:460px"><thead><tr><th>Amal</th><th>Miqdor</th><th>Sana</th><th>Izoh</th></tr></thead><tbody id="detail-movements"></tbody></table></div></div><div class="detail-section"><h3>Talab tarixi</h3><div class="table-wrap" style="display:block"><table class="table" style="min-width:360px"><thead><tr><th>Oy</th><th>Talab miqdori</th></tr></thead><tbody id="detail-demand"></tbody></table></div></div><div class="muted" id="detail-updated" style="font-size:11px;margin-top:12px"></div></div>
@@ -441,7 +449,7 @@
     left.append(el("div","name",p.name||p.sku),el("div","muted",p.sku));
     const level=p.stock_level||"unknown";const qty=el("div","stock "+(level==="low"?"low":level==="high"?"high":"ok"),fmt(p.quantity,1)+" "+(p.unit||""));
     row.append(left,qty);c.append(row);
-    const meta=el("div","product-meta");meta.append(el("span","","Reorder: "+fmt(p.reorder_point,1)),el("span","","Birlik: "+money(p.unit_cost)));if(level==="high")meta.append(el("strong","stock high","Reorder chegarasidan "+fmt(p.reorder_multiple,1)+" baravar yuqori · tekshirish kerak"));c.append(meta);c.setAttribute("role","button");c.tabIndex=0;c.setAttribute("aria-label",(p.name||p.sku)+" tafsilotlarini ochish");c.addEventListener("click",()=>openInventoryDetail(p.sku));c.addEventListener("keydown",event=>{if(event.key==="Enter"||event.key===" "){event.preventDefault();openInventoryDetail(p.sku);}});const actions=el("div","row-actions");const del=el("button","danger","Arxivlash");del.type="button";del.disabled=tenantMode&&!["owner","admin","warehouse"].includes(tenantRole);del.addEventListener("click",event=>{event.stopPropagation();archiveInventoryProduct(p.sku,p.name||p.sku);});actions.append(del);c.append(actions);return c;
+    const meta=el("div","product-meta");meta.append(el("span","","Reorder: "+fmt(p.reorder_point,1)),el("span","","Birlik: "+money(p.unit_cost)));if(level==="high")meta.append(el("strong","stock high","Reorder chegarasidan "+fmt(p.reorder_multiple,1)+" baravar yuqori · tekshirish kerak"));c.append(meta);c.setAttribute("role","button");c.tabIndex=0;c.setAttribute("aria-label",(p.name||p.sku)+" tafsilotlarini ochish");c.addEventListener("click",()=>openInventoryDetail(p.sku));c.addEventListener("keydown",event=>{if(event.key==="Enter"||event.key===" "){event.preventDefault();openInventoryDetail(p.sku);}});const actions=el("div","row-actions");const del=el("button","danger","Arxivlash");del.type="button";del.disabled=tenantMode&&!["owner","admin","warehouse"].includes(tenantRole);del.addEventListener("click",event=>{event.stopPropagation();archiveInventoryProduct(p.sku,p.name||p.sku);});actions.append(del);c.append(actions);const pick=el("label","select-row");pick.append(makeSelectBox(p.sku),el("span","","Tanlash"));pick.addEventListener("click",event=>event.stopPropagation());c.prepend(pick);return c;
   }
   async function openInventoryDetail(sku){
     const panel=$("inventory-detail");panel.hidden=false;
@@ -462,6 +470,62 @@
       data.demand_history.forEach(d=>{const tr=el("tr","");[d.month||"—",fmt(d.quantity,2)].forEach(v=>tr.append(el("td","",v)));demand.append(tr);});
       $("detail-updated").textContent=item.updated_at?"Oxirgi yangilanish: "+item.updated_at:"";
     }catch(error){$("detail-name").textContent="Tafsilotlar yuklanmadi";const tr=el("tr","");tr.append(el("td","error",error.message));$("detail-movements").append(tr);}
+  }
+  const selectedSkus=new Set();let selectAllMode=false,inventoryTotal=0,bulkBusy=false;
+  function makeSelectBox(sku){
+    const box=document.createElement("input");box.type="checkbox";box.className="sel";box.dataset.sku=sku;
+    box.checked=selectAllMode||selectedSkus.has(sku);box.disabled=bulkBusy||selectAllMode;
+    box.setAttribute("aria-label",sku+" ni tanlash");
+    box.addEventListener("click",event=>event.stopPropagation());
+    box.addEventListener("change",()=>{
+      if(box.checked)selectedSkus.add(sku);else selectedSkus.delete(sku);
+      document.querySelectorAll("input.sel[data-sku]").forEach(other=>{if(other.dataset.sku===sku)other.checked=box.checked;});
+      updateBulkBar();
+    });
+    return box;
+  }
+  function updateBulkBar(){
+    const count=selectAllMode?inventoryTotal:selectedSkus.size;
+    const canWrite=!tenantMode||["owner","admin","warehouse"].includes(tenantRole);
+    const canDelete=!tenantMode||["owner","admin"].includes(tenantRole);
+    $("bulk-count").textContent=selectAllMode?("Barcha "+fmt(inventoryTotal)+" ta mahsulot tanlandi"):(selectedSkus.size?fmt(selectedSkus.size)+" ta tanlandi":"Hech narsa tanlanmagan");
+    $("bulk-archive").disabled=bulkBusy||count===0||!canWrite;
+    $("bulk-delete").disabled=bulkBusy||count===0||!canDelete;
+    $("bulk-all").hidden=selectAllMode||inventoryTotal===0;
+    $("bulk-all").textContent="Hammasini tanlash ("+fmt(inventoryTotal)+")";
+    $("bulk-clear").hidden=count===0;
+    const boxes=[...document.querySelectorAll("#inventory-table input.sel")];
+    const pageBox=$("select-page");pageBox.disabled=bulkBusy||selectAllMode||boxes.length===0;pageBox.checked=boxes.length>0&&boxes.every(b=>b.checked);
+  }
+  function clearSelection(){
+    selectedSkus.clear();selectAllMode=false;
+    document.querySelectorAll("input.sel[data-sku]").forEach(b=>{b.checked=false;b.disabled=bulkBusy;});
+    updateBulkBar();
+  }
+  async function runBulk(action){
+    if(bulkBusy)return;
+    const all=selectAllMode;const skus=[...selectedSkus];
+    const count=all?inventoryTotal:skus.length;if(!count)return;
+    const verb=action==="delete"?"BUTUNLAY O‘CHIRILADI":"arxivga o‘tkaziladi";
+    const warn=action==="delete"?"\n\nBu amalni qaytarib bo‘lmaydi. Mahsulot arxivdan ham o‘chadi.":"\n\nMahsulotlar o‘chmaydi: arxivda saqlanadi.";
+    if(!confirm((all?"Ombordagi BARCHA "+count+" ta mahsulot (filtrdan qat’i nazar) ":count+" ta tanlangan mahsulot ")+verb+"."+warn+"\n\nDavom etamizmi?"))return;
+    if(action==="delete"&&all&&!confirm("Oxirgi tasdiq: barcha "+count+" ta mahsulot butunlay o‘chiriladi. Aniqmisiz?"))return;
+    bulkBusy=true;updateBulkBar();$("bulk-status").textContent="Bajarilmoqda…";
+    try{
+      if(!Number.isInteger(inventoryVersion)||inventoryVersion<1)throw new Error("Avval ombor ro‘yxatini yangilang.");
+      const operationId=(window.crypto&&crypto.randomUUID)?crypto.randomUUID():("bulk-"+Date.now()+"-"+Math.random().toString(36).slice(2,10));
+      const body={action,expected_version:inventoryVersion,operation_id:operationId};
+      if(all)body.all=true;else body.skus=skus;
+      const result=await api("/sc-api/v1/inventory/bulk",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+      const info=(result&&result.data)||result||{};
+      const processed=info.processed!==undefined?info.processed:(info.result&&info.result.processed!==undefined?info.result.processed:count);
+      selectedSkus.clear();selectAllMode=false;
+      $("bulk-status").textContent=(action==="delete"?"O‘chirildi: ":"Arxivlandi: ")+fmt(processed)+" ta mahsulot.";
+      page=1;await refreshAll();if(currentView==="inventory")await loadInventory();
+    }catch(error){
+      $("bulk-status").textContent="Bajarilmadi: "+error.message;
+      if(/o.zgargan|version/i.test(error.message)){try{await loadInventory();}catch(_){}}
+    }finally{bulkBusy=false;updateBulkBar();}
   }
   async function archiveInventoryProduct(sku,name){
     if(!confirm("\""+name+"\" ("+sku+") mahsulotini faol ombordan arxivga o‘tkazamizmi?\n\nMahsulot o‘chib ketmaydi: arxivda saqlanadi."))return;
@@ -484,17 +548,18 @@
   async function loadInventory() {
     const qs=new URLSearchParams({page:String(page),page_size:"10",search:$("search").value,status:$("status").value,sort:$("sort").value});
     const result=await api("/sc-api/v1/inventory?"+qs.toString()), data=result;
-    inventoryVersion=Number(data.data_version||1);
+    inventoryVersion=Number(data.data_version||1);inventoryTotal=Number((data.pagination&&data.pagination.total)||0);
     totalPages=Math.max(1,data.pagination.pages||1);$("inventory-count").textContent=fmt(data.pagination.total)+" ta mahsulot";
     $("page-info").textContent="Sahifa "+page+" / "+totalPages+" · "+fmt(data.pagination.total)+" ta";
     $("prev").disabled=page<=1;$("next").disabled=page>=totalPages;
     const table=$("inventory-table");table.replaceChildren();
     const mobile=$("inventory-mobile");mobile.replaceChildren();
-    if(!data.items.length){const tr=el("tr","");tr.append(el("td","muted","Mahsulot topilmadi"));table.append(tr);mobile.append(el("div","notice","Mahsulot topilmadi"));return;}
+    if(!data.items.length){const tr=el("tr","");tr.append(el("td","muted","Mahsulot topilmadi"));table.append(tr);mobile.append(el("div","notice","Mahsulot topilmadi"));updateBulkBar();return;}
     data.items.forEach(p=>{
-      const tr=el("tr","");const status=p.stock_level==="low"?"Kam":p.stock_level==="high"?"Juda yuqori":p.stock_level==="healthy"?"Me’yorda":"Noma’lum";
+      const tr=el("tr","");const selectCell=el("td","");selectCell.append(makeSelectBox(p.sku));tr.append(selectCell);const status=p.stock_level==="low"?"Kam":p.stock_level==="high"?"Juda yuqori":p.stock_level==="healthy"?"Me’yorda":"Noma’lum";
       [p.sku+" · "+p.name,fmt(p.quantity,1)+" "+(p.unit||""),fmt(p.reorder_point,1),money(p.unit_cost),status+(p.reorder_multiple!=null&&p.stock_level==="high"?" · "+fmt(p.reorder_multiple,1)+"x":"")].forEach((v,i)=>{const td=el("td",i===0?"sku":i===4?"stock "+(status==="Kam"?"low":status==="Juda yuqori"?"high":"ok"):"",v);if(i===0){td.tabIndex=0;td.setAttribute("role","button");td.setAttribute("aria-label",p.sku+" tafsilotlarini ochish");td.addEventListener("click",()=>openInventoryDetail(p.sku));td.addEventListener("keydown",event=>{if(event.key==="Enter"||event.key===" "){event.preventDefault();openInventoryDetail(p.sku);}});}tr.append(td);});const actionCell=el("td","");const del=el("button","danger","Arxivlash");del.type="button";del.disabled=tenantMode&&!["owner","admin","warehouse"].includes(tenantRole);del.addEventListener("click",event=>{event.stopPropagation();archiveInventoryProduct(p.sku,p.name||p.sku);});actionCell.append(del);tr.append(actionCell);tr.classList.add("clickable-row");table.append(tr);mobile.append(makeProductCard(p));
     });
+    updateBulkBar();
   }
   const analyticsState={abc:null,replenishment:null,abcFilter:"all"};
   const chartColors={A:"#244d78",B:"#4b8c78",C:"#c58a35"};
@@ -1193,6 +1258,15 @@
   $("export-all").addEventListener("click",()=>exportReport("all"));
   $("export-all-xlsx").addEventListener("click",()=>exportReport("all","xlsx"));
   $("export-all-pdf").addEventListener("click",()=>exportReport("all","pdf"));
+  $("select-page").addEventListener("change",event=>{
+    document.querySelectorAll("#inventory-table input.sel[data-sku]").forEach(box=>{box.checked=event.target.checked;if(event.target.checked)selectedSkus.add(box.dataset.sku);else selectedSkus.delete(box.dataset.sku);});
+    document.querySelectorAll("#inventory-mobile input.sel[data-sku]").forEach(box=>{box.checked=selectedSkus.has(box.dataset.sku);});
+    updateBulkBar();
+  });
+  $("bulk-all").addEventListener("click",()=>{selectAllMode=true;document.querySelectorAll("input.sel[data-sku]").forEach(b=>{b.checked=true;b.disabled=true;});updateBulkBar();});
+  $("bulk-clear").addEventListener("click",clearSelection);
+  $("bulk-archive").addEventListener("click",()=>runBulk("archive"));
+  $("bulk-delete").addEventListener("click",()=>runBulk("delete"));
   $("prev").addEventListener("click",()=>{if(page>1){page--;loadInventory().catch(e=>showNotice("Xatolik",e.message,true));}});
   $("next").addEventListener("click",()=>{if(page<totalPages){page++;loadInventory().catch(e=>showNotice("Xatolik",e.message,true));}});
   ["search","status","sort"].forEach(id=>$(id).addEventListener(id==="search"?"input":"change",()=>{page=1;clearTimeout(searchTimer);searchTimer=setTimeout(()=>loadInventory().catch(e=>showNotice("Xatolik",e.message,true)),id==="search"?250:0);}));
