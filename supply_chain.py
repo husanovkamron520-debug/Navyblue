@@ -831,9 +831,11 @@ def _report_tables(data: dict[str, Any]) -> dict[str, list[list[Any]]]:
     return {"Dashboard": summary, "Mahsulotlar": product_rows, "Yetkazuvchilar": supplier_rows, "Buyurtmalar": order_rows, "Transport": shipment_rows, "Risklar": risk_rows, "Talab tarixi": demand_rows, "Ishlab chiqarish": scenario_rows, "Prognoz": forecast_rows}
 
 
-def _xlsx_bytes(data: dict[str, Any]) -> bytes:
+def _xlsx_bytes(data: dict[str, Any], only: Any = None) -> bytes:
     """Create a minimal standards-compliant XLSX using only Python stdlib."""
     tables = _report_tables(data)
+    if only:
+        tables = {name: rows for name, rows in tables.items() if name in only}
     out = io.BytesIO()
     def col_name(n: int) -> str:
         result = ""
@@ -863,9 +865,11 @@ def _xlsx_bytes(data: dict[str, Any]) -> bytes:
     return out.getvalue()
 
 
-def _pdf_bytes(data: dict[str, Any]) -> bytes:
+def _pdf_bytes(data: dict[str, Any], only: Any = None) -> bytes:
     """Create a compact text PDF without adding a runtime dependency."""
     tables = _report_tables(data)
+    if only:
+        tables = {name: rows for name, rows in tables.items() if name in only}
     lines = ["JARVIS SUPPLY CHAIN - HISOBOT", f"Yaratildi (UTC): {_now()}", ""]
     for sheet, rows in tables.items():
         lines.extend([f"[{sheet}]", " | ".join(str(x) for x in rows[0])])

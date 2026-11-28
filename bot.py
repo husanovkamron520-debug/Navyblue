@@ -95,7 +95,7 @@ logger = logging.getLogger(__name__)
 _SC_STORAGE_READY = threading.Event()
 _SC_SESSIONS = sc_api.SessionStore()
 _SC_TENANT_SESSIONS = sc_api.TenantSessionStore()
-_SC_SESSION_LIMITER = sc_api.RateLimiter(max_requests=8, window_seconds=60)
+_SC_SESSION_LIMITER = sc_api.RateLimiter(max_requests=30, window_seconds=60)
 _SC_API_LIMITER = sc_api.RateLimiter(max_requests=120, window_seconds=60)
 _SC_IMPORT_LIMITER = sc_api.RateLimiter(max_requests=3, window_seconds=60)
 _SC_AI_LIMITER = sc_api.RateLimiter(max_requests=8, window_seconds=60)
@@ -1261,6 +1261,67 @@ async def send_long(bot, chat_id, text, reply_markup=None, parse_mode=None):
 # ============================================================
 # HEALTH SERVER — PORT nomi o'zgartirilmagan
 # ============================================================
+_SC_REPORT_SHEETS = {"inventory": ["Mahsulotlar"], "orders": ["Buyurtmalar"], "shipments": ["Transport"], "all": None}
+_SC_REPORT_TITLES = {"inventory": "Ombor", "orders": "Xarid", "shipments": "Logistika", "all": "To‘liq"}
+
+
+def _sc_build_report(snapshot, kind, fmt):
+    """Build one Supply Chain report file: returns (filename, bytes, caption)."""
+    only = _SC_REPORT_SHEETS[kind]
+    title = _SC_REPORT_TITLES[kind]
+    stamp = datetime.now().strftime("%Y%m%d-%H%M")
+    base = f"supply-chain-{kind}-{stamp}"
+    if fmt == "xlsx":
+        return base + ".xlsx", supply_chain._xlsx_bytes(snapshot, only), f"📊 {title} hisoboti (Excel)"
+    if fmt == "pdf":
+        return base + ".pdf", supply_chain._pdf_bytes(snapshot, only), f"📄 {title} hisoboti (PDF)"
+    import csv
+    tables = supply_chain._report_tables(snapshot)
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+
+    def safe(value):
+        if isinstance(value, str) and value[:1] in ("=", "+", "-", "@"):
+            return "'" + value
+        return value
+
+    for name, rows in tables.items():
+        if only and name not in only:
+            continue
+        if not only:
+            writer.writerow([f"[{name}]"])
+        for row in rows:
+            writer.writerow([safe(cell) for cell in row])
+        if not only:
+            writer.writerow([])
+    return base + ".csv", ("\ufeff" + buffer.getvalue()).encode("utf-8"), f"🧾 {title} hisoboti (CSV)"
+
+
+def _sc_send_document(chat_id, filename, content, caption):
+    """Send a file to one Telegram chat through the Bot API (stdlib only, runs in the HTTP thread)."""
+    import urllib.request
+    boundary = "----scr" + uuid.uuid4().hex
+    chunks = []
+    for name, value in (("chat_id", str(chat_id)), ("caption", caption)):
+        chunks.append(f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"\r\n\r\n{value}\r\n'.encode("utf-8"))
+    chunks.append(f'--{boundary}\r\nContent-Disposition: form-data; name="document"; filename="{filename}"\r\nContent-Type: application/octet-stream\r\n\r\n'.encode("utf-8"))
+    chunks.append(content)
+    chunks.append(f"\r\n--{boundary}--\r\n".encode("utf-8"))
+    request = urllib.request.Request(
+        f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendDocument",
+        data=b"".join(chunks),
+        headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            result = json.loads(response.read().decode("utf-8"))
+    except Exception:
+        raise RuntimeError("Telegram faylni yubora olmadi. Botga /start yozganingizni tekshiring.") from None
+    if not result.get("ok"):
+        raise RuntimeError("Telegram faylni yubora olmadi. Botga /start yozganingizni tekshiring.")
+
+
 def run_health_server():
     port = int(os.environ.get("PORT", "10000"))
 
@@ -1506,7 +1567,59 @@ def run_health_server():
                 logger.exception("Supply Chain API DELETE endpoint failed")
                 self._sc_error("internal_error", "Ichki server xatosi.", 500)
 
+        def _sc_report_send(self):
+            if not _SC_STORAGE_READY.is_set():
+                self._sc_error("not_ready", "Ma'lumotlar bazasi hali tayyor emas.", 503)
+                return
+            tenant_context = self._sc_tenant_context("reports.read")
+            if tenant_context is False:
+                return
+            is_tenant_request = tenant_context is not None
+            if not is_tenant_request and (
+                    not OWNER_CHAT_ID
+                    or not _SC_SESSIONS.authenticate(self._sc_bearer(), OWNER_CHAT_ID)):
+                self._sc_error("unauthorized", "Sessiya yaroqsiz yoki muddati tugagan.", 401)
+                return
+            if not _SC_API_LIMITER.allow("write"):
+                self._sc_error("rate_limited", "So'rovlar limiti tugadi.", 429)
+                return
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                if length <= 0 or length > 4096 or "application/json" not in self.headers.get("Content-Type", "").lower():
+                    self._sc_error("invalid_request", "JSON so'rov formati noto'g'ri.", 400)
+                    return
+                raw = self.rfile.read(length)
+                if len(raw) != length:
+                    self._sc_error("invalid_request", "So'rov to'liq kelmadi.", 400)
+                    return
+                payload = json.loads(raw.decode("utf-8"))
+                kind = payload.get("kind") if isinstance(payload, dict) else None
+                fmt = payload.get("format") if isinstance(payload, dict) else None
+                if not isinstance(kind, str) or kind not in _SC_REPORT_SHEETS or fmt not in ("xlsx", "csv", "pdf"):
+                    self._sc_error("invalid_request", "Hisobot turi yoki formati noto'g'ri.", 400)
+                    return
+                if is_tenant_request:
+                    snapshot = sc_tenants.TenantStore(_db_request).load_snapshot(tenant_context["company_id"])
+                    chat_id = tenant_context["user_id"]
+                else:
+                    snapshot = load_json(supply_chain.DATA_FILE, {})
+                    chat_id = OWNER_CHAT_ID
+                filename, content, caption = _sc_build_report(snapshot, kind, fmt)
+                _sc_send_document(chat_id, filename, content, caption)
+                self._sc_json({"data": {"sent": True, "filename": filename},
+                               "meta": {"request_id": uuid.uuid4().hex}, "error": None})
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                self._sc_error("invalid_request", "So'rov formati noto'g'ri.", 400)
+            except RuntimeError as exc:
+                self._sc_error("send_failed", str(exc), 502)
+            except Exception:
+                logger.exception("Supply Chain report send failed")
+                self._sc_error("internal_error", "Hisobotni tayyorlab bo'lmadi.", 500)
+
         def _sc_api_post(self, parsed):
+            if parsed.path == "/sc-api/v1/reports/send":
+                self._sc_report_send()
+                return
             is_session = parsed.path == "/sc-api/v1/session"
             is_tenant_session = parsed.path == "/sc-api/v1/tenant/session"
             is_import = parsed.path == "/sc-api/v1/inventory/import"
@@ -1745,6 +1858,10 @@ def run_health_server():
                                             "supply_chain_mini_app.html")
                     with open(app_path, "rb") as app_file:
                         body, ctype = app_file.read(), "text/html; charset=utf-8"
+                if u.path == "/supply_chain_visible_charts.js":
+                    js_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "supply_chain_visible_charts.js")
+                    with open(js_path, "rb") as js_file:
+                        body, ctype = js_file.read(), "application/javascript; charset=utf-8"
                 if u.path == "/museum" or u.path.startswith("/museum/"):
                     museum.http_get(self, u)
                     return

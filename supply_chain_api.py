@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 from urllib.parse import parse_qsl
 
 
-INIT_DATA_MAX_AGE_SECONDS = 600
+INIT_DATA_MAX_AGE_SECONDS = 3600
 INIT_DATA_FUTURE_SKEW_SECONDS = 30
 SESSION_TTL_SECONDS = 1800
 MAX_INIT_DATA_BYTES = 16_384
@@ -620,7 +620,7 @@ class TenantSessionStore:
     The caller must verify membership against Supabase before issue(). A session
     never accepts a company or role supplied by a later API request.
     """
-    TTL_SECONDS = 600
+    TTL_SECONDS = 1800
     ROLE_PERMISSIONS = {
         "owner": {"*"},
         "admin": {"*"},

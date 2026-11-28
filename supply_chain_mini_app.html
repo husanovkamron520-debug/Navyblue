@@ -31,6 +31,10 @@
     .analytics-controls{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 12px}.analytics-controls label{display:grid;gap:5px;min-width:145px;flex:1;font-size:11px;color:var(--muted);font-weight:650}.analytics-controls select{width:100%;border:1px solid var(--line);background:#fff;border-radius:10px;padding:10px;color:var(--ink)}
     .analytics-visual-grid{display:grid;grid-template-columns:1.2fr .8fr;gap:12px;margin:12px 0}.analytics-visual-grid.secondary{grid-template-columns:1fr}.viz-svg{display:block;width:100%;height:auto;overflow:visible}.viz-legend{display:flex;gap:7px;flex-wrap:wrap;margin-top:10px}.viz-legend button{border:1px solid var(--line);background:#fff;border-radius:999px;padding:6px 10px;color:var(--muted);font-size:11px;font-weight:700}.viz-legend button.active{background:var(--navy);border-color:var(--navy);color:#fff}.viz-empty{padding:18px 10px;text-align:center;color:var(--muted);font-size:12px;background:#f8fafc;border-radius:11px}.capital-track{display:flex;height:22px;overflow:hidden;border-radius:9px;background:#edf1f5;margin:14px 0 12px}.capital-track button{height:100%;min-width:2px;border:0;padding:0;opacity:.92}.capital-list{display:grid;gap:7px}.capital-item{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;border:1px solid var(--line);border-radius:10px;background:#fff;padding:9px 10px;text-align:left;color:var(--ink)}.capital-item:active,.viz-legend button:active{transform:scale(.99)}.capital-item small{display:block;color:var(--muted);font-size:10px}.capital-item strong{font-size:12px;white-space:nowrap}.viz-clickable{cursor:pointer}.viz-clickable:focus{outline:2px solid var(--blue);outline-offset:3px}
     @media(max-width:760px){.analytics-visual-grid{grid-template-columns:1fr}.analytics-controls label{min-width:calc(50% - 5px)}}
+    .top{padding-top:calc(18px + var(--tg-top,0px))}
+    #fs-toggle{border:1px solid rgba(255,255,255,.35);background:transparent;color:#fff;border-radius:9px;padding:4px 10px;font-size:12px;font-weight:650;margin-left:10px}
+    @media(min-width:1100px){.shell{max-width:1440px}}
+    @media(min-width:1500px){.shell{max-width:1680px}}
     #print-area{display:none}
     @media print{body{background:#fff!important;color:#111!important}.shell{display:none!important}#print-area{display:block!important;position:absolute;inset:0;width:100%;padding:20px;font:12px/1.4 Arial,sans-serif;color:#111}#print-area h1{font-size:20px;margin:0 0 4px}#print-area .print-meta{color:#555;margin-bottom:18px}#print-area table{width:100%;border-collapse:collapse}#print-area th,#print-area td{border:1px solid #cbd5e1;padding:7px;text-align:left;overflow-wrap:anywhere}#print-area th{background:#eef2f7!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}#print-area tr{break-inside:avoid}}
   </style>
@@ -38,7 +42,7 @@
 <body>
 <div class="shell">
   <header class="top">
-    <div class="topline"><div class="brand">NAVYBLUE · OPERATIONS</div><div class="status"><i class="dot"></i><span id="connection">Ulanmoqda</span></div></div>
+    <div class="topline"><div class="brand">NAVYBLUE · OPERATIONS</div><div class="status"><i class="dot"></i><span id="connection">Ulanmoqda</span><button id="fs-toggle" type="button" hidden>⛶ Katta ekran</button></div></div>
     <h1>Supply Chain</h1>
     <div class="sub" id="welcome">Ombor va ta’minot zanjiri boshqaruvi</div>
   </header>
@@ -224,8 +228,9 @@
         <div class="card"><div class="chart-title">Ombor hisoboti</div><div class="chart-sub">Barcha SKU, miqdor, qayta buyurtma chegarasi va birlik narxi</div><div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap"><button class="retry" id="export-inventory" style="flex:1">CSV</button><button class="retry" id="export-inventory-xlsx" style="flex:1">Excel</button><button class="retry" id="export-inventory-pdf" style="flex:1">PDF</button></div></div>
         <div class="card"><div class="chart-title">Xarid hisoboti</div><div class="chart-sub">Xarid buyurtmalari, yetkazib beruvchi, miqdor va holat</div><div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap"><button class="retry" id="export-orders" style="flex:1">CSV</button><button class="retry" id="export-orders-xlsx" style="flex:1">Excel</button><button class="retry" id="export-orders-pdf" style="flex:1">PDF</button></div></div>
         <div class="card"><div class="chart-title">Logistika hisoboti</div><div class="chart-sub">Jo‘natmalar, manzil, transport, masofa va holat</div><div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap"><button class="retry" id="export-shipments" style="flex:1">CSV</button><button class="retry" id="export-shipments-xlsx" style="flex:1">Excel</button><button class="retry" id="export-shipments-pdf" style="flex:1">PDF</button></div></div>
+        <div class="card"><div class="chart-title">To‘liq hisobot</div><div class="chart-sub">Barcha bo‘limlar: ombor, yetkazib beruvchilar, buyurtmalar, transport, risklar, prognoz</div><div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap"><button class="retry" id="export-all" style="flex:1">CSV</button><button class="retry" id="export-all-xlsx" style="flex:1">Excel</button><button class="retry" id="export-all-pdf" style="flex:1">PDF</button></div></div>
       </div>
-      <div class="card" style="margin-top:12px"><div class="chart-title">Eksport holati</div><div id="report-status" class="muted" style="margin-top:8px">Hisobot yaratish uchun yuqoridagi tugmalardan foydalaning.</div><div class="muted" style="font-size:12px;margin-top:10px">Hisobotlar brauzerda yaratiladi. Ma’lumotlar serverga qayta yozilmaydi; eksport faqat o‘qish amalidir.</div></div>
+      <div class="card" style="margin-top:12px"><div class="chart-title">Eksport holati</div><div id="report-status" class="muted" style="margin-top:8px">Hisobot yaratish uchun yuqoridagi tugmalardan foydalaning.</div><div class="muted" style="font-size:12px;margin-top:10px">Hisobot serverda tayyorlanib, Telegram chatingizga fayl sifatida yuboriladi (yuborilmasa, brauzer orqali yuklab olishga urinadi). Ma’lumotlar serverga qayta yozilmaydi; eksport faqat o‘qish amalidir.</div></div>
     </section>
     <section id="logistics-view" hidden>
       <div class="section-head"><div><h2>Transport va jo‘natmalar</h2><p>Rejalashtirilgan va faol yuk harakatlari</p></div><button class="retry" id="logistics-refresh">Yangilash</button></div>
@@ -249,7 +254,7 @@
   const fmt = (n, digits=0) => n == null || !Number.isFinite(Number(n)) ? "—" : new Intl.NumberFormat("uz-UZ",{maximumFractionDigits:digits}).format(Number(n));
   const money = n => n == null ? "—" : fmt(n,0) + " UZS";
   const el = (tag, cls, value) => { const node=document.createElement(tag); if(cls)node.className=cls; if(value!==undefined)node.textContent=value; return node; };
-  const showNotice = (title, message, retry=false) => { $("notice").hidden=false; $("notice-title").textContent=title; $("notice-text").textContent=message; $("retry").hidden=!retry; };
+  const showNotice = (title, message, retry=false) => { $("notice").hidden=false; $("notice-title").textContent=title; $("notice-text").textContent=message; $("retry").hidden=!retry; try{$("notice").scrollIntoView({behavior:"smooth",block:"center"});}catch(_){} };
   const hideNotice = () => { $("notice").hidden=true; };
   async function api(path, options={}) {
     const controller = new AbortController();
@@ -264,6 +269,10 @@
       clearTimeout(timeout);
     }
     let body={}; try{body=await response.json();}catch(_){}
+    if(response.status===401&&!options._retried&&token&&tg&&tg.initData){
+      try{await reauthenticate();}catch(_){throw new Error("Sessiya muddati tugadi. Mini Appni yopib, botdan qayta oching.");}
+      return api(path,{...options,_retried:true});
+    }
     if(!response.ok) throw new Error(body.error?.message || ("HTTP "+response.status));
     const data=body.data;
     if(data&&typeof data==="object"&&body.meta?.data_version!=null&&data.data_version==null){
@@ -320,6 +329,39 @@
     renderTenantCompanies();$("tenant-company").value=tenantCompanyId;
     setAppVisible(true);return true;
   }
+  let reauthPromise=null;
+  function reauthenticate(){
+    if(reauthPromise)return reauthPromise;
+    reauthPromise=(async()=>{
+      if(!tg||!tg.initData)throw new Error("Telegram sessiyasi topilmadi.");
+      if(tenantMode&&tenantCompanyId){await activateTenantCompany(tenantCompanyId);return;}
+      const response=await fetch("/sc-api/v1/session",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({initData:tg.initData}),cache:"no-store"});
+      let payload={};try{payload=await response.json();}catch(_){}
+      if(!response.ok)throw new Error(payload.error?.message||"Qayta kirish amalga oshmadi");
+      token=payload.data.token;
+    })().finally(()=>{reauthPromise=null;});
+    return reauthPromise;
+  }
+  function applyInsets(){
+    try{
+      const top=((tg&&tg.safeAreaInset&&tg.safeAreaInset.top)||0)+((tg&&tg.contentSafeAreaInset&&tg.contentSafeAreaInset.top)||0);
+      document.documentElement.style.setProperty("--tg-top",top+"px");
+    }catch(_){}
+  }
+  function setupWideMode(){
+    try{
+      if(!tg||typeof tg.requestFullscreen!=="function")return;
+      if(tg.isVersionAtLeast&&!tg.isVersionAtLeast("8.0"))return;
+      const button=$("fs-toggle");
+      const sync=()=>{button.textContent=tg.isFullscreen?"⤡ Kichraytirish":"⛶ Katta ekran";applyInsets();};
+      button.hidden=false;sync();
+      button.addEventListener("click",()=>{try{if(tg.isFullscreen)tg.exitFullscreen();else tg.requestFullscreen();}catch(_){}});
+      ["fullscreenChanged","safeAreaChanged","contentSafeAreaChanged"].forEach(name=>{try{tg.onEvent(name,sync);}catch(_){}});
+      try{tg.onEvent("fullscreenFailed",()=>{});}catch(_){}
+      const desktop=["tdesktop","macos","weba","webk","unigram"].includes(tg.platform);
+      if(desktop&&window.innerWidth<900&&!tg.isFullscreen)tg.requestFullscreen();
+    }catch(_){}
+  }
   async function authenticate() {
     if(!tg || !tg.initData){
       const message="Ma'lumotlarni ko'rish uchun Mini Appni Telegram bot ichidagi tugma orqali oching.";
@@ -327,7 +369,7 @@
       $("alerts").replaceChildren(el("div","alert error",message));showTenantPanel(message);setAppVisible(false);
       return false;
     }
-    tg.ready();tg.expand();
+    tg.ready();tg.expand();setupWideMode();
     if(tg.initDataUnsafe?.user?.first_name)$("welcome").textContent="Xush kelibsiz, "+tg.initDataUnsafe.user.first_name;
     try{
       const data=await tenantAction("list");
@@ -661,7 +703,8 @@
     const link=document.createElement("a");link.href=url;link.download=filename;document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
     $("report-status").textContent=filename+" · "+fmt(rows.length)+" qator eksport qilindi.";
   }
-  async function printReport(kind){
+  async function printReport(kind){return exportReport(kind,"pdf");}
+  async function printReportLocal(kind){
     $("report-status").textContent="PDF uchun hisobot tayyorlanmoqda…";
     try{
       let title,headers,rows,path;
@@ -699,6 +742,19 @@
     $("report-status").textContent=filename+" · "+fmt(rows.length)+" qator Excel formatida eksport qilindi.";
   }
   async function exportReport(kind,format="csv"){
+    const labels={csv:"CSV",xlsx:"Excel",pdf:"PDF"};
+    $("report-status").textContent=(labels[format]||format)+" hisoboti tayyorlanmoqda va chatga yuborilmoqda…";
+    try{
+      const result=await api("/sc-api/v1/reports/send",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({kind,format})});
+      $("report-status").textContent="Yuborildi: "+result.filename+". Fayl bot bilan suhbatingizda (Telegram chat) turibdi.";
+      try{if(tg&&tg.HapticFeedback)tg.HapticFeedback.notificationOccurred("success");}catch(_){}
+    }catch(error){
+      if(kind==="all"){$("report-status").textContent="Chatga yuborib bo‘lmadi: "+error.message;return;}
+      $("report-status").textContent="Chatga yuborib bo‘lmadi: "+error.message+" Brauzer orqali yuklab olishga urinilmoqda…";
+      if(format==="pdf")await printReportLocal(kind);else await exportReportLocal(kind,format);
+    }
+  }
+  async function exportReportLocal(kind,format="csv"){
     $("report-status").textContent="Ma’lumotlar tayyorlanmoqda…";
     try{
       let filename,headers,rows,path;
@@ -1134,6 +1190,9 @@
   $("export-orders-pdf").addEventListener("click",()=>printReport("orders"));
   $("export-shipments-pdf").addEventListener("click",()=>printReport("shipments"));
   window.addEventListener("afterprint",()=>{$("print-area").hidden=true;});
+  $("export-all").addEventListener("click",()=>exportReport("all"));
+  $("export-all-xlsx").addEventListener("click",()=>exportReport("all","xlsx"));
+  $("export-all-pdf").addEventListener("click",()=>exportReport("all","pdf"));
   $("prev").addEventListener("click",()=>{if(page>1){page--;loadInventory().catch(e=>showNotice("Xatolik",e.message,true));}});
   $("next").addEventListener("click",()=>{if(page<totalPages){page++;loadInventory().catch(e=>showNotice("Xatolik",e.message,true));}});
   ["search","status","sort"].forEach(id=>$(id).addEventListener(id==="search"?"input":"change",()=>{page=1;clearTimeout(searchTimer);searchTimer=setTimeout(()=>loadInventory().catch(e=>showNotice("Xatolik",e.message,true)),id==="search"?250:0);}));
