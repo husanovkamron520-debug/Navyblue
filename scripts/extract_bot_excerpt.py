@@ -1,40 +1,55 @@
-"""Extract archive/delete related code (analysis helper, read-only)."""
-import ast
+"""Extract inventory-related pieces of the Mini App HTML (analysis helper, read-only)."""
 import os
 import re
 
-budget = 85000
+html = open("supply_chain_mini_app.html", encoding="utf-8").read()
 out = []
 
 
 def add(title, body):
-    global budget
-    chunk = f"\n===== {title} =====\n{body}\n"
-    if len(chunk) > budget:
-        chunk = chunk[:max(0, budget)] + "\n[TRUNCATED]\n"
-    budget -= len(chunk)
-    out.append(chunk)
+    out.append(f"\n===== {title} =====\n{body}\n")
 
 
-def scan(path, pattern_name, pattern_body, limit=9000):
-    src = open(path, encoding="utf-8").read()
-    tree = ast.parse(src)
-    rows = []
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            seg = ast.get_source_segment(src, node) or ""
-            if re.search(pattern_name, node.name) or re.search(pattern_body, seg):
-                rows.append((node, seg))
-    add(f"{path} SUMMARY", "\n".join(f"{n.name} {n.lineno}-{n.end_lineno} size {len(s)}" for n, s in rows))
-    for node, seg in sorted(rows, key=lambda r: len(r[1])):
-        if len(seg) <= limit:
-            add(f"{path}::{node.name} ({node.lineno}-{node.end_lineno})", seg)
+m = re.search(r'<section id="inventory-view".*?</section>', html, re.S)
+add("INVENTORY SECTION", m.group(0) if m else "NOT FOUND")
 
 
-scan("bot.py", r"_sc_api_delete|delete_inventory|archive", r"deleted_products|archive_product|_sc_delete_inventory_product")
-if os.path.exists("supply_chain_tenants.py"):
-    scan("supply_chain_tenants.py", r"commit|archive|delete", r"deleted_products|archive", limit=6000)
-scan("supply_chain_api.py", r"archive|delete", r"deleted_products|archive", limit=5000)
+def js_function(name):
+    start = html.find(name)
+    if start < 0:
+        return "NOT FOUND"
+    brace = html.find("{", start)
+    depth = 0
+    in_str = None
+    i = brace
+    while i < len(html):
+        ch = html[i]
+        if in_str:
+            if ch == "\\":
+                i += 2
+                continue
+            if ch == in_str:
+                in_str = None
+        else:
+            if ch in "\"'`":
+                in_str = ch
+            elif ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    return html[start:i + 1]
+        i += 1
+    return "UNTERMINATED"
+
+
+for fn in ("function makeProductCard", "async function loadInventory", "async function archiveInventoryProduct"):
+    add(fn, js_function(fn)[:7000])
+
+hits = [line.strip()[:260] for line in html.split("\n")
+        if re.search(r'detail-delete|getElementById\("(prev|next|search|status|sort)"\)|\$\("(prev|next|search|inventory-refresh)"\)|function switchView|const \$ =|let token|let page', line)]
+add("LISTENER LINES", "\n".join(hits[:40]))
+add("SIZE", str(len(html)))
 
 os.makedirs("analysis", exist_ok=True)
 open("analysis/bot_excerpt.txt", "w", encoding="utf-8").write("".join(out))
